@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>시험 목록</h1>
+
+    {% if quiz_list %}
+        <ul>
+        {% for quiz in quiz_list %}
+            <li><a href="{% url 'quiz:quiz_start' quiz.id %}">{{ quiz.title }}</a></li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>등록된 시험이 없습니다.</p>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,31 @@
+<h1>{{ question.question_text }}</h1>
+
+<h3>결과:
+    {% for choice in question.choice_set.all %}
+        {% if choice.id == selected_choice_id %}
+            {% if choice.is_correct %}
+                <span style="color:green;">정답입니다! 👍</span>
+            {% else %}
+                <span style="color:red;">오답입니다. 👎</span>
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+</h3>
+
+<ul>
+{% for choice in question.choice_set.all %}
+    <li>
+        {{ choice.choice_text }}
+
+        {% if choice.id == selected_choice_id %}
+            <span style="color:blue; font-weight:bold;"> <-- 내가 선택한 답</span>
+        {% endif %}
+
+        {% if choice.is_correct %}
+            <span style="color:green; font-weight:bold;"> (정답)</span>
+        {% endif %}
+    </li>
+{% endfor %}
+</ul>
+
+<a href="{% url 'quiz:index' %}">다른 문제 풀러 가기</a>

@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<style>
+    .errorlist {
+        color: red;
+        font-weight: bold;
+    }
+</style>
+
+<h1>회원가입</h1>
+<p>가입 후 관리자의 승인을 기다려야 로그인이 가능합니다.</p>
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">가입 신청</button>
+</form>
+
+{% endblock %}

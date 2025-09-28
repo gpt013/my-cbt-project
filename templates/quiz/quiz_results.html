@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<h1>시험 결과</h1>
+<h2>총점: {{ score }} / {{ total_questions }}</h2>
+
+<hr>
+
+{% for result in results_data %}
+    <div>
+        <h4>
+            {{ forloop.counter }}. {{ result.question.question_text }}
+            {% if result.is_correct %}
+                <span style="color: green;">(정답)</span>
+            {% else %}
+                <span style="color: red;">(오답)</span>
+            {% endif %}
+        </h4>
+        <ul>
+            {% for choice in result.question.choice_set.all %}
+                <li>
+                    {{ choice.choice_text }}
+                    
+                    {# 내가 선택한 답과 정답을 함께 표시 #}
+                    {% if choice.id == result.user_choice_id and not result.is_correct %}
+                        <span style="color: red; font-weight: bold;"> &lt;-- 나의 오답</span>
+                    {% elif choice.id == result.correct_choice_id %}
+                        <span style="color: green; font-weight: bold;"> &lt;-- 정답</span>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+    <hr>
+{% endfor %}
+
+<a href="{% url 'quiz:index' %}">첫 페이지로 돌아가기</a>
+
+{% endblock %}

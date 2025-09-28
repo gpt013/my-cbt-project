@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+<h1>{{ question.question_text }}</h1>
+<p>{{ question_number }} / {{ total_questions }}</p>
+
+{% if error_message %}<p style="color:red;"><strong>{{ error_message }}</strong></p>{% endif %}
+
+<form action="{% url 'quiz:submit_answer' question_number %}" method="post">
+{% csrf_token %}
+{% for choice in question.choice_set.all %}
+    <input type="radio" name="choice" id="choice{{ forloop.counter }}" value="{{ choice.id }}">
+    <label for="choice{{ forloop.counter }}">{{ choice.choice_text }}</label><br>
+{% endfor %}
+<br>
+<input type="submit" value="다음">
+</form>
+
+{% endblock %}
