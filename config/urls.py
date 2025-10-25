@@ -15,10 +15,19 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include # <--- include를 추가합니다.
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('quiz/', include('quiz.urls')), # <--- 이 줄을 추가합니다.
+    path('quiz/', include('quiz.urls')),
     path('accounts/', include('accounts.urls')),
 ]
+
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# --- [핵심] 관리자 사이트 제목 변경 ---
+admin.site.site_header = "CBT 관리자 시스템"  # 로그인 화면 및 헤더에 표시될 이름
+admin.site.site_title = "CBT 관리자"         # 브라우저 탭에 표시될 이름
+admin.site.index_title = "시스템 관리"     # 메인 페이지에 표시될 이름

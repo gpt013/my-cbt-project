@@ -1,0 +1,183 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header">
+            <h1>나의 학습 대시보드</h1>
+        </div>
+        <div class="card-body p-4">
+            <h4>나의 학습 요약</h4>
+            <div class="row mt-3">
+                <div class="col-md-6 mb-3">
+                    <div class="card text-center h-100">
+                        <div class="card-body d-flex flex-column justify-content-center">
+                            <h5 class="card-title">총 응시 횟수</h5>
+                            <p class="card-text fs-2 fw-bold mb-0">{{ total_attempts }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card text-center h-100">
+                        <div class="card-body d-flex flex-column justify-content-center">
+                            <h5 class="card-title">전체 평균 점수</h5>
+                            <p class="card-text fs-2 fw-bold mb-0">{{ overall_average_score|floatformat:1|default:"N/A" }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <div class="row">
+                <div class="col-lg-6 mb-4">
+                    <h4 class="text-center">과목별 1차 점수</h4>
+                    <div>
+                        <canvas id="radarChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-lg-6 mb-4">
+                    <h4 class="text-center">과목별 전체 평균</h4>
+                    <div>
+                        <canvas id="barChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <h4>상세 성적표</h4>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col">시험 종류</th>
+                            <th scope="col" class="text-center">1차 점수</th>
+                            <th scope="col" class="text-center">최고 점수</th>
+                            <th scope="col" class="text-center">전체 평균</th>
+                            <th scope="col" class="text-center">응시 횟수</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for summary in summary_data %}
+                        <tr>
+                            <td><strong>{{ summary.title }}</strong></td>
+                            <td class="text-center">{{ summary.first_score|floatformat:0|default:"-" }}점</td>
+                            <td class="text-center">{{ summary.max_score|floatformat:0|default:"-" }}점</td>
+                            <td class="text-center">{{ summary.avg_score|floatformat:1|default:"-" }}점</td>
+                            <td class="text-center">{{ summary.attempts }}회</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <hr class="my-4">
+            
+            <h4>나의 뱃지</h4>
+            <div class="row">
+                {% for badge in user_badges %}
+                    <div class="col-md-4 col-lg-3 mb-3 text-center">
+                        <div class="card h-100">
+                            {% if badge.image %}
+                                <img src="{{ badge.image.url }}" class="card-img-top p-3" alt="{{ badge.name }}" style="max-height: 150px; object-fit: contain;">
+                            {% else %}
+                                <div class="p-3 fs-1">🏆</div>
+                            {% endif %}
+                            <div class="card-body">
+                                <h6 class="card-title">{{ badge.name }}</h6>
+                                <p class="card-text small text-muted">{{ badge.description }}</p>
+                            </div>
+                        </div>
+                    </div>
+                {% empty %}
+                    <p class="text-muted">아직 획득한 뱃지가 없습니다. 첫 시험에 도전해보세요!</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+{{ summary_data|json_script:"summary-data" }}
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 데이터가 없으면 스크립트를 실행하지 않습니다.
+        const summaryDataElement = document.getElementById('summary-data');
+        if (!summaryDataElement) return;
+
+        const summaryData = JSON.parse(summaryDataElement.textContent);
+        if (summaryData.length === 0) return;
+
+        const radarCtx = document.getElementById('radarChart');
+        const barCtx = document.getElementById('barChart');
+
+        // null 체크를 추가하여 데이터가 없을 때 0으로 처리
+        const labels = summaryData.map(item => item.title);
+        const firstScoreData = summaryData.map(item => item.first_score || 0);
+        const avgScoreData = summaryData.map(item => item.avg_score || 0);
+
+        // 1. 방사형 차트 (1차 점수)
+        if (radarCtx) {
+            new Chart(radarCtx, {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '1차 점수',
+                        data: firstScoreData,
+                        fill: true,
+                        backgroundColor: 'rgba(25, 135, 84, 0.2)',
+                        borderColor: 'rgb(25, 135, 84)',
+                        pointBackgroundColor: 'rgb(25, 135, 84)',
+                    }]
+                },
+                options: { 
+                    scales: { 
+                        r: { 
+                            angleLines: { display: true },
+                            suggestedMin: 0,
+                            suggestedMax: 100,
+                            pointLabels: { font: { size: 14 } }
+                        } 
+                    }, 
+                    plugins: { 
+                        legend: { display: false } 
+                    } 
+                }
+            });
+        }
+
+        // 2. 막대그래프 (전체 평균)
+        if (barCtx) {
+            new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '전체 평균 점수',
+                        data: avgScoreData,
+                        backgroundColor: 'rgba(13, 110, 253, 0.5)',
+                        borderColor: 'rgb(13, 110, 253)',
+                        borderWidth: 1
+                    }]
+                },
+                options: { 
+                    scales: { 
+                        y: { 
+                            beginAtZero: true, 
+                            max: 100 
+                        } 
+                    }, 
+                    plugins: { 
+                        legend: { display: false } 
+                    } 
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

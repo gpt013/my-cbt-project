@@ -1,21 +1,83 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-
 <style>
     .errorlist {
-        color: red;
+        color: #dc3545; /* Bootstrap의 danger 색상 */
         font-weight: bold;
+        list-style: none;
+        padding-left: 0;
+        font-size: 0.9em;
+        margin-top: 0.25rem;
     }
 </style>
 
-<h1>회원가입</h1>
-<p>가입 후 관리자의 승인을 기다려야 로그인이 가능합니다.</p>
+<div class="container" style="max-width: 600px;">
+    <div class="card mt-5 mb-5">
+        <div class="card-header">
+            <h3 class="text-center">회원가입</h3>
+            <p class="text-center text-muted mb-0">가입 후 관리자의 승인을 기다려야 로그인이 가능합니다.</p>
+        </div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                
+                <fieldset>
+                    <legend class="fs-5 border-bottom mb-3 pb-2">계정 정보</legend>
+                    {{ user_form.as_p }}
+                </fieldset>
 
-<form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">가입 신청</button>
-</form>
+                <fieldset class="mt-4">
+                    <legend class="fs-5 border-bottom mb-3 pb-2">개인 정보</legend>
+                    
+                    <div class="mb-3">
+                        <label for="{{ profile_form.name.id_for_label }}" class="form-label">{{ profile_form.name.label }}</label>
+                        {{ profile_form.name.errors }}
+                        <input type="text" name="name" class="form-control" required id="{{ profile_form.name.id_for_label }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ profile_form.employee_id.id_for_label }}" class="form-label">{{ profile_form.employee_id.label }}</label>
+                        {{ profile_form.employee_id.errors }}
+                        <input type="text" name="employee_id" class="form-control" required id="{{ profile_form.employee_id.id_for_label }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ profile_form.class_number.id_for_label }}" class="form-label">{{ profile_form.class_number.label }}</label>
+                        {{ profile_form.class_number.errors }}
+                        <input type="text" name="class_number" class="form-control" required id="{{ profile_form.class_number.id_for_label }}">
+                    </div>
+                    <div class="mb-3">
+                        <label for="{{ profile_form.process.id_for_label }}" class="form-label">{{ profile_form.process.label }}</label>
+                        {{ profile_form.process.errors }}
+                        <input type="text" name="process" class="form-control" required id="{{ profile_form.process.id_for_label }}">
+                    </div>
 
+                    <div id="etch_options_row" style="display: none;" class="mb-3 ps-3 border-start">
+                        <label class="form-label">ETCH 상세 공정:</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="id_etch_tas">
+                            <label class="form-check-label" for="id_etch_tas">TAS</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="id_etch_lam">
+                            <label class="form-check-label" for="id_etch_lam">LAM</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="{{ profile_form.pl_name.id_for_label }}" class="form-label">{{ profile_form.pl_name.label }}</label>
+                        {{ profile_form.pl_name.errors }}
+                        <input type="text" name="pl_name" class="form-control" required id="{{ profile_form.pl_name.id_for_label }}">
+                    </div>
+                </fieldset>
+                
+                <div class="d-grid mt-4">
+                    <button type="submit" class="btn btn-primary">가입 신청</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="{% static 'accounts/js/public_process_handler.js' %}"></script>
 {% endblock %}

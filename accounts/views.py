@@ -1,17 +1,43 @@
-# accounts/views.py
-from django.contrib.auth.forms import UserCreationForm
+# accounts/views.py (최종 수정본)
+
 from django.shortcuts import render, redirect
+from django.db import transaction
+from .forms import CustomUserCreationForm, ProfileForm
+from django.contrib import messages
 
 def signup(request):
+    if request.user.is_authenticated:
+        return redirect('/quiz/')
+
     if request.method == 'POST':
-        form = UserCreationForm(request.POST)
-        if form.is_valid():
-            user = form.save(commit=False) # DB에 바로 저장하지 않고
-            user.is_active = False         # is_active를 False로 설정
-            user.save()                    # 그 후에 저장
-            # 회원가입 성공 후 로그인 페이지로 이동합니다.
-            # (로그인은 아직 구현 전이지만 미리 연결해둡니다.)
-            return redirect('/accounts/login/') 
+        user_form = CustomUserCreationForm(request.POST)
+        profile_form = ProfileForm(request.POST)
+
+        if user_form.is_valid() and profile_form.is_valid():
+            try:
+                with transaction.atomic():
+                    user = user_form.save(commit=False)
+                    user.is_active = False # 관리자 승인 대기
+                    user.save()
+
+                    profile = profile_form.save(commit=False)
+                    profile.user = user
+                    profile.save()
+            
+            except Exception as e:
+                messages.error(request, f"가입 중 오류가 발생했습니다: {e}")
+                return render(request, 'accounts/signup.html', {
+                    'user_form': user_form,
+                    'profile_form': profile_form
+                })
+
+            messages.success(request, "가입 신청이 완료되었습니다. 관리자의 승인을 기다려 주세요.")
+            return redirect('accounts:login')
     else:
-        form = UserCreationForm()
-    return render(request, 'accounts/signup.html', {'form': form})
+        user_form = CustomUserCreationForm()
+        profile_form = ProfileForm()
+
+    return render(request, 'accounts/signup.html', {
+        'user_form': user_form,
+        'profile_form': profile_form
+    })

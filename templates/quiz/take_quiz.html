@@ -1,20 +1,84 @@
 {% extends 'base.html' %}
 
 {% block content %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>{{ attempt.quiz.title }} 시험 진행 중</h3>
+        <span class="badge bg-secondary fs-6">페이지 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+    </div>
 
-<h1>{{ question.question_text }}</h1>
-<p>{{ question_number }} / {{ total_questions }}</p>
+    <form id="quiz-form" action="{% url 'quiz:submit_page' page_obj.number %}" method="post">
+        {% csrf_token %}
 
-{% if error_message %}<p style="color:red;"><strong>{{ error_message }}</strong></p>{% endif %}
+        {% for question in questions %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <strong>{{ forloop.counter|add:page_obj.start_index|add:"-1" }}. {{ question.question_text }}</strong>
+                    <span class="badge bg-info float-end">{{ question.get_question_type_display }}</span>
+                </div>
+                <div class="card-body">
+                    {% if question.image %}
+                        <img src="{{ question.image.url }}" alt="문제 이미지" class="img-fluid my-2" style="max-width: 300px;">
+                    {% endif %}
 
-<form action="{% url 'quiz:submit_answer' question_number %}" method="post">
-{% csrf_token %}
-{% for choice in question.choice_set.all %}
-    <input type="radio" name="choice" id="choice{{ forloop.counter }}" value="{{ choice.id }}">
-    <label for="choice{{ forloop.counter }}">{{ choice.choice_text }}</label><br>
-{% endfor %}
-<br>
-<input type="submit" value="다음">
-</form>
+                    <div class="my-3">
+                    {% if question.question_type == '객관식' %}
+                        {% for choice in question.shuffled_choices %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="choice_{{ question.id }}" id="choice_{{ choice.id }}" value="{{ choice.id }}" {% if choice.id|stringformat:"s" == question.previous_choice_id|stringformat:"s" %}checked{% endif %}>
+                                <label class="form-check-label" for="choice_{{ choice.id }}">
+                                    {% if choice.image %}<img src="{{ choice.image.url }}" alt="보기 이미지" style="max-height: 60px; vertical-align: middle;" class="me-2">{% endif %}
+                                    {{ choice.choice_text }}
+                                </label>
+                            </div>
+                        {% endfor %}
+                    {% elif question.question_type == '다중선택' %}
+                        {% for choice in question.shuffled_choices %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="choice_{{ question.id }}" id="choice_{{ choice.id }}" value="{{ choice.id }}" {% if choice.id|stringformat:"s" in question.previous_choice_id %}checked{% endif %}>
+                                <label class="form-check-label" for="choice_{{ choice.id }}">
+                                    {% if choice.image %}<img src="{{ choice.image.url }}" alt="보기 이미지" style="max-height: 60px; vertical-align: middle;" class="me-2">{% endif %}
+                                    {{ choice.choice_text }}
+                                </label>
+                            </div>
+                        {% endfor %}
+                    {% elif question.question_type == '주관식' %}
+                        <input type="text" name="short_answer_{{ question.id }}" class="form-control" value="{{ question.previous_choice_id|default:'' }}">
+                    {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
 
+        <div class="d-flex justify-content-between mt-4">
+            <div>
+                {% if page_obj.has_previous %}
+                    <button type="submit" name="previous" class="btn btn-secondary">&laquo; 이전 페이지</button>
+                {% endif %}
+            </div>
+            <div>
+                {% if page_obj.has_next %}
+                    <button type="submit" name="next" class="btn btn-primary">저장 후 다음 페이지 &raquo;</button>
+                {% endif %}
+                <button type="submit" name="final_submit" class="btn btn-danger">최종 제출</button>
+            </div>
+        </div>
+    </form>
+ <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 서버로부터 현재 시험 상태를 전달받습니다. (이 코드는 이제 필요 없습니다)
+            // const attemptStatus = "{{ attempt.status }}";
+
+            // 경고 메시지 추가
+            const warningDiv = document.createElement('div');
+            warningDiv.className = 'alert alert-warning mt-4';
+            warningDiv.textContent = '경고: 시험 중에는 브라우저의 뒤로가기, 앞으로가기, 새로고침 버튼을 사용할 수 없습니다.';
+            document.querySelector('form').after(warningDiv);
+
+            // 뒤로가기/앞으로가기 방지 (시험 중에만 작동)
+            history.pushState(null, null, location.href);
+            window.onpopstate = function () {
+                history.go(1);
+            };
+        });
+    </script>
 {% endblock %}

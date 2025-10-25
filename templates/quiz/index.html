@@ -1,15 +1,35 @@
 {% extends 'base.html' %}
 
 {% block content %}
-    <h1>시험 목록</h1>
-
-    {% if quiz_list %}
-        <ul>
-        {% for quiz in quiz_list %}
-            <li><a href="{% url 'quiz:quiz_start' quiz.id %}">{{ quiz.title }}</a></li>
-        {% endfor %}
-        </ul>
-    {% else %}
-        <p>등록된 시험이 없습니다.</p>
-    {% endif %}
+    <div class="card">
+        <div class="card-header">
+            <h1>시험 목록</h1>
+        </div>
+        <div class="card-body">
+            {% if quiz_list %}
+                <ul class="list-group list-group-flush">
+                {% for quiz in quiz_list %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        {{ quiz.title }}
+                        
+                        {% if quiz.user_status == '대기중' %}
+                            <button type="button" class="btn btn-secondary btn-sm" disabled>승인 대기중</button>
+                        {% elif quiz.user_status == '승인됨' %}
+                            <a href="{% url 'quiz:start_quiz' quiz.action_id %}" class="btn btn-success btn-sm">시험 시작 (개인)</a>
+                        {% elif quiz.user_status == '그룹 응시 가능' %}
+                            <a href="{% url 'quiz:start_group_quiz' quiz.action_id %}" class="btn btn-info btn-sm">시험 시작 (그룹)</a>
+                        {% else %} {# '요청 가능' 또는 완료 후 상태 #}
+                            <form action="{% url 'quiz:request_quiz' quiz.action_id %}" method="post">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-primary btn-sm">응시 요청</button>
+                            </form>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p class="card-text">등록된 시험이 없습니다.</p>
+            {% endif %}
+        </div>
+    </div>
 {% endblock %}

@@ -31,14 +31,24 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    'accounts', # <-- 추가
-    'quiz',  # <--- 이 부분을 추가합니다!
+    # Channels (실시간 기능)
+    'channels',
+
+    # Admin Interface (관리자 페이지 UI)
+    'admin_interface',
+    'colorfield',
+
+    # Django 기본 앱
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # 우리가 만든 앱
+    'accounts.apps.AccountsConfig',
+    'quiz.apps.QuizConfig',
 ]
 
 MIDDLEWARE = [
@@ -104,9 +114,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'ko-kr'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Seoul'
 
 USE_I18N = True
 
@@ -124,4 +134,49 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOGIN_REDIRECT_URL = '/quiz/'   # 로그인 성공 후 이동할 URL
-LOGOUT_REDIRECT_URL = '/quiz/'  # 로그아웃 성공 후 이동할 URL
+LOGOUT_REDIRECT_URL = '/accounts/login/' 
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+
+# django-admin-interface를 위한 커스텀 그룹 설정
+ADMIN_INTERFACE_MODELS_GROUP_BY_CATEGORY = [
+    {
+        "name": "교육생 관리",
+        "models": [
+            "auth.User",      # <-- 'django.contrib.auth.models.User'에서 수정
+            "auth.Group",     # <-- 'django.contrib.auth.models.Group'에서 수정
+            "accounts.Profile",
+            "accounts.Badge",
+        ],
+    },
+    {
+        "name": "퀴즈 관리",
+        "models": [
+            "quiz.Quiz",
+            "quiz.Question",
+            "quiz.Choice",
+            "quiz.Tag",
+        ],
+    },
+    {
+        "name": "시험 결과 관리",
+        "models": [
+            "quiz.QuizAttempt",
+            "quiz.TestResult",
+            "quiz.UserAnswer",
+        ],
+    },
+]
+
+ASGI_APPLICATION = 'config.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}

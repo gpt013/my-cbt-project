@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div class="card">
+        <div class="card-header">
+            <h1>{{ quiz.title }} 오답노트</h1>
+            <p class="mb-0">이 시험에서 틀렸던 문제입니다.</p>
+        </div>
+        <div class="card-body">
+            {% if incorrect_questions %}
+                {% for question in incorrect_questions %}
+                    <div class="mb-4 p-3 border rounded">
+                        <h5>{{ forloop.counter }}. {{ question.question_text }}</h5>
+
+                        {% if question.image %}
+                            <img src="{{ question.image.url }}" alt="문제 이미지" class="img-fluid my-2" style="max-width: 300px;">
+                        {% endif %}
+
+                        {# --- 정답 보기 표시 기능 추가 --- #}
+                        <ul class="list-unstyled mt-3">
+                        {% for choice in question.choice_set.all %}
+                            <li>
+                                {% if choice.is_correct %}
+                                    <strong style="color: green;">
+                                        {% if choice.image %}<img src="{{ choice.image.url }}" alt="보기 이미지" style="max-height: 60px; vertical-align: middle;" class="me-2">{% endif %}
+                                        {{ choice.choice_text }} &lt;-- 정답
+                                    </strong>
+                                {% else %}
+                                    <span style="color: #6c757d;">
+                                        {% if choice.image %}<img src="{{ choice.image.url }}" alt="보기 이미지" style="max-height: 60px; vertical-align: middle;" class="me-2">{% endif %}
+                                        {{ choice.choice_text }}
+                                    </span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                        </ul>
+                        {# ---------------------------- #}
+
+                    </div>
+                {% endfor %}
+            {% else %}
+                <p>이 시험에서는 틀린 문제가 없습니다. 훌륭합니다! 👍</p>
+            {% endif %}
+
+            <div class="mt-4">
+                <a href="{% url 'quiz:my_incorrect_answers_index' %}" class="btn btn-secondary">오답노트 첫 페이지로</a>
+            </div>
+        </div>
+    </div>
+{% endblock %}

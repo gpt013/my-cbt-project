@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header"><h1>'{{ tag.name }}' 태그가 포함된 문제</h1></div>
+    <div class="card-body">
+        {% if questions %}
+            <ul class="list-group list-group-flush">
+                {% for question in questions %}
+                    <li class="list-group-item">{{ forloop.counter }}. {{ question.question_text }} (퀴즈: {{ question.quiz.title }})</li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="text-muted">이 태그에 해당하는 문제가 없습니다.</p>
+        {% endif %}
+        <a href="{% url 'quiz:tag_list' %}" class="btn btn-secondary mt-3">모든 태그 목록으로</a>
+    </div>
+</div>
+{% endblock %}

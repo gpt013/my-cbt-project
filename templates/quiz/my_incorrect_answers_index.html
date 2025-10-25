@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>오답노트</h1>
+    <p>복습하고 싶은 시험 종류를 선택하세요.</p>
+    {% if quizzes_with_incorrects %}
+        <div class="list-group">
+            {% for quiz in quizzes_with_incorrects %}
+                <a href="{% url 'quiz:my_incorrect_answers_by_quiz' quiz.id %}" class="list-group-item list-group-item-action">
+                    {{ quiz.title }}
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>틀린 문제가 없습니다. 훌륭합니다! 👍</p>
+    {% endif %}
+{% endblock %}
