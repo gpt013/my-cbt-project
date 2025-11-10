@@ -6,7 +6,7 @@ Pillow==10.3.0
 channels==4.0.0
 dj-database-url
 boto3
-storages
+django-storages
 whitenoise
 
 
