@@ -1,40 +1,55 @@
 {% extends 'base.html' %}
 
 {% block content %}
-
-<h1>시험 결과</h1>
-<h2>총점: {{ score }} / {{ total_questions }}</h2>
-
-<hr>
-
-{% for result in results_data %}
-    <div>
-        <h4>
-            {{ forloop.counter }}. {{ result.question.question_text }}
-            {% if result.is_correct %}
-                <span style="color: green;">(정답)</span>
+<div class="container mt-4">
+    <div class="card text-center">
+        <div class="card-header">
+            <h1>시험 결과</h1>
+        </div>
+        <div class="card-body">
+            
+            <!-- --- [핵심 수정] --- -->
+            {% if is_pass %}
+                <h2 class="card-title text-success">🎉 합격 🎉</h2>
             {% else %}
-                <span style="color: red;">(오답)</span>
+                <h2 class="card-title text-danger">😥 불합격 😥</h2>
             {% endif %}
-        </h4>
-        <ul>
-            {% for choice in result.question.choice_set.all %}
-                <li>
-                    {{ choice.choice_text }}
-                    
-                    {# 내가 선택한 답과 정답을 함께 표시 #}
-                    {% if choice.id == result.user_choice_id and not result.is_correct %}
-                        <span style="color: red; font-weight: bold;"> &lt;-- 나의 오답</span>
-                    {% elif choice.id == result.correct_choice_id %}
-                        <span style="color: green; font-weight: bold;"> &lt;-- 정답</span>
-                    {% endif %}
-                </li>
-            {% endfor %}
-        </ul>
-    </div>
-    <hr>
-{% endfor %}
+            
+            <h3 class="card-title">총점: {{ score }} / 100</h3>
+            <p class="card-text fs-5">
+                총 {{ total_questions }}문제 중 {{ correct_answers }}문제를 맞혔습니다.
+            </p>
+            <!-- ----------------- -->
 
-<a href="{% url 'quiz:index' %}">첫 페이지로 돌아가기</a>
+        </div>
+    </div>
+
+    <!-- [New Feature] 새로 획득한 뱃지 (누락 없음) -->
+    {% if newly_awarded_badges %}
+    <div class="card mt-4">
+        <div class="card-header bg-warning">
+            <h5 class="mb-0">✨ 새로운 뱃지 획득!</h5>
+        </div>
+        <div class="card-body">
+            <div class="row justify-content-center">
+                {% for badge in newly_awarded_badges %}
+                    <div class="col-md-4 text-center">
+                        {% if badge.image %}
+                            <img src="{{ badge.image.url }}" alt="{{ badge.name }}" style="max-height: 100px; object-fit: contain;">
+                        {% else %}
+                            <div class="fs-1">🏆</div>
+                        {% endif %}
+                        <p class="mt-2 mb-0"><strong>{{ badge.name }}</strong></p>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
     
+    <div class="mt-4 text-center">
+        <a href="{% url 'quiz:index' %}" class="btn btn-primary">첫 페이지로 돌아가기</a>
+        <a href="{% url 'quiz:result_detail' test_result.id %}" class="btn btn-secondary">오답노트 보기</a>
+    </div>
+</div>
 {% endblock %}

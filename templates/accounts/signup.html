@@ -3,13 +3,13 @@
 
 {% block content %}
 <style>
+    /* 오류 메시지 (누락 없음) */
     .errorlist {
-        color: #dc3545; /* Bootstrap의 danger 색상 */
+        color: #dc3545;
         font-weight: bold;
         list-style: none;
         padding-left: 0;
         font-size: 0.9em;
-        margin-top: 0.25rem;
     }
 </style>
 
@@ -32,26 +32,33 @@
                     <legend class="fs-5 border-bottom mb-3 pb-2">개인 정보</legend>
                     
                     <div class="mb-3">
+                        <label for="{{ profile_form.company.id_for_label }}" class="form-label">{{ profile_form.company.label }}</label>
+                        {{ profile_form.company.errors }}
+                        {{ profile_form.company }}
+                    </div>
+                    
+                    <div class="mb-3">
                         <label for="{{ profile_form.name.id_for_label }}" class="form-label">{{ profile_form.name.label }}</label>
                         {{ profile_form.name.errors }}
-                        <input type="text" name="name" class="form-control" required id="{{ profile_form.name.id_for_label }}">
+                        <input type="text" name="name" value="{{ profile_form.name.value|default:'' }}" class="form-control" required id="{{ profile_form.name.id_for_label }}">
                     </div>
                     <div class="mb-3">
                         <label for="{{ profile_form.employee_id.id_for_label }}" class="form-label">{{ profile_form.employee_id.label }}</label>
                         {{ profile_form.employee_id.errors }}
-                        <input type="text" name="employee_id" class="form-control" required id="{{ profile_form.employee_id.id_for_label }}">
+                        <input type="text" name="employee_id" value="{{ profile_form.employee_id.value|default:'' }}" class="form-control" required id="{{ profile_form.employee_id.id_for_label }}">
                     </div>
                     <div class="mb-3">
                         <label for="{{ profile_form.class_number.id_for_label }}" class="form-label">{{ profile_form.class_number.label }}</label>
                         {{ profile_form.class_number.errors }}
-                        <input type="text" name="class_number" class="form-control" required id="{{ profile_form.class_number.id_for_label }}">
+                        <input type="text" name="class_number" value="{{ profile_form.class_number.value|default:'' }}" class="form-control" required id="{{ profile_form.class_number.id_for_label }}">
                     </div>
                     <div class="mb-3">
                         <label for="{{ profile_form.process.id_for_label }}" class="form-label">{{ profile_form.process.label }}</label>
                         {{ profile_form.process.errors }}
-                        <input type="text" name="process" class="form-control" required id="{{ profile_form.process.id_for_label }}">
+                        <input type="text" name="process" value="{{ profile_form.process.value|default:'' }}" class="form-control" required id="{{ profile_form.process.id_for_label }}">
                     </div>
 
+                    <!-- ETCH 체크박스 (기존과 동일, 누락 없음) -->
                     <div id="etch_options_row" style="display: none;" class="mb-3 ps-3 border-start">
                         <label class="form-label">ETCH 상세 공정:</label>
                         <div class="form-check form-check-inline">
@@ -64,11 +71,14 @@
                         </div>
                     </div>
 
+                    <!-- --- [핵심 수정] 'PL님 성함' 텍스트 입력을 '담당 PL' 드롭다운으로 변경 --- -->
                     <div class="mb-3">
-                        <label for="{{ profile_form.pl_name.id_for_label }}" class="form-label">{{ profile_form.pl_name.label }}</label>
-                        {{ profile_form.pl_name.errors }}
-                        <input type="text" name="pl_name" class="form-control" required id="{{ profile_form.pl_name.id_for_label }}">
+                        <label for="{{ profile_form.pl.id_for_label }}" class="form-label">{{ profile_form.pl.label }}</label>
+                        {{ profile_form.pl.errors }}
+                        {{ profile_form.pl }}
                     </div>
+                    <!-- ----------------------------------------------------- -->
+
                 </fieldset>
                 
                 <div class="d-grid mt-4">

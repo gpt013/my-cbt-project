@@ -1,0 +1,49 @@
+{# 이 파일은 버튼 로직을 재사용하기 위한 헬퍼 파일입니다. #}
+<li class="list-group-item d-flex justify-content-between align-items-center">
+    <span>
+        {{ quiz.title }}
+        
+        {# --- 시험을 완료한 경우, 합격/불합격 배지와 결과 보기 링크를 표시 --- #}
+        {% if quiz.user_status == '완료됨' %}
+            {% if quiz.is_pass %}
+                <span class="badge bg-success ms-2">합격</span>
+            {% else %}
+                <span class="badge bg-danger ms-2">불합격</span>
+            {% endif %}
+            <a href="{% url 'quiz:result_detail' quiz.action_id %}" class="badge bg-secondary text-decoration-none ms-1">최근 결과 보기</a>
+        {% endif %}
+    </span>
+    
+    <span>
+        {# --- 1. 대기중 --- #}
+        {% if quiz.user_status == '대기중' %}
+            <button type="button" class="btn btn-secondary btn-sm" disabled>승인 대기중</button>
+        
+        {# --- 2. 개인 승인됨 (관리자 우선 승인) --- #}
+        {% elif quiz.user_status == '승인됨' %}
+            <a href="{% url 'quiz:start_quiz' quiz.action_id %}" class="btn btn-success btn-sm">시험 시작 (개인)</a>
+        
+        {# --- 3. 그룹 배정됨 --- #}
+        {% elif quiz.user_status == '그룹 응시 가능' %}
+            <a href="{% url 'quiz:start_group_quiz' quiz.action_id %}" class="btn btn-info btn-sm">시험 시작 (그룹)</a>
+        
+        {# --- 4. 완료됨 (3번 항목 요청) --- #}
+        {% elif quiz.user_status == '완료됨' %}
+            {# 불합격한 경우에만 '재응시 요청' 버튼이 보입니다. #}
+            {% if not quiz.is_pass %}
+                <form action="{% url 'quiz:request_quiz' quiz.id %}" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-warning btn-sm">재응시 요청</button>
+                </form>
+            {% endif %}
+
+        {# --- 5. 요청 가능 (처음) --- #}
+        {% else %} 
+            <form action="{% url 'quiz:request_quiz' quiz.id %}" method="post">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary btn-sm">응시 요청</button>
+            </form>
+        {% endif %}
+    </span>
+</li>
+

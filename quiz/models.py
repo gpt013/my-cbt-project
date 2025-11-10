@@ -6,11 +6,31 @@ from django.contrib.auth.models import Group
 
 # Quiz(시험지) 모델
 class Quiz(models.Model):
+    class Category(models.TextChoices):
+        COMMON = '공통', '공통 (모든 교육생에게 표시)'
+        PROCESS = '공정', '공정 (해당 공정 교육생에게 우선 표시)'
+
+    title = models.CharField(max_length=200, verbose_name="퀴즈 제목")
+    allowed_groups = models.ManyToManyField(Group, blank=True, verbose_name='응시 가능 그룹')
+    
+    # --- [핵심 추가] 카테고리 필드 ---
+    category = models.CharField(
+        max_length=10,
+        choices=Category.choices,
+        default=Category.COMMON,
+        verbose_name="퀴즈 분류"
+    )
+    associated_process = models.CharField(
+        max_length=100, 
+        blank=True, null=True, 
+        verbose_name="관련 공정",
+        help_text="퀴즈 분류가 '공정'인 경우에만 이 필드를 채워주세요."
+    )
+
+    # --- 기존 출제 방식 필드 (누락 없음) ---
     class GenerationMethod(models.TextChoices):
         RANDOM = '랜덤', '난이도별 랜덤 출제'
         FIXED = '지정', '지정 문제 세트 출제'
-    title = models.CharField(max_length=200, verbose_name="퀴즈 제목")
-    allowed_groups = models.ManyToManyField(Group, blank=True, verbose_name='응시 가능 그룹')
 
     generation_method = models.CharField(
         max_length=10, 
@@ -23,7 +43,7 @@ class Quiz(models.Model):
         on_delete=models.SET_NULL, 
         null=True, blank=True, 
         verbose_name="선택된 문제 세트",
-        related_name='+'
+        related_name='+' 
     )
 
     class Meta:
@@ -146,6 +166,7 @@ class TestResult(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
     score = models.IntegerField()
+    is_pass = models.BooleanField(default=False, verbose_name="합격 여부")
     completed_at = models.DateTimeField(auto_now_add=True)
     attempt_number = models.IntegerField(default=0)
 

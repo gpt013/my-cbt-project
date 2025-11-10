@@ -12,55 +12,170 @@ from django.contrib.auth.models import User # User 모델을 가져옵니다.
 from django.views.decorators.cache import cache_control
 from django.db.models import Avg, Max # Max를 추가로 import 합니다.
 import random
-from accounts.models import Profile, Badge # Profile을 가져옵니다.
+from accounts.models import Profile, Badge, EvaluationRecord # Profile을 가져옵니다.
 # --- '로그인 필수' 기능을 가져옵니다. ---
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
+from django.core.mail import send_mail
 
-from .models import Choice, Question, Quiz, TestResult, UserAnswer, QuizAttempt
+from .models import Choice, Question, Quiz, TestResult, UserAnswer, QuizAttempt, ExamSheet
+
+# 1. '마이 페이지' (로그인 후 첫 화면)
+@login_required
+def my_page(request):
+    user = request.user
+    
+    pending_attempts = QuizAttempt.objects.filter(
+        user=user, 
+        status__in=['대기중', '승인됨']
+    )
+    latest_results = TestResult.objects.filter(user=user).order_by('-completed_at')[:3]
+    
+    profile, created = Profile.objects.get_or_create(user=user)
+    
+    latest_badges = profile.badges.all().order_by('-id')[:3]
+    latest_evaluations = EvaluationRecord.objects.filter(profile=profile).order_by('-created_at')[:3]
+    
+    context = {
+        'pending_attempts': pending_attempts,
+        'latest_results': latest_results,
+        'latest_badges': latest_badges,
+        'latest_evaluations': latest_evaluations,
+    }
+    return render(request, 'quiz/my_page.html', context)
 
 @login_required
 def index(request):
-    quiz_list = Quiz.objects.all()
     user = request.user
     user_groups = user.groups.all()
-
-    for quiz in quiz_list:
-        # --- [핵심 수정] ---
-        # 1. 아직 시험 결과가 생성되지 않은, '대기중' 또는 '승인됨' 상태인 개인 요청을 찾습니다.
-        active_individual_attempt = QuizAttempt.objects.filter(
-            user=user, quiz=quiz, 
-            assignment_type=QuizAttempt.AssignmentType.INDIVIDUAL,
-            status__in=['대기중', '승인됨'],
-            testresult__isnull=True  # 이 요청에 연결된 TestResult가 없어야 함!
-        ).first()
-        # ------------------
-
-        if active_individual_attempt:
-            quiz.user_status = active_individual_attempt.status
-            quiz.action_id = active_individual_attempt.id
-            continue
-
-        # 2. 그룹 배정을 받았고, 아직 완료하지 않았는지 확인합니다.
-        is_group_assigned = quiz.allowed_groups.filter(id__in=user_groups).exists()
-        if is_group_assigned:
-            completed_group_attempt = TestResult.objects.filter(
-                user=user, quiz=quiz, 
-                attempt__assignment_type=QuizAttempt.AssignmentType.GROUP
-            ).exists()
-            if not completed_group_attempt:
-                quiz.user_status = '그룹 응시 가능'
-                quiz.action_id = quiz.id
-                continue
-        
-        # 3. 위의 모든 경우에 해당하지 않으면, '응시 요청'이 가능합니다.
-        # '완료됨' 상태를 따로 구분할 필요 없이, 이 조건으로 자연스럽게 처리됩니다.
-        quiz.user_status = '요청 가능'
-        quiz.action_id = quiz.id
-
-    context = {'quiz_list': quiz_list}
-    return render(request, 'quiz/index.html', context)
     
+    user_process = None
+    if hasattr(user, 'profile'):
+        user_process = user.profile.process
+
+    all_common_quizzes = Quiz.objects.filter(category=Quiz.Category.COMMON)
+    
+    # [1] 공통 시험 '합격' 여부 확인
+    all_common_passed = False
+    passed_common_count = TestResult.objects.filter(
+        user=user, 
+        quiz__in=all_common_quizzes, 
+        is_pass=True
+    ).values('quiz').distinct().count()
+    if all_common_quizzes.count() > 0 and passed_common_count >= all_common_quizzes.count():
+        all_common_passed = True
+    elif all_common_quizzes.count() == 0:
+        all_common_passed = True
+
+    # [2] '나의 공정' 퀴즈 목록
+    my_process_quizzes_list = Quiz.objects.none()
+    if user_process:
+        my_process_quizzes_list = Quiz.objects.filter(category=Quiz.Category.PROCESS, associated_process=user_process)
+    
+    # [3] '나의 공정' 시험 '합격' 여부 확인
+    all_my_process_passed = False
+    passed_my_process_count = TestResult.objects.filter(
+        user=user, 
+        quiz__in=my_process_quizzes_list, 
+        is_pass=True
+    ).values('quiz').distinct().count()
+    if my_process_quizzes_list.count() > 0 and passed_my_process_count >= my_process_quizzes_list.count():
+        all_my_process_passed = True
+    elif my_process_quizzes_list.count() == 0:
+        all_my_process_passed = True # 내 공정 시험이 없으면 항상 통과
+
+    # [4] '기타 공정' 퀴즈 목록
+    other_process_quizzes_list = Quiz.objects.none()
+    if user_process:
+        other_process_quizzes_list = Quiz.objects.filter(category=Quiz.Category.PROCESS).exclude(associated_process=user_process)
+    else:
+        other_process_quizzes_list = Quiz.objects.filter(category=Quiz.Category.PROCESS)
+
+    # [5] 헬퍼 함수 (각 퀴즈의 버튼 상태 결정)
+    def process_quiz_list(quiz_list):
+        for quiz in quiz_list:
+            quiz.user_status = None
+            quiz.action_id = None
+            
+            latest_result = TestResult.objects.filter(user=user, quiz=quiz).order_by('-completed_at').first()
+            active_individual_attempt = QuizAttempt.objects.filter(
+                user=user, quiz=quiz, 
+                assignment_type=QuizAttempt.AssignmentType.INDIVIDUAL,
+                status__in=['대기중', '승인됨'],
+                testresult__isnull=True
+            ).first()
+
+            if active_individual_attempt:
+                quiz.user_status = active_individual_attempt.status
+                quiz.action_id = active_individual_attempt.id
+                continue
+
+            is_group_assigned = quiz.allowed_groups.filter(id__in=user_groups).exists()
+            if is_group_assigned:
+                completed_group_attempt = TestResult.objects.filter(
+                    user=user, quiz=quiz, 
+                    attempt__assignment_type=QuizAttempt.AssignmentType.GROUP
+                ).exists()
+                if not completed_group_attempt:
+                    quiz.user_status = '그룹 응시 가능'
+                    quiz.action_id = quiz.id
+                    continue
+            
+            if latest_result:
+                quiz.user_status = '완료됨'
+                quiz.action_id = latest_result.id
+                quiz.is_pass = latest_result.is_pass
+                continue
+                
+            quiz.user_status = '요청 가능'
+            quiz.action_id = quiz.id
+        return quiz_list
+
+    common_quizzes = process_quiz_list(all_common_quizzes)
+    my_process_quizzes = process_quiz_list(my_process_quizzes_list)
+    other_process_quizzes = process_quiz_list(other_process_quizzes_list)
+
+    # --- [핵심] '관리자 우선 승인'이 있는지 확인 ---
+    # '나의 공정' 퀴즈 중에 '승인됨' 또는 '대기중' 상태인 것이 하나라도 있는지 확인
+    my_process_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in my_process_quizzes)
+    # '기타 공정' 퀴즈 중에 '승인됨' 또는 '대기중' 상태인 것이 하나라도 있는지 확인
+    other_process_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in other_process_quizzes)
+    # ----------------------------------------
+
+    context = {
+        'common_quizzes': common_quizzes,
+        'my_process_quizzes': my_process_quizzes,
+        'other_process_quizzes': other_process_quizzes,
+        'all_common_passed': all_common_passed,
+        'all_my_process_passed': all_my_process_passed,
+        'my_process_has_override': my_process_has_override, # 템플릿으로 전달
+        'other_process_has_override': other_process_has_override, # 템플릿으로 전달
+    }
+    return render(request, 'quiz/index.html', context)
+
+@login_required
+def my_page(request):
+    user = request.user
+    
+    pending_attempts = QuizAttempt.objects.filter(
+        user=user, 
+        status__in=['대기중', '승인됨']
+    )
+    latest_results = TestResult.objects.filter(user=user).order_by('-completed_at')[:3]
+    
+    profile, created = Profile.objects.get_or_create(user=user)
+    
+    latest_badges = profile.badges.all().order_by('-id')[:3]
+    latest_evaluations = EvaluationRecord.objects.filter(profile=profile).order_by('-created_at')[:3]
+    
+    context = {
+        'pending_attempts': pending_attempts,
+        'latest_results': latest_results,
+        'latest_badges': latest_badges,
+        'latest_evaluations': latest_evaluations,
+    }
+    return render(request, 'quiz/my_page.html', context)
+
 @login_required
 def request_quiz(request, quiz_id):
     quiz = get_object_or_404(Quiz, pk=quiz_id)
@@ -242,16 +357,20 @@ def quiz_results(request):
             'is_correct': is_correct
         })
     
-    # 점수를 계산합니다.
+    # --- [핵심 수정 1] 점수 계산 ---
     total_questions = len(question_ids)
     score = int((correct_answers / total_questions) * 100) if total_questions > 0 else 0
-
-    # TestResult(전체 성적표) 객체를 생성합니다. (이 코드가 뱃지 획득 신호를 발생시킴)
+    
+    # --- [핵심 수정 2] 80점 이상일 경우 '합격'으로 처리 ---
+    is_pass = (score >= 80)
+    
+    # --- [핵심 수정 3] TestResult 생성 시 is_pass 필드 추가 ---
     test_result = TestResult.objects.create(
         user=request.user,
-        quiz=attempt.quiz if attempt else questions.first().quiz,
+        quiz=attempt.quiz,
         score=score,
-        attempt=attempt
+        attempt=attempt,
+        is_pass=is_pass # <-- 합격 여부 저장
     )
 
     # UserAnswer(개별 답안) 객체들을 저장합니다.
@@ -278,6 +397,40 @@ def quiz_results(request):
     new_badge_ids = badges_after - badges_before
     newly_awarded_badges = Badge.objects.filter(id__in=new_badge_ids)
 
+    # --- [핵심 추가] 2회 불합격 시 PL에게 이메일 발송 ---
+    if not test_result.is_pass:
+        # 이 시험에서 '불합격'한 횟수를 셉니다.
+        failure_count = TestResult.objects.filter(
+            user=request.user, 
+            quiz=attempt.quiz, 
+            is_pass=False
+        ).count()
+        
+        # [수정] 정확히 2회가 되었을 때만 메일을 발송합니다.
+        if failure_count == 2:
+            if hasattr(request.user, 'profile') and request.user.profile.pl and request.user.profile.pl.email:
+                pl = request.user.profile.pl
+                subject = f"[CBT 경고] 교육생 면담 요청: {profile.name}"
+                message = (
+                    f"{pl.name}님,\n\n"
+                    f"귀하의 담당 교육생인 {profile.name} (사번: {profile.employee_id}, 기수: {profile.class_number}기)이\n"
+                    f"'{attempt.quiz.title}' 시험에서 누적 2회 불합격하였습니다.\n\n"
+                    "바쁘시겠지만 PMTC로 직접 오셔서 교육생 면담 및 지도가 필요합니다.\n\n"
+                    "- CBT 관리 시스템"
+                )
+                
+                try:
+                    send_mail(
+                        subject,
+                        message,
+                        os.environ.get('EMAIL_HOST_USER'), # 발신자 (settings.py)
+                        [pl.email], # 수신자 (PL 이메일)
+                        fail_silently=False,
+                    )
+                except Exception as e:
+                    # (선택사항) 이메일 발송 실패 시, 관리자에게 로그를 남깁니다.
+                    print(f"PL 경고 메일 발송 실패: {e}")
+
     # --- [누락되었던 부분 수정] ---
     # context에 newly_awarded_badges와 test_result를 추가하여 템플릿으로 전달합니다.
     context = {
@@ -287,6 +440,7 @@ def quiz_results(request):
         'correct_answers': correct_answers,
         'newly_awarded_badges': newly_awarded_badges,
         'test_result': test_result,
+        'is_pass': is_pass,
     }
 
     # 사용이 끝난 세션 데이터를 정리합니다.
@@ -363,17 +517,25 @@ def my_results_index(request):
 @login_required
 def my_results_by_quiz(request, quiz_id):
     quiz = get_object_or_404(Quiz, pk=quiz_id)
-    # 현재 로그인한 사용자의 특정 시험 결과만 가져옵니다.
-    test_results = TestResult.objects.filter(user=request.user, quiz=quiz).order_by('-completed_at')
-
-    # 각 결과에 회차 정보를 추가합니다.
-    total_attempts_for_quiz = test_results.count()
-    for i, result in enumerate(test_results):
-        result.attempt_number = total_attempts_for_quiz - i
+    all_results = TestResult.objects.filter(user=request.user, quiz=quiz).order_by('-completed_at')
+    
+    for result in all_results:
+        newer_attempts_count = TestResult.objects.filter(
+            user=request.user, quiz=result.quiz, completed_at__gt=result.completed_at
+        ).count()
+        total_attempts_for_quiz = TestResult.objects.filter(user=request.user, quiz=result.quiz).count()
+        result.attempt_number = total_attempts_for_quiz - newer_attempts_count
+        
+    sorted_results = sorted(list(all_results), key=lambda r: r.completed_at, reverse=True)
+    
+    # --- [누락되었던 부분] 페이지네이션 로직 ---
+    paginator = Paginator(sorted_results, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
     
     context = {
         'quiz': quiz,
-        'test_results': test_results # 페이지네이션 없이 결과 전체를 전달합니다.
+        'page_obj': page_obj # test_results -> page_obj
     }
     return render(request, 'quiz/my_results_list.html', context)
 

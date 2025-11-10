@@ -1,0 +1,14 @@
+asgiref==3.8.1
+Django==5.2.7
+django-admin-interface==0.30.1
+django-colorfield==0.14.0
+Pillow==10.3.0
+channels==4.0.0
+
+pandas와 openpyxl은 PythonAnywhere 무료 버전 용량 문제로 제외함.
+
+추후 유료 플랜 사용 시, 아래 두 줄의 주석을 해제하고 pip install -r requirements.txt를 실행해야 함.
+
+pandas==2.2.2
+
+openpyxl==3.1.3

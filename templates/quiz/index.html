@@ -1,35 +1,122 @@
 {% extends 'base.html' %}
 
 {% block content %}
-    <div class="card">
-        <div class="card-header">
-            <h1>시험 목록</h1>
+
+<!-- --- [핵심 추가] 폴더별 색상을 지정하는 CSS --- -->
+<style>
+    /* 1. 공통 시험 (파란색 계열) - 기본으로 열림 */
+    #headingCommon .accordion-button {
+        background-color: #e7f1ff; color: #004085; font-weight: 500;
+    }
+    #headingCommon .accordion-button:not(.collapsed) {
+        background-color: #cce5ff; color: #004085;
+    }
+
+    /* 2. 나의 공정 시험 (초록색 계열) - 조건부로 열림 */
+    #headingMyProcess .accordion-button {
+        background-color: #e8f5e9; color: #155724; font-weight: 500;
+    }
+    #headingMyProcess .accordion-button:not(.collapsed) {
+        background-color: #d4edda; color: #155724;
+    }
+
+    /* 3. 기타 공정 시험 (회색 계열) - 조건부로 열림 */
+    #headingOther .accordion-button {
+        background-color: #f8f9fa; color: #383d41; font-weight: 500;
+    }
+    #headingOther .accordion-button:not(.collapsed) {
+        background-color: #e2e3e5; color: #383d4a;
+    }
+    
+    /* 잠금 버튼 스타일 */
+    .accordion-button.collapsed.locked {
+        background-color: #f8f9fa; color: #6c757d;
+    }
+</style>
+<!-- -------------------------------------------- -->
+
+    <h1 class="mb-4">시험 목록</h1>
+
+    <div class="accordion" id="quizAccordion">
+    
+        <!-- 1. 공통 시험 (기본으로 열림) -->
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingCommon">
+                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCommon" aria-expanded="true" aria-controls="collapseCommon">
+                    1. 공통 시험 (필수)
+                </button>
+            </h2>
+            <div id="collapseCommon" class="accordion-collapse collapse show" data-bs-parent="#quizAccordion">
+                <div class="accordion-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% for quiz in common_quizzes %}
+                            {% include 'quiz/_quiz_list_item.html' with quiz=quiz %}
+                        {% empty %}
+                            <li class="list-group-item text-muted">공통 시험이 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-            {% if quiz_list %}
-                <ul class="list-group list-group-flush">
-                {% for quiz in quiz_list %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        {{ quiz.title }}
-                        
-                        {% if quiz.user_status == '대기중' %}
-                            <button type="button" class="btn btn-secondary btn-sm" disabled>승인 대기중</button>
-                        {% elif quiz.user_status == '승인됨' %}
-                            <a href="{% url 'quiz:start_quiz' quiz.action_id %}" class="btn btn-success btn-sm">시험 시작 (개인)</a>
-                        {% elif quiz.user_status == '그룹 응시 가능' %}
-                            <a href="{% url 'quiz:start_group_quiz' quiz.action_id %}" class="btn btn-info btn-sm">시험 시작 (그룹)</a>
-                        {% else %} {# '요청 가능' 또는 완료 후 상태 #}
-                            <form action="{% url 'quiz:request_quiz' quiz.action_id %}" method="post">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-primary btn-sm">응시 요청</button>
-                            </form>
-                        {% endif %}
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p class="card-text">등록된 시험이 없습니다.</p>
-            {% endif %}
+
+        <!-- 2. 나의 공정 시험 (조건부 잠금) -->
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingMyProcess">
+                <!-- [핵심 수정] 'disabled' 속성을 완전히 제거했습니다. -->
+                <button class="accordion-button {% if not all_common_passed and not my_process_has_override %}collapsed locked{% else %}collapsed{% endif %}" 
+                        type="button" 
+                        data-bs-toggle="collapse" 
+                        data-bs-target="#collapseMyProcess" 
+                        aria-expanded="{{ all_common_passed|yesno:'true,false' }}" 
+                        aria-controls="collapseMyProcess">
+                    2. 나의 공정 시험
+                    {% if not all_common_passed and not my_process_has_override %}
+                        <span class="badge bg-secondary ms-2"></span>
+                    {% endif %}
+                </button>
+            </h2>
+            <div id="collapseMyProcess" class="accordion-collapse collapse {% if all_common_passed or my_process_has_override %}show{% endif %}" data-bs-parent="#quizAccordion">
+                <div class="accordion-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% for quiz in my_process_quizzes %}
+                            {% include 'quiz/_quiz_list_item.html' with quiz=quiz %}
+                        {% empty %}
+                            <li class="list-group-item text-muted">나의 공정에 해당하는 시험이 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
         </div>
+
+        <!-- 3. 기타 공정 시험 (조건부 잠금) -->
+        <div class="accordion-item">
+            <h2 class="accordion-header" id="headingOther">
+                <!-- [핵심 수정] 'disabled' 속성을 완전히 제거했습니다. -->
+                <button class="accordion-button {% if not all_common_passed or not all_my_process_passed and not other_process_has_override %}collapsed locked{% else %}collapsed{% endif %}" 
+                        type="button" 
+                        data-bs-toggle="collapse" 
+                        data-bs-target="#collapseOther" 
+                        aria-expanded="false" 
+                        aria-controls="collapseOther">
+                    3. 기타 공정 시험 (선택)
+                    {% if not all_common_passed or not all_my_process_passed and not other_process_has_override %}
+                        <span class="badge bg-secondary ms-2"></span>
+                    {% endif %}
+                </button>
+            </h2>
+            <div id="collapseOther" class="accordion-collapse collapse" data-bs-parent="#quizAccordion">
+                <div class="accordion-body p-0">
+                    <ul class="list-group list-group-flush">
+                        {% for quiz in other_process_quizzes %}
+                            {% include 'quiz/_quiz_list_item.html' with quiz=quiz %}
+                        {% empty %}
+                            <li class="list-group-item text-muted">다른 공정 시험이 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    
     </div>
 {% endblock %}
+
