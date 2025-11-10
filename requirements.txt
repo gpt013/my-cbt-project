@@ -4,6 +4,10 @@ django-admin-interface==0.30.1
 django-colorfield==0.14.0
 Pillow==10.3.0
 channels==4.0.0
+dj-database-url
+boto3
+storages
+whitenoise
 
 pandas와 openpyxl은 PythonAnywhere 무료 버전 용량 문제로 제외함.
 
