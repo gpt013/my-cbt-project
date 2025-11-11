@@ -50,23 +50,21 @@ def load_part_leaders(request):
     PartLeader 목록을 JSON으로 반환하는 뷰
     """
     company_id = request.GET.get('company_id')
-    process_name = request.GET.get('process_name') # forms.py에서 이름(name)을 쓰기로 했으므로 name을 받습니다.
+    process_id = request.GET.get('process_id')
 
     # 두 값 중 하나라도 없으면 빈 목록 반환
-    if not company_id or not process_name:
+    if not company_id or not process_id:
         return JsonResponse({'pls': []})
 
     try:
-        # 'process__name'으로 필터링합니다.
+        # [수정 3] process__name=... 대신 process_id=... 로 필터링합니다.
         pls = PartLeader.objects.filter(
             company_id=company_id, 
-            process__name=process_name
+            process_id=process_id  # <--- 여기가 핵심
         ).order_by('name')
         
-        # JSON 응답을 위해 {id, name} 리스트로 변환
         pl_list = [{"id": pl.id, "name": pl.name} for pl in pls]
         return JsonResponse({'pls': pl_list})
         
     except Exception as e:
-        # 오류 발생 시
         return JsonResponse({'error': str(e)}, status=500)

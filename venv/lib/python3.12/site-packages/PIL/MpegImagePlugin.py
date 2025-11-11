@@ -33,7 +33,11 @@ class BitStream:
 
     def peek(self, bits: int) -> int:
         while self.bits < bits:
-            self.bitbuffer = (self.bitbuffer << 8) + self.next()
+            c = self.next()
+            if c < 0:
+                self.bits = 0
+                continue
+            self.bitbuffer = (self.bitbuffer << 8) + c
             self.bits += 8
         return self.bitbuffer >> (self.bits - bits) & (1 << bits) - 1
 
@@ -47,10 +51,6 @@ class BitStream:
         v = self.peek(bits)
         self.bits = self.bits - bits
         return v
-
-
-def _accept(prefix: bytes) -> bool:
-    return prefix.startswith(b"\x00\x00\x01\xb3")
 
 
 ##
@@ -77,7 +77,7 @@ class MpegImageFile(ImageFile.ImageFile):
 # --------------------------------------------------------------------
 # Registry stuff
 
-Image.register_open(MpegImageFile.format, MpegImageFile, _accept)
+Image.register_open(MpegImageFile.format, MpegImageFile)
 
 Image.register_extensions(MpegImageFile.format, [".mpg", ".mpeg"])
 

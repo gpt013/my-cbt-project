@@ -115,19 +115,18 @@
         function updatePartLeaders() {
             const companyId = companySelect.value;
             // process는 ID가 아닌 '이름(name)'을 전송합니다 (forms.py와 맞춤)
-            const processName = processSelect.value; 
+            const processId = processSelect.value;
 
             // 둘 중 하나라도 선택되지 않으면, PL 드롭다운을 초기화하고 비활성화
-            if (!companyId || !processName) {
+            if (!companyId || !processId) {
                 resetPLSelect("회사와 공정을 먼저 선택하세요", true);
                 return;
             }
-
-            // '불러오는 중...' 메시지로 설정
+            
             resetPLSelect("파트장 목록을 불러오는 중...", true);
 
             // 5. 서버에 Fetch API로 요청
-            fetch(`${url}?company_id=${companyId}&process_name=${processName}`)
+            fetch(`${url}?company_id=${companyId}&process_id=${processId}`)
                 .then(response => {
                     if (!response.ok) {
                         throw new Error('서버 응답 오류');
