@@ -10,3 +10,5 @@ python manage.py collectstatic --noinput
 
 # 3. 데이터베이스 스키마 적용
 python manage.py migrate
+
+python manage.py createsuperuser --noinput || echo "Superuser already exists."
