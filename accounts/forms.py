@@ -52,3 +52,21 @@ class ProfileForm(forms.ModelForm):
    #         raise forms.ValidationError("허용된 공정(CMP, IMP, CLEAN, DIFF, METAL, CVD, ETCH)이 아닙니다. 다시 확인해주세요.")
         
    #     return process_input
+
+def clean_process(self):
+        # 폼에서 제출된 데이터(공정 이름, 예: "CMP")를 가져옵니다.
+        process_name = self.cleaned_data.get('process')
+
+        if not process_name:
+             # 이 경우는 'required=True'에 의해 이미 걸러지지만, 안전을 위해 추가
+            raise forms.ValidationError("공정을 선택해 주세요.")
+
+        try:
+            # 이름으로 실제 Process 객체를 찾습니다.
+            process_object = Process.objects.get(name=process_name)
+            # ModelForm이 저장할 수 있도록 '객체'를 반환합니다.
+            return process_object
+        except Process.DoesNotExist:
+            # DB에 없는 값이 억지로 제출된 경우 (예: "C M P")
+            raise forms.ValidationError("유효하지 않은 공정입니다. 다시 선택해 주세요.")
+    # -----------------------
