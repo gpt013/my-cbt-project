@@ -27,7 +27,16 @@ class PartLeader(models.Model):
     name = models.CharField(max_length=50, unique=True, verbose_name="PL 이름")
     email = models.EmailField(unique=True, verbose_name="PL 이메일", help_text="2회 불합격 시 이 이메일로 알림이 갑니다.")
     company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
-    process = models.CharField(max_length=100, verbose_name='담당 공정', blank=True)
+    
+    # --- 여기가 수정된 부분입니다 ---
+    process = models.ForeignKey(
+        "Process",  # Process -> "Process" (따옴표 추가)
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        verbose_name='담당 공정'
+    )
+    # -----------------------------
+
     class Meta:
         verbose_name = "PL(파트장)"
         verbose_name_plural = "PL(파트장)"
