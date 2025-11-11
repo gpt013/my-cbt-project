@@ -20,9 +20,11 @@ class BadgeAdmin(admin.ModelAdmin):
 
 @admin.register(PartLeader)
 class PartLeaderAdmin(admin.ModelAdmin):
+    # --- [수정] 아래 3줄을 수정/추가합니다 ---
     list_display = ('name', 'email', 'company', 'process')
-    list_filter = ('company',)
-    search_fields = ('name', 'email') 
+    list_filter = ('company', 'process') # 'process' 추가
+    search_fields = ('name', 'email', 'company__name', 'process__name') # 'company__name', 'process__name' 추가
+    autocomplete_fields = ('company', 'process') # 이 줄을 추가
 
 @admin.register(Process)
 class ProcessAdmin(admin.ModelAdmin):
