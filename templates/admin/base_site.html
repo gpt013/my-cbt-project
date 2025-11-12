@@ -1,8 +1,15 @@
-{% extends "admin/base_site.html" %}
+{% extends "admin/base.html" %}
+{% load i18n %}
 
 {% block userlinks %}
-    {{ block.super }}
+    <a href="/quiz/mypage/">{% trans 'View site' %}</a> /
+
+    {% if user.has_usable_password %}
+        <a href="{% url 'admin:password_change' %}">{% trans 'Change password' %}</a> /
+    {% endif %}
+    <a href="{% url 'admin:logout' %}">{% trans 'Log out' %}</a>
+
     | <a href="{% url 'quiz:dashboard' %}">통계 대시보드</a>
     | <a href="{% url 'quiz:upload_quiz' %}">문제 대량 업로드</a>
-    | <a href="{% url 'quiz:export_student_data' %}">교육생 데이터 다운로드</a> {# <-- 이 줄 추가 #}
+    | <a href="{% url 'quiz:export_student_data' %}">교육생 데이터 다운로드</a>
 {% endblock %}

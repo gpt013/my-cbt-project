@@ -19,7 +19,6 @@
                 <div class="collapse navbar-collapse" id="navbarNav">
                     <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         {% if user.is_authenticated %}
-                            <!-- 1. 모든 로그인 사용자를 위한 메뉴 -->
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'quiz:index' %}">시험 목록</a>
                             </li>
@@ -36,8 +35,13 @@
                                 <a class="nav-link" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a>
                             </li>
                             
-                            <!-- 2. 관리자(스태프)에게만 보이는 메뉴 -->
                             {% if user.is_staff %}
+                            
+                            <li class="nav-item">
+                                <a class="nav-link fw-bold text-primary" href="{% url 'admin:index' %}">
+                                    [관리자 페이지]
+                                </a>
+                            </li>
                             {# --- [핵심 수정] 불필요한 '태그별 문제 보기' 링크를 삭제했습니다 --- #}
                             {% endif %}
                         {% endif %}

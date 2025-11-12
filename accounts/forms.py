@@ -8,9 +8,35 @@ from .models import Profile, Company, PartLeader, Process
 
 # UserCreationForm (기존과 동일)
 class CustomUserCreationForm(UserCreationForm):
+    email = forms.EmailField(
+        label="이메일",
+        required=True, # ⬅️ 필수 항목으로 지정
+        help_text="비밀번호 찾기 등에 사용되니 정확히 입력해 주세요."
+    )
+
     class Meta(UserCreationForm.Meta):
         model = User
-        fields = ('username',)
+        # --- [핵심 2] 'email'을 fields에 추가 ---
+        fields = ('username', 'email')
+        # ---------------------------------------
+
+    # --- [핵심 3] __init__을 추가하여 email 필드에도 스타일 적용 ---
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # 기존 'username' 필드 스타일링
+        if 'username' in self.fields:
+            self.fields['username'].widget.attrs.update({
+                'class': 'form-control',
+                'placeholder': '아이디'
+            })
+            
+        # 새로 추가된 'email' 필드 스타일링
+        if 'email' in self.fields:
+            self.fields['email'].widget.attrs.update({
+                'class': 'form-control',
+                'placeholder': 'example@example.com'
+            })
 
 
 class ProfileForm(forms.ModelForm):
