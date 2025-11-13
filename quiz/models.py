@@ -70,7 +70,9 @@ class Question(models.Model):
     class QuestionType(models.TextChoices):
         SINGLE_CHOICE = '객관식'
         MULTIPLE_CHOICE = '다중선택'
-        SHORT_ANSWER = '주관식'
+        # --- [핵심 수정 1] ---
+        SHORT_ANSWER = '주관식 (단일정답)' # 이름 변경
+        SHORT_ANSWER_MULTIPLE = '주관식 (복수정답)' # 새 타입 추가
 
     class Difficulty(models.TextChoices):
         EASY = '하'
@@ -78,18 +80,29 @@ class Question(models.Model):
         HARD = '상'
 
     question_type = models.CharField(
-        max_length=10,
+        max_length=20, # <--- '주관식 (복수정답)'을 저장하기 위해 10에서 20으로 늘림
         choices=QuestionType.choices,
         default=QuestionType.SINGLE_CHOICE,
+        verbose_name="문제 유형" # (admin에서 'Question type'으로 보임)
     )
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
-    question_text = models.CharField(max_length=200)
+    
+    # --- [핵심 수정 2] ---
+    # CharField를 TextField로 변경하여 칸 크기 및 엔터 문제 해결
+    question_text = models.TextField(verbose_name="문제 내용") # (admin에서 'Question text'로 보임)
+    # -------------------
+
     difficulty = models.CharField(
         max_length=2,
         choices=Difficulty.choices,
         default=Difficulty.EASY,
+        verbose_name="난이도" # (admin에서 'Difficulty'로 보임)
     )
-    image = models.ImageField(upload_to='quiz_images/', blank=True, null=True)
+    image = models.ImageField(
+        upload_to='quiz_images/', 
+        blank=True, null=True, 
+        verbose_name="이미지" # (admin에서 'Image'로 보임)
+    )
     tags = models.ManyToManyField(Tag, blank=True, verbose_name='태그')
 
     class Meta:
@@ -97,6 +110,9 @@ class Question(models.Model):
         verbose_name_plural = '문제'
 
     def __str__(self):
+        # 텍스트가 너무 길면 잘라서 표시
+        if len(self.question_text) > 50:
+            return self.question_text[:50] + "..."
         return self.question_text
 
 class ExamSheet(models.Model):

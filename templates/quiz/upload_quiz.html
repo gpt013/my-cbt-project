@@ -30,17 +30,24 @@
                 </div>
                 <div class="card-body">
                     <p>엑셀 파일의 <strong>첫 번째 행(1행)</strong>은 반드시 아래의 열 제목으로 구성되어야 합니다. (순서는 상관없습니다)</p>
+                    
                     <ul class="list-group list-group-flush">
                         <li class="list-group-item"><strong>quiz_title</strong>: 문제가 속할 시험지의 제목</li>
                         <li class="list-group-item"><strong>question_text</strong>: 문제 내용</li>
-                        <li class="list-group-item"><strong>question_type</strong>: 문제 유형 (<code>객관식</code>, <code>다중선택</code>, <code>주관식</code> 중 하나)</li>
+                        <li class="list-group-item">
+                            <strong>question_type</strong>: 문제 유형
+                            (<code>객관식</code>, <code>다중선택</code>, <code>주관식 (단일정답)</code>, <code>주관식 (복수정답)</code> 중 하나)
+                            <br>
+                            <small class="text-muted">* <code>주관식</code>이라고만 쓰면 <code>주관식 (단일정답)</code>으로 자동 인식됩니다.</small>
+                        </li>
                         <li class="list-group-item"><strong>difficulty</strong>: 난이도 (<code>상</code>, <code>중</code>, <code>하</code> 중 하나)</li>
                         <li class="list-group-item"><strong>tags</strong>: 태그 (쉼표<code>,</code>로 여러 개 입력 가능. 예: <code>태그1,태그2</code>)</li>
                         <li class="list-group-item"><strong>correct_choice</strong>: 정답 보기 (주관식의 경우 정답 텍스트)</li>
-                        <li class="list-group-item"><strong>correct_choice1, correct_choice2...</strong>: (다중선택용) 추가 정답 보기</li>
-                        <li class="list-group-item"><strong>other_choice1, other_choice2...</strong>: 오답 보기</li>
+                        <li class="list-group-item"><strong>correct_choice1, correct_choice2...</strong>: (<code>다중선택</code> 또는 <code>주관식 (복수정답)</code>용) 추가 정답 보기</li>
+                        <li class="list-group-item"><strong>other_choice1, other_choice2...</strong>: 오답 보기 (<code>객관식</code>, <code>다중선택</code>용)</li>
                     </ul>
-                </div>
+                    </div>
+                
                 <div class="table-responsive">
                     <table class="table table-bordered mb-0">
                         <thead class="table-light">
@@ -79,12 +86,22 @@
                             <tr>
                                 <td>코딩 시험</td>
                                 <td>ORM은 무엇의 약자인가?</td>
-                                <td>주관식</td>
+                                <td>주관식 (단일정답)</td>
                                 <td>상</td>
                                 <td>Django,DB</td>
                                 <td>Object-Relational Mapping</td>
                                 <td></td>
                                 <td></td>
+                            </tr>
+                            <tr class="table-info">
+                                <td>코딩 시험</td>
+                                <td>Django의 3대 핵심 요소를 쓰시오.</td>
+                                <td>주관식 (복수정답)</td>
+                                <td>중</td>
+                                <td>Django</td>
+                                <td>Model</td>
+                                <td>View</td>
+                                <td>Template</td>
                             </tr>
                         </tbody>
                     </table>

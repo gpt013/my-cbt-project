@@ -18,7 +18,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse
 from django.core.mail import send_mail
 
-from .models import Choice, Question, Quiz, TestResult, UserAnswer, QuizAttempt, ExamSheet
+from .models import Choice, Question, Quiz, TestResult, UserAnswer, QuizAttempt, ExamSheet, Tag
 
 # 1. '마이 페이지' (로그인 후 첫 화면)
 @login_required
@@ -373,6 +373,8 @@ def quiz_results(request):
         is_pass=is_pass # <-- 합격 여부 저장
     )
 
+    award_badges(request.user, test_result)
+
     # UserAnswer(개별 답안) 객체들을 저장합니다.
     for result in results_data:
         if result['selected_choice'] or (result['short_answer_text'] is not None):
@@ -460,46 +462,75 @@ def upload_quiz(request):
             excel_file = request.FILES['excel_file']
             # 빈 칸(NaN)을 빈 문자열('')로 안전하게 처리합니다.
             df = pd.read_excel(excel_file).fillna('')
+            
+            error_count = 0
+            success_count = 0
 
             for index, row in df.iterrows():
+                
+                # --- [핵심 수정 1] Question Type 처리 ---
+                q_type_excel = row['question_type'] # 엑셀에서 읽은 값
+                q_type_db = q_type_excel           # DB에 저장할 값
+
+                # 1-1. 하위 호환성: "주관식"이라고 쓰면 -> "주관식 (단일정답)"으로 자동 변환
+                if q_type_excel == '주관식':
+                    q_type_db = '주관식 (단일정답)'
+                
+                # 1-2. DB에 허용된 타입인지 검사 (models.py와 일치해야 함)
+                allowed_types = ['객관식', '다중선택', '주관식 (단일정답)', '주관식 (복수정답)']
+                if q_type_db not in allowed_types:
+                    messages.error(request, f"업로드 실패 (행 {index + 2}): 'question_type'('{q_type_excel}')이 잘못되었습니다. [객관식, 다중선택, 주관식 (단일정답), 주관식 (복수정답)] 중 하나여야 합니다.")
+                    error_count += 1
+                    continue # 이 행은 건너뛰고 다음 행으로
+                # ----------------------------------------
+                
                 quiz, created = Quiz.objects.get_or_create(title=row['quiz_title'])
                 
-                q_type = row['question_type']
                 question = Question.objects.create(
                     quiz=quiz,
                     question_text=row['question_text'],
-                    question_type=q_type,
+                    question_type=q_type_db, # <--- 수정된 DB용 타입으로 저장
                     difficulty=row['difficulty']
                 )
 
-                # --- [핵심 추가] 태그 처리 로직 ---
-                # 'tags' 열이 비어있지 않은 경우에만 실행합니다.
+                # --- 태그 처리 로직 (기존과 동일) ---
                 if row['tags']:
-                    # 쉼표(,)를 기준으로 태그 이름들을 분리합니다.
                     tag_names = [tag.strip() for tag in str(row['tags']).split(',') if tag.strip()]
                     for tag_name in tag_names:
-                        # 태그를 찾거나, 없으면 새로 만듭니다.
                         tag, created = Tag.objects.get_or_create(name=tag_name)
-                        # 문제에 해당 태그를 연결합니다.
                         question.tags.add(tag)
                 # --------------------------------
 
-                if q_type in ['객관식', '다중선택']:
+                # --- [핵심 수정 2] Choice(정답/보기) 저장 로직 ---
+                
+                # 2-1. 복수 정답/보기를 허용하는 타입들
+                # [수정] '주관식 (복수정답)'을 '다중선택'과 동일한 로직으로 처리
+                if q_type_db in ['객관식', '다중선택', '주관식 (복수정답)']:
+                    
                     # correct_choice로 시작하는 모든 열을 정답으로 처리
                     for col in df.columns:
                         if str(col).startswith('correct_choice') and row[col]:
                             Choice.objects.create(question=question, choice_text=row[col], is_correct=True)
-                    # other_choice로 시작하는 모든 열을 오답으로 처리
-                    for col in df.columns:
-                        if str(col).startswith('other_choice') and row[col]:
-                            Choice.objects.create(question=question, choice_text=row[col], is_correct=False)
+                    
+                    # 오답 보기는 '객관식', '다중선택'일 때만 추가
+                    if q_type_db in ['객관식', '다중선택']:
+                        for col in df.columns:
+                            if str(col).startswith('other_choice') and row[col]:
+                                Choice.objects.create(question=question, choice_text=row[col], is_correct=False)
                 
-                elif q_type == '주관식':
-                    # correct_choice 열의 값을 정답 텍스트로 저장
+                # 2-2. 단일 정답만 허용하는 타입
+                elif q_type_db == '주관식 (단일정답)':
                     if row['correct_choice']:
                         Choice.objects.create(question=question, choice_text=row['correct_choice'], is_correct=True)
+                # ------------------------------------------
+
+                success_count += 1
             
-            messages.success(request, f"{len(df)}개의 문제가 성공적으로 업로드되었습니다.")
+            if success_count > 0:
+                messages.success(request, f"{success_count}개의 문제가 성공적으로 업로드되었습니다.")
+            if error_count > 0:
+                messages.warning(request, f"{error_count}개의 문제는 오류로 인해 건너뛰었습니다. (상세 내용 확인)")
+
         except Exception as e:
             messages.error(request, f"업로드 중 오류가 발생했습니다: {e}")
 
@@ -778,3 +809,224 @@ def export_student_data(request):
     df.to_excel(response, index=False)
 
     return response
+
+
+def award_badges(user, test_result):
+    
+    # 1. 사용자의 프로필과 뱃지 목록을 가져옵니다.
+    try:
+        user_profile = user.profile
+        user_badges = user_profile.badges.all()
+        user_badge_names = set(user_badges.values_list('name', flat=True))
+    except Profile.DoesNotExist:
+        # 프로필이 없는 비상 상황 (예: 슈퍼유저)
+        return
+    except Exception as e:
+        print(f"뱃지 로직 오류 (프로필 로드 실패): {e}")
+        return
+
+    # 2. 앞으로 추가할 뱃지를 담을 리스트
+    badges_to_add = []
+    
+    # 3. DB에 있는 모든 뱃지 객체를 가져옵니다. (효율성을 위해 dict로)
+    all_badges = {badge.name: badge for badge in Badge.objects.all()}
+
+    # --- 4. 뱃지 조건 검사 ---
+    
+   # [1] 첫걸음: 첫 번째 시험을 완료
+    badge_name = '첫걸음'
+    if badge_name not in user_badge_names:
+        if TestResult.objects.filter(user=user).count() == 1: # 이번이 첫 시험임
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [2] 퍼펙트: 100점으로 시험을 통과했습니다. (횟수 무관, '완벽한 시작'과 다름)
+    badge_name = '퍼펙트'
+    if test_result.score == 100 and badge_name not in user_badge_names:
+        if all_badges.get(badge_name):
+            badges_to_add.append(all_badges[badge_name])
+            user_badge_names.add(badge_name)
+
+    # [3] 완벽한 시작: '처음으로' 100점을 달성했습니다.
+    badge_name = '완벽한 시작'
+    if test_result.score == 100 and badge_name not in user_badge_names:
+        previous_100s = TestResult.objects.filter(
+            user=user, score=100
+        ).exclude(pk=test_result.pk).exists() # 이번 점수 제외
+        if not previous_100s:
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [4] 지니어스: '상' 난이도 시험에서 90점 이상
+    # (주의: '상' 난이도 질문이 1개라도 포함된 퀴즈로 가정)
+    badge_name = '지니어스'
+    if test_result.score >= 90 and badge_name not in user_badge_names:
+        quiz_has_hard_questions = test_result.quiz.question_set.filter(difficulty='상').exists()
+        if quiz_has_hard_questions:
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [5] 아차상: 98점 또는 99점
+    badge_name = '아차상'
+    if (test_result.score == 98 or test_result.score == 99) and badge_name not in user_badge_names:
+        if all_badges.get(badge_name):
+            badges_to_add.append(all_badges[badge_name])
+            user_badge_names.add(badge_name)
+
+    # [6] 아슬아슬: 60~65점 사이
+    badge_name = '아슬아슬'
+    if 60 <= test_result.score <= 65 and badge_name not in user_badge_names:
+        if all_badges.get(badge_name):
+            badges_to_add.append(all_badges[badge_name])
+            user_badge_names.add(badge_name)
+
+    # [7] 절반의 성공: 정확히 50점
+    badge_name = '절반의 성공'
+    if test_result.score == 50 and badge_name not in user_badge_names:
+        if all_badges.get(badge_name):
+            badges_to_add.append(all_badges[badge_name])
+            user_badge_names.add(badge_name)
+
+    # [8] 괜찮아, 다시 하면 돼: 30점 이하
+    badge_name = '괜찮아, 다시 하면 돼'
+    if test_result.score <= 30 and badge_name not in user_badge_names:
+        if all_badges.get(badge_name):
+            badges_to_add.append(all_badges[badge_name])
+            user_badge_names.add(badge_name)
+
+    # [9] 빵점...?!: 0점
+    badge_name = '빵점...?!'
+    if test_result.score == 0 and badge_name not in user_badge_names:
+        if all_badges.get(badge_name):
+            badges_to_add.append(all_badges[badge_name])
+            user_badge_names.add(badge_name)
+
+    # [10] 재도전자: 같은 종류의 시험 3회 이상 응시
+    badge_name = '재도전자'
+    if badge_name not in user_badge_names:
+        attempts_count = TestResult.objects.filter(
+            user=user, quiz=test_result.quiz
+        ).count()
+        if attempts_count >= 3:
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [11] 성실한 응시자: 총 시험 횟수 10회 돌파
+    badge_name = '성실한 응시자'
+    if badge_name not in user_badge_names:
+        total_attempts = TestResult.objects.filter(user=user).count()
+        if total_attempts >= 10:
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [12] 연승가도: 3개 시험 연속 합격
+    badge_name = '연승가도'
+    if test_result.is_pass and badge_name not in user_badge_names:
+        last_three_results = TestResult.objects.filter(user=user).order_by('-completed_at')[:3]
+        if len(last_three_results) == 3 and all(r.is_pass for r in last_three_results):
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [13] 불사조: 불합격했던 시험을 재응시하여 합격
+    badge_name = '불사조'
+    if test_result.is_pass and badge_name not in user_badge_names:
+        had_failed_before = TestResult.objects.filter(
+            user=user, quiz=test_result.quiz, is_pass=False
+        ).exists()
+        if had_failed_before:
+             if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [14] 노력의 결실: 같은 시험 1차 점수보다 30점 이상 향상
+    badge_name = '노력의 결실'
+    if badge_name not in user_badge_names:
+        first_attempt = TestResult.objects.filter(
+            user=user, quiz=test_result.quiz
+        ).order_by('completed_at').first()
+        if first_attempt and first_attempt.pk != test_result.pk:
+            if test_result.score >= first_attempt.score + 30:
+                if all_badges.get(badge_name):
+                    badges_to_add.append(all_badges[badge_name])
+                    user_badge_names.add(badge_name)
+
+    # [15] 정복자: 사이트의 모든 종류의 시험에 '응시'
+    badge_name = '정복자'
+    if badge_name not in user_badge_names:
+        all_quiz_ids = set(Quiz.objects.values_list('id', flat=True))
+        attempted_quiz_ids = set(TestResult.objects.filter(user=user).values_list('quiz_id', flat=True).distinct())
+        
+        if all_quiz_ids and all_quiz_ids.issubset(attempted_quiz_ids):
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [16] all 100: 사이트의 모든 종류의 시험에서 100점
+    badge_name = 'all 100'
+    if test_result.score == 100 and badge_name not in user_badge_names:
+        all_quiz_ids = set(Quiz.objects.values_list('id', flat=True))
+        passed_100_quiz_ids = set(TestResult.objects.filter(user=user, score=100).values_list('quiz_id', flat=True).distinct())
+
+        if all_quiz_ids and all_quiz_ids.issubset(passed_100_quiz_ids):
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [17] 공정 마스터: '공정' 카테고리 시험 3개 이상 '합격'
+    badge_name = '공정 마스터'
+    if test_result.is_pass and test_result.quiz.category == Quiz.Category.PROCESS and badge_name not in user_badge_names:
+        passed_process_quizzes_count = TestResult.objects.filter(
+            user=user, 
+            quiz__category=Quiz.Category.PROCESS, 
+            is_pass=True
+        ).values('quiz_id').distinct().count()
+        
+        if passed_process_quizzes_count >= 3:
+            if all_badges.get(badge_name):
+                badges_to_add.append(all_badges[badge_name])
+                user_badge_names.add(badge_name)
+
+    # [18] 꾸준함: 3일 연속 시험 응시
+    badge_name = '꾸준함'
+    if badge_name not in user_badge_names:
+        # 사용자가 시험을 본 '날짜' 목록을 중복 없이, 최신순으로 3개 가져옴
+        recent_test_dates = list(TestResult.objects.filter(user=user).dates('completed_at', 'day', order='DESC')[:3])
+        if len(recent_test_dates) == 3:
+            # 날짜 3개가 연속되는지 확인 (예: 15일, 14일, 13일)
+            is_consecutive = (
+                recent_test_dates[0] - timedelta(days=1) == recent_test_dates[1] and
+                recent_test_dates[1] - timedelta(days=1) == recent_test_dates[2]
+            )
+            if is_consecutive:
+                if all_badges.get(badge_name):
+                    badges_to_add.append(all_badges[badge_name])
+                    user_badge_names.add(badge_name)
+
+    # --- 5. 뱃지 일괄 추가 ---
+    if badges_to_add:
+        user_profile.badges.add(*badges_to_add)
+
+    # --- 6. 뱃지를 획득한 후, '개수' 뱃지 체크 ('수집가', '뱃지 콜렉터') ---
+    
+    # (user_badge_names set은 이번에 새로 딴 뱃지 이름도 포함하고 있음)
+    final_badge_count = len(user_badge_names) 
+    
+    # [19] 수집가 (5개)
+    badge_name = '수집가'
+    if final_badge_count >= 5 and badge_name not in user_badge_names:
+        if all_badges.get(badge_name):
+            user_profile.badges.add(all_badges[badge_name])
+            user_badge_names.add(badge_name) # (다음 티어 체크를 위해 set에 수동 추가)
+
+    # [20] (보너스) 뱃지 콜렉터 (10개)
+    badge_name = '뱃지 콜렉터' # (Admin에 이 이름으로 뱃지 추가 필요)
+    if final_badge_count >= 10 and badge_name not in user_badge_names:
+         if all_badges.get(badge_name):
+            user_profile.badges.add(all_badges[badge_name])
+            user_badge_names.add(badge_name)

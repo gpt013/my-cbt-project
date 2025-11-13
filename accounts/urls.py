@@ -7,6 +7,10 @@ urlpatterns = [
     path('ajax/load-part-leaders/', views.load_part_leaders, name='ajax_load_part_leaders'),
     path('signup/', views.signup, name='signup'),
     
+    # --- [핵심 추가] 프로필 완성 URL ---
+    path('complete-profile/', views.complete_profile, name='complete_profile'),
+    # --------------------------------
+
     path('login/', auth_views.LoginView.as_view(
         template_name='accounts/login.html', 
         redirect_authenticated_user=True
@@ -16,7 +20,7 @@ urlpatterns = [
         next_page='/accounts/login/'
     ), name='logout'),
 
-    # --- [핵심 추가] 비밀번호 재설정 기능 URL 4개 ---
+    # --- 비밀번호 재설정 기능 URL 4개 ---
     
     # 1. 비밀번호 재설정 요청 페이지 (이메일 입력)
     path('password_reset/', 

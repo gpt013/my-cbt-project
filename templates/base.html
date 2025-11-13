@@ -8,7 +8,8 @@
 </head>
 <body>
     {# --- "시험 중"이 아닐 때만 이 헤더 전체를 보여줍니다 --- #}
-    {% if not is_in_test_mode %}
+    
+    {% if not is_in_test_mode and not is_completing_profile %} 
     <header>
         <nav class="navbar navbar-expand-lg navbar-light bg-light">
             <div class="container-fluid">
@@ -42,7 +43,6 @@
                                     [관리자 페이지]
                                 </a>
                             </li>
-                            {# --- [핵심 수정] 불필요한 '태그별 문제 보기' 링크를 삭제했습니다 --- #}
                             {% endif %}
                         {% endif %}
                     </ul>
@@ -82,7 +82,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    {% if user.is_authenticated and not is_in_test_mode %}
+    {% if user.is_authenticated and not is_in_test_mode and not is_completing_profile %} 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const notificationSocket = new WebSocket(

@@ -7,9 +7,30 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
 # --- 1. 인라인 클래스 정의 ---
+
+# --- [핵심 수정] ---
+# ChoiceInline에 get_max_num 메서드를 추가하여
+# 문제 유형에 따라 정답 개수를 동적으로 제한합니다.
 class ChoiceInline(admin.TabularInline):
     model = Choice
     extra = 1
+
+    def get_max_num(self, request, obj=None, **kwargs):
+        """ 
+        질문 객체(obj)의 유형에 따라 최대 보기/정답 개수를 동적으로 조절합니다.
+        """
+        if obj:
+            # '주관식 (단일정답)' 유형일 때만
+            if obj.question_type == '주관식 (단일정답)':
+                # 최대 정답 개수를 1개로 제한합니다.
+                return 1
+        
+        # '객관식', '다중선택', '주관식 (복수정답)' 및
+        # 아직 저장되지 않은 새 문제(obj=None)는
+        # 보기/정답 개수에 제한을 두지 않습니다.
+        return None
+# --- [ / 핵심 수정] ---
+
 
 class QuestionInline(admin.StackedInline):
     model = Question
@@ -70,7 +91,7 @@ class QuizAdmin(admin.ModelAdmin):
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ('question_text', 'quiz', 'question_type', 'difficulty')
     list_filter = ('quiz', 'question_type', 'difficulty', 'tags')
-    inlines = [ChoiceInline]
+    inlines = [ChoiceInline] # <- 수정된 ChoiceInline이 여기 적용됩니다.
     filter_horizontal = ('tags',)
     search_fields = ('question_text',)
 
@@ -170,4 +191,3 @@ admin.site.register(ExamSheet, ExamSheetAdmin)
 admin.site.register(UserAnswer, UserAnswerAdmin)
 admin.site.register(TestResult, TestResultAdmin)
 admin.site.register(QuizAttempt, QuizAttemptAdmin)
-
