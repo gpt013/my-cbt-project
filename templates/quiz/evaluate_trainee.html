@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 800px;">
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <h3 class="mb-0">{{ trainee.name }} 교육생 평가</h3>
+            <small>{{ trainee.cohort.name }} / {{ trainee.process }} / 사번: {{ trainee.employee_id }}</small>
+        </div>
+        <div class="card-body">
+
+            {% if not is_all_passed %}
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill"></i> 
+                    <strong>주의:</strong> 이 교육생은 아직 모든 필수 과정(공통/자공정 시험)을 통과하지 않았습니다.
+                </div>
+            {% else %}
+                 <div class="alert alert-success" role="alert">
+                    <i class="bi bi-check-circle-fill"></i> 
+                    모든 필수 과정을 수료한 교육생입니다.
+                </div>
+            {% endif %}
+
+            <hr>
+
+            <form method="post">
+                {% csrf_token %}
+
+                {% for category in categories %}
+                    <div class="mb-4">
+                        <h5 class="border-bottom pb-2 text-secondary">{{ category.name }}</h5>
+                        
+                        <div class="row">
+                            {% for item in category.evaluationitem_set.all %}
+                                <div class="col-md-6 mb-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="selected_items" value="{{ item.id }}" id="item_{{ item.id }}"
+                                            {% if item in form.instance.selected_items.all %}checked{% endif %}>
+                                        
+                                        <label class="form-check-label {% if not item.is_positive %}text-danger{% endif %}" for="item_{{ item.id }}">
+                                            {{ item.description }}
+                                            {% if item.is_positive %} (긍정){% else %} (부정){% endif %}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+
+                <div class="mb-4">
+                    <label class="form-label fw-bold">종합 정성 평가</label>
+                    {{ form.overall_comment }}
+                </div>
+
+                <div class="d-grid gap-2">
+                    <button type="submit" class="btn btn-primary btn-lg">평가 저장 및 완료</button>
+                    <a href="{% url 'quiz:dashboard' %}" class="btn btn-secondary">취소</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

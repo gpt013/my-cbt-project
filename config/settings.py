@@ -195,31 +195,56 @@ ADMIN_INTERFACE_SETTINGS = {
     'SHOW_HEADER': True,
     'SHOW_SIDEMENU': True,
 }
+
 ADMIN_INTERFACE_MODELS_GROUP_BY_CATEGORY = [
     {
-        "name": "교육생 관리",
+        "name": "1. 교육 운영 관리",  # [가장 자주 쓰는 메뉴]
         "models": [
-            "auth.User",
-            "auth.Group",
-            "accounts.Profile",
-            "accounts.Badge",
-            "accounts.Company",
-            "accounts.EvaluationRecord",
-            "accounts.PartLeader",
+            "accounts.Cohort",          # 기수 (교육 차수)
+            "accounts.Profile",         # 교육생 프로필
+            "quiz.QuizAttempt",         # 응시 요청 (승인 처리용)
+            "quiz.TestResult",          # 시험 최종 결과
         ],
     },
     {
-        "name": "퀴즈 관리",
-        "models": ["quiz.Quiz", "quiz.Question", "quiz.Choice", "quiz.Tag", "quiz.ExamSheet"],
+        "name": "2. 매니저 평가 시스템", # [새로 만든 평가 기능]
+        "models": [
+            "accounts.ManagerEvaluation", # 매니저 최종 평가서
+            "accounts.EvaluationCategory",# 평가 항목 (대분류)
+            "accounts.EvaluationItem",    # 평가 예시 (체크리스트)
+            "accounts.EvaluationRecord",  # (기타) 평가 기록
+        ],
     },
     {
-        "name": "시험 결과 관리",
-        "models": ["quiz.QuizAttempt", "quiz.TestResult", "quiz.UserAnswer"],
+        "name": "3. 퀴즈 콘텐츠 관리",   # [문제 출제용]
+        "models": [
+            "quiz.Quiz",                # 퀴즈
+            "quiz.ExamSheet",           # 문제 세트
+            "quiz.Question",            # 문제
+            "quiz.Tag",                 # 태그
+        ],
     },
     {
-        "name": "사이트 설정",
-        "models": ["admin_interface.Theme", "sites.Site"]
-    }
+        "name": "4. 기준 정보 설정",     # [초기 세팅용]
+        "models": [
+            "accounts.Company",         # 회사
+            "accounts.Process",         # 공정
+            "accounts.PartLeader",      # PL (파트장)
+            "accounts.Badge",           # 뱃지
+            "accounts.RecordType",      # 평가 기록 유형
+        ],
+    },
+    {
+        "name": "5. 시스템 및 로그",     # [잘 안 쓰는 것들]
+        "models": [
+            "auth.User",
+            "auth.Group",
+            "sites.Site",
+            "admin_interface.Theme",    # 테마 설정
+            "quiz.UserAnswer",          # 사용자 상세 답변 (로그성 데이터)
+            "quiz.Choice",              # 보기 (문제 안에서 관리하므로 숨김 처리 추천)
+        ],
+    },
 ]
 
 # 비밀번호 재설정 이메일 설정

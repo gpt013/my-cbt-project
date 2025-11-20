@@ -37,4 +37,6 @@ urlpatterns = [
     # --- 8. 엑셀 기능 (현재 비활성화) ---
     path('quiz/export-student-data/', views.export_student_data, name='export_student_data'),
     path('quiz/upload/', views.upload_quiz, name='upload_quiz'),
+
+    path('evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
 ]

@@ -8,9 +8,6 @@ from asgiref.sync import async_to_sync
 
 # --- 1. 인라인 클래스 정의 ---
 
-# --- [핵심 수정] ---
-# ChoiceInline에 get_max_num 메서드를 추가하여
-# 문제 유형에 따라 정답 개수를 동적으로 제한합니다.
 class ChoiceInline(admin.TabularInline):
     model = Choice
     extra = 1
@@ -22,15 +19,8 @@ class ChoiceInline(admin.TabularInline):
         if obj:
             # '주관식 (단일정답)' 유형일 때만
             if obj.question_type == '주관식 (단일정답)':
-                # 최대 정답 개수를 1개로 제한합니다.
                 return 1
-        
-        # '객관식', '다중선택', '주관식 (복수정답)' 및
-        # 아직 저장되지 않은 새 문제(obj=None)는
-        # 보기/정답 개수에 제한을 두지 않습니다.
         return None
-# --- [ / 핵심 수정] ---
-
 
 class QuestionInline(admin.StackedInline):
     model = Question
@@ -66,14 +56,27 @@ class ExamSheetAdmin(admin.ModelAdmin):
 class QuizAdmin(admin.ModelAdmin):
     list_display = ('title', 'category', 'generation_method', 'question_count')
     list_filter = ('generation_method', 'category') 
-    filter_horizontal = ('allowed_groups',)
+    filter_horizontal = ('allowed_groups', 'allowed_users', 'required_tags')
     
     fieldsets = (
-        (None, {'fields': ('title', 'category', 'associated_process', 'allowed_groups', 'generation_method', 'exam_sheet')}),
+        ('기본 정보', {
+            'fields': ('title', 'category', 'associated_process')
+        }),
+        ('응시 권한 설정 (그룹 또는 개인)', {
+            'fields': ('allowed_groups', 'allowed_users'),
+            'description': '그룹에 속해있거나, 개별 인원으로 지정된 사람은 시험을 볼 수 있습니다.'
+        }),
+        ('문제 출제 설정', {
+            'fields': ('generation_method', 'exam_sheet', 'required_tags'),
+            'description': "출제 방식에 따라 '문제 세트' 또는 '출제 포함 태그'를 선택해주세요."
+        }),
     )
     
     class Media:
-        js = ('admin/js/quiz_admin.js',)
+        js = (
+            'admin/js/quiz_admin.js', # (이건 기존에 있던 파일이면 유지)
+            'admin/js/quiz_form.js',  # [추가] 방금 만든 동적 화면 제어 스크립트
+        )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "exam_sheet":
@@ -91,7 +94,7 @@ class QuizAdmin(admin.ModelAdmin):
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ('question_text', 'quiz', 'question_type', 'difficulty')
     list_filter = ('quiz', 'question_type', 'difficulty', 'tags')
-    inlines = [ChoiceInline] # <- 수정된 ChoiceInline이 여기 적용됩니다.
+    inlines = [ChoiceInline]
     filter_horizontal = ('tags',)
     search_fields = ('question_text',)
 
@@ -109,11 +112,9 @@ class TagAdmin(admin.ModelAdmin):
 
 @admin.action(description='선택된 요청을 승인함')
 def approve_attempts(modeladmin, request, queryset):
-    # [수정] '대기중'인 것만 골라서 승인합니다.
     queryset_to_approve = queryset.filter(status='대기중')
     queryset_to_approve.update(status='승인됨')
     
-    # [수정] 알림 전송 로직
     channel_layer = get_channel_layer()
     if channel_layer:
         for attempt in queryset_to_approve:
@@ -127,12 +128,14 @@ def approve_attempts(modeladmin, request, queryset):
                     'message': f"'{quiz_title}' 시험 응시가 승인되었습니다! 지금 바로 시작할 수 있습니다."
                 }
             )
-    # ------------------------------------
 
 class QuizAttemptAdmin(admin.ModelAdmin):
     list_display = ('get_user', 'get_quiz', 'attempt_number', 'status', 'get_requested_at')
-    # --- [핵심 수정] 'user' 필터를 다시 추가합니다 ---
-    list_filter = ('status', 'quiz', 'user', 'user__profile__class_number', 'user__profile__process')
+    
+    # --- [핵심 수정] class_number -> cohort ---
+    list_filter = ('status', 'quiz', 'user', 'user__profile__cohort', 'user__profile__process')
+    # -----------------------------------------
+    
     list_editable = ('status',)
     actions = [approve_attempts]
     search_fields = ('user__username', 'user__profile__name', 'user__profile__employee_id')
@@ -155,9 +158,12 @@ class QuizAttemptAdmin(admin.ModelAdmin):
         return []
 
 class TestResultAdmin(admin.ModelAdmin):
-    # 'is_pass'를 목록과 필터에 추가
     list_display = ('get_user', 'get_quiz', 'attempt_number', 'score', 'is_pass', 'get_completed_at')
-    list_filter = ('is_pass', 'quiz', 'user', 'user__profile__class_number', 'user__profile__process')
+    
+    # --- [핵심 수정] class_number -> cohort ---
+    list_filter = ('is_pass', 'quiz', 'user', 'user__profile__cohort', 'user__profile__process')
+    # -----------------------------------------
+    
     search_fields = ('user__username', 'user__profile__name', 'user__profile__employee_id')
 
     @admin.display(description='교육생', ordering='user__username')
@@ -172,8 +178,11 @@ class TestResultAdmin(admin.ModelAdmin):
 
 class UserAnswerAdmin(admin.ModelAdmin):
     list_display = ('get_question_text', 'get_user', 'is_correct')
-    # --- [핵심 수정] 'test_result__user' 필터를 다시 추가합니다 ---
-    list_filter = ('is_correct', 'test_result__quiz', 'test_result__user', 'test_result__user__profile__class_number', 'test_result__user__profile__process')
+    
+    # --- [핵심 수정] class_number -> cohort ---
+    list_filter = ('is_correct', 'test_result__quiz', 'test_result__user', 'test_result__user__profile__cohort', 'test_result__user__profile__process')
+    # -----------------------------------------
+    
     search_fields = ('test_result__user__username', 'test_result__user__profile__name', 'question__question_text')
 
     @admin.display(description='문제', ordering='question__question_text')

@@ -3,10 +3,14 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User, Group
 from django.urls import reverse
 from django.utils.html import format_html
-from .models import Profile, Badge, Company, EvaluationRecord, PartLeader, Process, RecordType
+# [핵심] 새로 추가된 모델들 import
+from .models import (
+    Profile, Badge, Company, EvaluationRecord, PartLeader, Process, RecordType, 
+    Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation
+)
 from quiz.models import Quiz, TestResult
 
-# --- 1. [순서 수정] 'autocomplete'의 대상이 되는 기본 Admin들을 먼저 정의합니다 ---
+# --- 1. 기본 정보 관리 ---
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
@@ -20,11 +24,10 @@ class BadgeAdmin(admin.ModelAdmin):
 
 @admin.register(PartLeader)
 class PartLeaderAdmin(admin.ModelAdmin):
-    # --- [수정] 아래 3줄을 수정/추가합니다 ---
     list_display = ('name', 'email', 'company', 'process')
-    list_filter = ('company', 'process') # 'process' 추가
-    search_fields = ('name', 'email', 'company__name', 'process__name') # 'company__name', 'process__name' 추가
-    autocomplete_fields = ('company', 'process') # 이 줄을 추가
+    list_filter = ('company', 'process') 
+    search_fields = ('name', 'email', 'company__name', 'process__name') 
+    autocomplete_fields = ('company', 'process') 
 
 @admin.register(Process)
 class ProcessAdmin(admin.ModelAdmin):
@@ -36,39 +39,77 @@ class RecordTypeAdmin(admin.ModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
 
-# --- 2. 'Profile' Admin 정의 (EvaluationRecord가 참조해야 하므로 먼저 정의) ---
-# [핵심] Profile을 '사용자' 메뉴의 Inline과 별개로, 검색/참조용으로 등록합니다.
+# --- [신규] 기수(Cohort) 관리 ---
+@admin.register(Cohort)
+class CohortAdmin(admin.ModelAdmin):
+    list_display = ('name', 'start_date', 'end_date', 'is_registration_open')
+    list_filter = ('is_registration_open', 'start_date')
+    list_editable = ('is_registration_open',) 
+    search_fields = ('name',)
+    ordering = ('-start_date',)
+
+# --- [신규] 매니저 평가 항목 관리 ---
+@admin.register(EvaluationCategory)
+class EvaluationCategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'order')
+    list_editable = ('order',)
+
+@admin.register(EvaluationItem)
+class EvaluationItemAdmin(admin.ModelAdmin):
+    list_display = ('description', 'category', 'is_positive')
+    list_filter = ('category', 'is_positive')
+    search_fields = ('description',)
+
+@admin.register(ManagerEvaluation)
+class ManagerEvaluationAdmin(admin.ModelAdmin):
+    list_display = ('trainee_profile', 'manager', 'created_at')
+    list_filter = ('manager',)
+    search_fields = ('trainee_profile__name', 'manager__username')
+    filter_horizontal = ('selected_items',)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "manager":
+            # is_staff=True인 사용자만 쿼리셋에 포함
+            kwargs["queryset"] = User.objects.filter(is_staff=True)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+# --- 2. 'Profile' Admin ---
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'name', 'company', 'class_number', 'get_process_name')
+    # [수정] class_number -> get_cohort
+    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'is_profile_complete')
     
-    # --- [핵심 수정] '필터'와 '검색' 요청을 위해 검색 필드를 대폭 강화합니다 ---
     search_fields = (
-        'user__username', # 사용자 ID
-        'name',           # 이름
-        'employee_id',    # 사번
-        'class_number',   # 기수
-        'process__name',  # 공정 이름
-        'company__name',  # 회사 이름
-        'pl__name',       # PL 이름
+        'user__username', 
+        'name',           
+        'employee_id',    
+        'cohort__name',   # [수정] 기수 이름으로 검색
+        'process__name',  
+        'company__name',  
+        'pl__name',       
     )
     
-    autocomplete_fields = ('user', 'company', 'process', 'pl')
+    list_filter = ('is_profile_complete', 'cohort', 'company', 'process')
+    autocomplete_fields = ('user', 'company', 'process', 'pl', 'cohort') 
     filter_horizontal = ('badges',)
     
     @admin.display(description='공정', ordering='process__name')
     def get_process_name(self, obj):
         return obj.process.name if obj.process else ''
+
+    @admin.display(description='기수', ordering='cohort__name')
+    def get_cohort(self, obj):
+        return obj.cohort.name if obj.cohort else ''
     
-# --- 3. 'EvaluationRecord' Admin 정의 (중복 제거) ---
-# [핵심 수정] 팝업(raw_id_fields) 대신 '내부 검색(autocomplete_fields)' 사용
+# --- 3. 'EvaluationRecord' Admin ---
 @admin.register(EvaluationRecord)
 class EvaluationRecordAdmin(admin.ModelAdmin):
     list_display = ('profile_name', 'get_record_type', 'description_snippet', 'created_at')
-    list_filter = ('record_type', 'profile__company', 'profile__class_number', 'profile__process', 'profile__pl')
+    # [수정] profile__cohort 필터 사용
+    list_filter = ('record_type', 'profile__company', 'profile__cohort', 'profile__process', 'profile__pl')
     search_fields = ('profile__user__username', 'profile__name', 'description')
     
-    autocomplete_fields = ('profile',) # '내부 검색' 사용
+    autocomplete_fields = ('profile',) 
 
     @admin.display(description='교육생 이름', ordering='profile__name')
     def profile_name(self, obj):
@@ -82,12 +123,13 @@ class EvaluationRecordAdmin(admin.ModelAdmin):
     def description_snippet(self, obj):
         return obj.description[:30] + "..." if len(obj.description) > 30 else obj.description
 
-# --- 4. '그룹' 관리자 (모든 프로필 정보 표시 - 누락 없음) ---
+# --- 4. '그룹' 관리자 (UserInline) ---
 class UserInline(admin.TabularInline):
     model = User.groups.through
     verbose_name = "소속된 교육생"
     verbose_name_plural = "소속된 교육생 목록"
-    readonly_fields = ('user_link', 'name', 'employee_id', 'class_number', 'get_company', 'process', 'get_pl', 'first_attempt_scores')
+    # [수정] class_number -> get_cohort
+    readonly_fields = ('user_link', 'name', 'employee_id', 'get_cohort', 'get_company', 'process', 'get_pl', 'first_attempt_scores')
     can_delete = False
     max_num = 0
     exclude = ('user',)
@@ -102,10 +144,14 @@ class UserInline(admin.TabularInline):
     @admin.display(description='사번')
     def employee_id(self, instance):
         return instance.user.profile.employee_id if hasattr(instance.user, 'profile') else ''
+    
+    # [수정] 기수 표시
     @admin.display(description='기수')
-    def class_number(self, instance):
-        num = instance.user.profile.class_number if hasattr(instance.user, 'profile') else ''
-        return f"{num}기" if num else ''
+    def get_cohort(self, instance):
+        if hasattr(instance.user, 'profile') and instance.user.profile.cohort:
+            return instance.user.profile.cohort.name
+        return ''
+        
     @admin.display(description='소속 회사')
     def get_company(self, instance):
          if hasattr(instance.user, 'profile') and instance.user.profile.company:
@@ -140,7 +186,7 @@ class CustomGroupAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     ordering = ('name',)
 
-# --- 5. '사용자' 관리자 (최종) ---
+# --- 5. '사용자' 관리자 (UserAdmin) ---
 class EvaluationRecordInline(admin.TabularInline):
     model = EvaluationRecord
     extra = 1
@@ -153,9 +199,9 @@ class ProfileInline(admin.StackedInline):
     can_delete = False
     verbose_name_plural = '추가 정보'
     filter_horizontal = ('badges',)
-    fields = ('company', 'name', 'employee_id', 'class_number', 'process', 'line', 'pl', 'badges')
-    inlines = [EvaluationRecordInline]
-    autocomplete_fields = ('company', 'process', 'pl') 
+    # [수정] class_number -> cohort
+    fields = ('is_profile_complete', 'company', 'name', 'employee_id', 'cohort', 'process', 'line', 'pl', 'badges')
+    autocomplete_fields = ('company', 'process', 'pl', 'cohort') 
 
 @admin.action(description='선택된 사용자들을 활성 상태로 변경 (승인)')
 def activate_users(modeladmin, request, queryset):
@@ -163,12 +209,12 @@ def activate_users(modeladmin, request, queryset):
 
 class UserAdmin(BaseUserAdmin):
     inlines = (ProfileInline,)
-    list_display = ('username', 'name', 'employee_id', 'class_number_display', 'get_company', 'get_process', 'get_pl', 'is_staff', 'is_active')
+    # [수정] class_number_display -> get_cohort
+    list_display = ('username', 'name', 'employee_id', 'get_cohort', 'get_company', 'get_process', 'get_pl', 'is_staff', 'is_active')
     
-    # --- [핵심] '필터' 및 '검색' 기능 (요청하신 사항) ---
-    list_filter = ('is_active', 'is_staff', 'groups', 'profile__company', 'profile__class_number', 'profile__process', 'profile__pl')
+    # [수정] profile__class_number -> profile__cohort
+    list_filter = ('is_active', 'is_staff', 'groups', 'profile__company', 'profile__cohort', 'profile__process', 'profile__pl')
     search_fields = ('username', 'profile__name', 'profile__employee_id')
-    # -----------------------------------------------
 
     ordering = ('-is_staff', 'username')
     actions = [activate_users]
@@ -191,11 +237,14 @@ class UserAdmin(BaseUserAdmin):
         if hasattr(obj, 'profile') and obj.profile.pl:
             return obj.profile.pl.name
         return ''
-    def class_number_display(self, obj):
-        if hasattr(obj, 'profile') and obj.profile.class_number:
-            return f"{obj.profile.class_number}기"
+    
+    # [수정] 기수 표시 메서드 변경
+    @admin.display(description='기수', ordering='profile__cohort__name')
+    def get_cohort(self, obj):
+        if hasattr(obj, 'profile') and obj.profile.cohort:
+            return obj.profile.cohort.name
         return ''
-    class_number_display.short_description = '기수'
+
     def name(self, obj):
         if hasattr(obj, 'profile'):
             return obj.profile.name

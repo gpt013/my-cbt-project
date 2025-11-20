@@ -1,8 +1,17 @@
 from django.db import models
-from django.contrib.auth.models import User
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import User, Group
+from accounts.models import Process
 
+# Tag 모델 (Question보다 먼저 정의)
+class Tag(models.Model):
+    name = models.CharField(max_length=50, unique=True, verbose_name='태그 이름')
 
+    class Meta:
+        verbose_name = '태그'
+        verbose_name_plural = '태그'
+
+    def __str__(self):
+        return self.name
 
 # Quiz(시험지) 모델
 class Quiz(models.Model):
@@ -10,27 +19,46 @@ class Quiz(models.Model):
         COMMON = '공통', '공통 (모든 교육생에게 표시)'
         PROCESS = '공정', '공정 (해당 공정 교육생에게 우선 표시)'
 
+    # --- [수정] 출제 방식에 '태그 랜덤' 추가 ---
+    class GenerationMethod(models.TextChoices):
+        RANDOM = '랜덤', '난이도별 랜덤 출제 (기본)'
+        FIXED = '지정', '지정 문제 세트 출제'
+        TAG_RANDOM = '태그', '태그 조합 랜덤 출제' # [신규]
+
     title = models.CharField(max_length=200, verbose_name="퀴즈 제목")
+    
+    # 1. [기존] 그룹별 권한
     allowed_groups = models.ManyToManyField(Group, blank=True, verbose_name='응시 가능 그룹')
     
-    # --- [핵심 추가] 카테고리 필드 ---
+    # 2. [신규] 개인별 권한 (특정 인원만 시험 지정 가능)
+    allowed_users = models.ManyToManyField(
+        User, 
+        blank=True, 
+        verbose_name="개별 응시 허용 인원",
+        help_text="특정 인원에게만 이 시험을 지정하고 싶을 때 선택하세요."
+    )
+
+    # 3. [신규] 태그 기반 출제용 태그 선택
+    required_tags = models.ManyToManyField(
+        Tag, 
+        blank=True, 
+        verbose_name="출제 포함 태그",
+        help_text="출제 방식이 '태그 조합'일 때, 선택한 태그가 포함된 문제들 중에서만 출제됩니다."
+    )
+    
     category = models.CharField(
         max_length=10,
         choices=Category.choices,
         default=Category.COMMON,
         verbose_name="퀴즈 분류"
     )
-    associated_process = models.CharField(
-        max_length=100, 
-        blank=True, null=True, 
+    associated_process = models.ForeignKey(
+        Process,
+        on_delete=models.SET_NULL, 
+        null=True, blank=True, 
         verbose_name="관련 공정",
-        help_text="퀴즈 분류가 '공정'인 경우에만 이 필드를 채워주세요."
+        help_text="퀴즈 분류가 '공정'인 경우에만 선택해주세요."
     )
-
-    # --- 기존 출제 방식 필드 (누락 없음) ---
-    class GenerationMethod(models.TextChoices):
-        RANDOM = '랜덤', '난이도별 랜덤 출제'
-        FIXED = '지정', '지정 문제 세트 출제'
 
     generation_method = models.CharField(
         max_length=10, 
@@ -52,27 +80,14 @@ class Quiz(models.Model):
 
     def __str__(self):
         return self.title
-        
-
-# Tag 모델 (Question 모델보다 먼저 정의)
-class Tag(models.Model):
-    name = models.CharField(max_length=50, unique=True, verbose_name='태그 이름')
-
-    class Meta:
-        verbose_name = '태그'
-        verbose_name_plural = '태그'
-
-    def __str__(self):
-        return self.name
 
 # Question(문제) 모델
 class Question(models.Model):
     class QuestionType(models.TextChoices):
         SINGLE_CHOICE = '객관식'
         MULTIPLE_CHOICE = '다중선택'
-        # --- [핵심 수정 1] ---
-        SHORT_ANSWER = '주관식 (단일정답)' # 이름 변경
-        SHORT_ANSWER_MULTIPLE = '주관식 (복수정답)' # 새 타입 추가
+        SHORT_ANSWER = '주관식 (단일정답)'
+        SHORT_ANSWER_MULTIPLE = '주관식 (복수정답)'
 
     class Difficulty(models.TextChoices):
         EASY = '하'
@@ -80,28 +95,23 @@ class Question(models.Model):
         HARD = '상'
 
     question_type = models.CharField(
-        max_length=20, # <--- '주관식 (복수정답)'을 저장하기 위해 10에서 20으로 늘림
+        max_length=20,
         choices=QuestionType.choices,
         default=QuestionType.SINGLE_CHOICE,
-        verbose_name="문제 유형" # (admin에서 'Question type'으로 보임)
+        verbose_name="문제 유형"
     )
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
-    
-    # --- [핵심 수정 2] ---
-    # CharField를 TextField로 변경하여 칸 크기 및 엔터 문제 해결
-    question_text = models.TextField(verbose_name="문제 내용") # (admin에서 'Question text'로 보임)
-    # -------------------
-
+    question_text = models.TextField(verbose_name="문제 내용")
     difficulty = models.CharField(
         max_length=2,
         choices=Difficulty.choices,
         default=Difficulty.EASY,
-        verbose_name="난이도" # (admin에서 'Difficulty'로 보임)
+        verbose_name="난이도"
     )
     image = models.ImageField(
         upload_to='quiz_images/', 
         blank=True, null=True, 
-        verbose_name="이미지" # (admin에서 'Image'로 보임)
+        verbose_name="이미지"
     )
     tags = models.ManyToManyField(Tag, blank=True, verbose_name='태그')
 
@@ -110,13 +120,11 @@ class Question(models.Model):
         verbose_name_plural = '문제'
 
     def __str__(self):
-        # 텍스트가 너무 길면 잘라서 표시
         if len(self.question_text) > 50:
             return self.question_text[:50] + "..."
         return self.question_text
 
 class ExamSheet(models.Model):
-    # --- [핵심 추가] 어떤 퀴즈에 대한 문제 세트인지 연결합니다 ---
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, verbose_name="관련 퀴즈")
     name = models.CharField(max_length=100, verbose_name="문제 세트 이름")
     questions = models.ManyToManyField('Question', verbose_name="포함된 문제들")
@@ -216,4 +224,3 @@ class UserAnswer(models.Model):
         
     def __str__(self):
         return f"{self.question.question_text} -> {self.selected_choice.choice_text if self.selected_choice else self.short_answer_text}"
-

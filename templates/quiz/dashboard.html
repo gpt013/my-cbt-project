@@ -1,75 +1,420 @@
 {% extends 'base.html' %}
-    
+{% load static %}
+
 {% block content %}
-    <h1>관리자 대시보드</h1>
-    <hr>
-    
-    <h4>사이트 요약</h4>
-    <div class="row">
-        <div class="col-md-3 mb-3">
-            <div class="card text-center">
+<div class="container-fluid">
+    <h1 class="mt-4 mb-4 fw-bold">📊 통합 분석 대시보드</h1>
+
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-light">
+            <strong>🔍 데이터 필터링</strong> (원하는 조건만 선택하여 분석)
+        </div>
+        <div class="card-body">
+            <form method="get" class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">기수</label>
+                    <select name="cohort" class="form-select form-select-sm">
+                        <option value="">전체 기수</option>
+                        {% for c in cohorts %}
+                            <option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">회사</label>
+                    <select name="company" class="form-select form-select-sm">
+                        <option value="">전체 회사</option>
+                        {% for c in companies %}
+                            <option value="{{ c.id }}" {% if sel_company == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold">공정</label>
+                    <select name="process" class="form-select form-select-sm">
+                        <option value="">전체 공정</option>
+                        {% for p in processes %}
+                            <option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold text-primary">👤 교육생 (개별 분석)</label>
+                    <select name="student" class="form-select form-select-sm border-primary">
+                        <option value="">전체 교육생 보기</option>
+                        {% for p in all_profiles %}
+                            <option value="{{ p.id }}" {% if sel_student == p.id %}selected{% endif %}>
+                                [{{ p.cohort.name|default:"-" }}] {{ p.name }} ({{ p.user.username }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold">퀴즈 종류</label>
+                    <select name="quiz" class="form-select form-select-sm">
+                        <option value="">전체 퀴즈</option>
+                        {% for q in quizzes %}
+                            <option value="{{ q.id }}" {% if sel_quiz == q.id %}selected{% endif %}>{{ q.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-12 text-end">
+                    <a href="{% url 'quiz:dashboard' %}" class="btn btn-secondary btn-sm me-2">초기화</a>
+                    <button type="submit" class="btn btn-primary btn-sm">📊 분석 적용</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-primary text-white h-100">
                 <div class="card-body">
-                    <h5 class="card-title">총 교육생 수</h5>
-                    <p class="card-text fs-2 fw-bold">{{ total_users }}</p>
+                    <h6 class="text-uppercase">분석 대상 인원</h6>
+                    <h2 class="display-4 fw-bold">{{ total_students }}명</h2>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 mb-3">
-            <div class="card text-center">
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-success text-white h-100">
                 <div class="card-body">
-                    <h5 class="card-title">총 퀴즈 종류</h5>
-                    <p class="card-text fs-2 fw-bold">{{ total_quizzes }}</p>
+                    <h6 class="text-uppercase">평균 점수</h6>
+                    <h2 class="display-4 fw-bold">{{ average_score }}점</h2>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 mb-3">
-            <div class="card text-center">
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-info text-white h-100">
                 <div class="card-body">
-                    <h5 class="card-title">전체 평균 점수</h5>
-                    <p class="card-text fs-2 fw-bold">{{ average_score|floatformat:1 }}</p>
+                    <h6 class="text-uppercase">합격률</h6>
+                    <h2 class="display-4 fw-bold">{{ pass_rate }}%</h2>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 mb-3">
-            <div class="card text-center">
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-warning text-dark h-100">
                 <div class="card-body">
-                    <h5 class="card-title">총 응시 요청</h5>
-                    <p class="card-text fs-2 fw-bold">{{ total_attempts|default:0 }}</p>
+                    <h6 class="text-uppercase">총 응시 횟수</h6>
+                    <h2 class="display-4 fw-bold">{{ total_attempts }}회</h2>
                 </div>
             </div>
         </div>
     </div>
-    
-    <hr class="my-4">
-    
-    <h4>퀴즈별 오답률 TOP 5</h4>
+
     <div class="row">
-        {% for quiz_title, stats in stats_by_quiz.items %}
-        <div class="col-md-6 mb-4">
-            <div class="card">
+        <div class="col-lg-6 mb-4">
+            <div class="card shadow-sm h-100">
                 <div class="card-header">
-                    <strong>{{ quiz_title }}</strong>
+                    <i class="bi bi-bar-chart-fill"></i> 퀴즈별 평균 점수
                 </div>
-                {% if stats %}
-                <ul class="list-group list-group-flush">
-                    {% for item in stats %}
-                        <li class="list-group-item d-flex justify-content-between align-items-center">
-                            <span>
-                                <span class="badge bg-secondary me-2">{{ item.question__difficulty }}</span>
-                                {{ item.question__question_text }}
-                            </span>
-                            <span class="badge bg-danger rounded-pill">{{ item.incorrect_count }} 회</span>
-                        </li>
-                    {% endfor %}
-                </ul>
-                {% else %}
                 <div class="card-body">
-                    <p class="card-text text-muted">아직 데이터가 부족합니다.</p>
+                    <div style="height: 300px;">
+                        <canvas id="quizChart"></canvas>
+                    </div>
                 </div>
-                {% endif %}
             </div>
         </div>
-        {% endfor %}
+
+        <div class="col-lg-6 mb-4">
+            <div class="card shadow-sm h-100 border-danger">
+                <div class="card-header bg-danger text-white">
+                    <i class="bi bi-exclamation-triangle-fill"></i> 
+                    {% if sel_student %} 선택된 교육생 정보 {% else %} 집중 관리 필요 교육생 {% endif %}
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">* 기준: 평균 60점 미만 또는 2회 이상 불합격자</p>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead>
+                                <tr>
+                                    <th>이름</th>
+                                    <th>기수</th>
+                                    <th>공정</th>
+                                    <th>평균</th>
+                                    <th>불합격</th>
+                                    <th>관리</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for student in at_risk_students %}
+                                <tr>
+                                    <td>{{ student.name }}</td>
+                                    <td>{{ student.cohort }}</td>
+                                    <td>{{ student.process }}</td>
+                                    <td class="text-danger fw-bold">{{ student.avg_score }}</td>
+                                    <td>{{ student.fail_count }}회</td>
+                                    <td>
+                                        {% if student.profile_id %}
+                                        <a href="{% url 'quiz:evaluate_trainee' student.profile_id %}" class="btn btn-sm btn-outline-secondary">평가/면담</a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-3">
+                                        {% if sel_student %}
+                                            아직 시험 기록이 없습니다.
+                                        {% else %}
+                                            위험군 교육생이 없습니다. 👍
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-x-circle-fill text-danger"></i> 심층 오답 분석 (오답률 순)</span>
+            <span class="badge bg-secondary">{{ incorrect_analysis|length }}개 문제</span>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table align-middle table-hover" id="incorrectTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th>순위</th>
+                            <th style="width: 40%;">문제 내용</th>
+                            <th>난이도</th>
+                            <th class="text-center">오답 횟수</th>
+                            <th class="text-center">오답률</th>
+                            <th class="text-center">분석</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in incorrect_analysis %}
+                        <tr class="incorrect-row {% if forloop.counter > 5 %}d-none{% endif %}">
+                            <td>{{ forloop.counter }}</td>
+                            <td>
+                                <small class="text-muted">[{{ item.quiz_title }}]</small><br>
+                                {{ item.question_text|truncatechars:50 }}
+                            </td>
+                            <td>
+                                <span class="badge {% if item.difficulty == '상' %}bg-danger{% elif item.difficulty == '중' %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                                    {{ item.difficulty }}
+                                </span>
+                            </td>
+                            <td class="text-center">
+                                {{ item.wrong }} / {{ item.total }}
+                            </td>
+                            <td class="text-center">
+    <div class="progress" style="height: 20px;">
+        <div class="progress-bar bg-danger" role="progressbar" style="width: {{ item.rate }}%;" 
+             aria-valuenow="{{ item.rate }}" aria-valuemin="0" aria-valuemax="100">
+            {{ item.rate }}%
+        </div>
+    </div>
+
+    {% if item.difficulty == '하' and item.rate > 50 %}
+        <div class="mt-1">
+            <span class="badge bg-secondary text-wrap" style="font-size:0.7em;">
+                ⚠️ 난이도 상향 추천
+            </span>
+        </div>
+    {% endif %}
+
+    {% if item.difficulty == '상' and item.rate < 30 %}
+        <div class="mt-1">
+            <span class="badge bg-info text-dark text-wrap" style="font-size:0.7em;">
+                ⬇️ 난이도 하향 추천
+            </span>
+        </div>
+    {% endif %}
+</td>
+                            <td class="text-center">
+                                <button type="button" class="btn btn-sm btn-outline-primary analysis-btn" 
+                                        data-index="{{ forloop.counter0 }}">
+                                    <i class="bi bi-search"></i> 상세
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4">분석할 오답 데이터가 없습니다.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            {% if incorrect_analysis|length > 5 %}
+            <div class="d-grid gap-2 mt-3">
+                <button class="btn btn-outline-secondary" type="button" id="loadMoreBtn">
+                    👇 더보기 (나머지 문제 펼치기)
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="analysisModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">문제 분석</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p id="modalQuestionText" class="fw-bold mb-3"></p>
+                
+                <div id="correctAnswerBox" class="alert mb-3 text-center text-white fw-bold" style="background-color: #6c757d;">
+                    <i class="bi bi-check-circle-fill"></i> 
+                    정답: <span id="modalCorrectAnswer"></span>
+                </div>
+
+                <div style="height: 300px; position: relative;">
+                    <canvas id="analysisChart"></canvas>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ incorrect_analysis|json_script:"analysis-data" }}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        // [색상 팔레트]
+        const correctColor = '#4BC0C0'; // 정답 (청록색)
+        const incorrectColors = [       // 오답 (다양한 색상 순환)
+            '#FF6384', '#FF9F40', '#FFCE56', '#9966FF', '#C9CBCF', '#36A2EB'
+        ];
+
+        // 1. 퀴즈별 평균 점수 차트
+        const ctx = document.getElementById('quizChart');
+        if (ctx) {
+            new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: {{ chart_labels|safe }},
+                    datasets: [{
+                        label: '평균 점수',
+                        data: {{ chart_data|safe }},
+                        backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, max: 100 } }
+                }
+            });
+        }
+
+        // 2. 더보기 버튼
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (loadMoreBtn) {
+            loadMoreBtn.addEventListener('click', function() {
+                document.querySelectorAll('.incorrect-row.d-none').forEach(row => {
+                    row.classList.remove('d-none');
+                });
+                this.style.display = 'none';
+            });
+        }
+
+        // 3. 상세 분석 모달 (색상 일치 기능 포함)
+        let analysisChartInstance = null;
+        const analysisModalEl = document.getElementById('analysisModal');
+        let analysisModal = null;
+        if (analysisModalEl) {
+            try {
+                analysisModal = new bootstrap.Modal(analysisModalEl);
+            } catch (e) {
+                console.error("Modal Init Error:", e);
+            }
+        }
+
+        const analysisData = JSON.parse(document.getElementById('analysis-data').textContent);
+
+        document.querySelectorAll('.analysis-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const index = this.dataset.index; 
+                const item = analysisData[index]; 
+
+                if (!item) return;
+
+                let labels, data, correctList;
+                try {
+                    labels = JSON.parse(item.dist_labels);
+                    data = JSON.parse(item.dist_counts);
+                    // 정답 리스트 파싱 (없으면 빈 배열)
+                    correctList = item.correct_list ? JSON.parse(item.correct_list) : [];
+                } catch (e) {
+                    console.error("Data Parse Error:", e);
+                    return;
+                }
+
+                if (analysisModal) analysisModal.show();
+
+                document.getElementById('modalTitle').innerText = `오답 분석 (순위: ${parseInt(index) + 1}위)`;
+                document.getElementById('modalQuestionText').innerText = item.question_text;
+                
+                const correctAnswerText = item.correct_answer ? item.correct_answer : "정답 정보 없음";
+                
+                // 정답 박스 표시 (배경색은 초록색 고정)
+                const answerBox = document.getElementById('correctAnswerBox');
+                answerBox.querySelector('span').innerText = correctAnswerText;
+                answerBox.style.backgroundColor = correctColor; 
+
+                // [핵심] 차트 색상 배열 생성 로직
+                let incorrectColorIndex = 0;
+                const backgroundColors = labels.map(label => {
+                    // 라벨이 정답 리스트에 포함되어 있는지 확인 (공백 제거 후 비교)
+                    const isCorrect = correctList.some(correct => correct.trim() === label.trim());
+                    
+                    if (isCorrect) {
+                        return correctColor; // 정답이면 청록색
+                    } else {
+                        // 오답이면 팔레트 순환
+                        const color = incorrectColors[incorrectColorIndex % incorrectColors.length];
+                        incorrectColorIndex++;
+                        return color;
+                    }
+                });
+
+                if (analysisChartInstance) {
+                    analysisChartInstance.destroy();
+                }
+
+                const ctx2 = document.getElementById('analysisChart').getContext('2d');
+                analysisChartInstance = new Chart(ctx2, {
+                    type: 'doughnut',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: data,
+                            backgroundColor: backgroundColors, // [적용] 계산된 색상 배열
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'bottom' },
+                            title: { display: true, text: '답변 선택 분포 (명)' }
+                        }
+                    }
+                });
+            });
+        });
+    });
+</script>
 {% endblock %}
