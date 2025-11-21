@@ -158,20 +158,44 @@ class QuizAttemptAdmin(admin.ModelAdmin):
         return []
 
 class TestResultAdmin(admin.ModelAdmin):
-    list_display = ('get_user', 'get_quiz', 'attempt_number', 'score', 'is_pass', 'get_completed_at')
+    # 1. [수정] 목록에 '이름', '기수', '공정'이 바로 보이도록 칼럼 추가
+    list_display = ('get_user_name', 'get_cohort', 'get_process', 'get_quiz', 'score', 'is_pass', 'get_completed_at')
     
-    # --- [핵심 수정] class_number -> cohort ---
-    list_filter = ('is_pass', 'quiz', 'user', 'user__profile__cohort', 'user__profile__process')
-    # -----------------------------------------
+    # 2. [수정] 필터 기능 (오른쪽 사이드바에서 클릭해서 모아보기)
+    list_filter = ('is_pass', 'quiz', 'user__profile__cohort', 'user__profile__process')
     
-    search_fields = ('user__username', 'user__profile__name', 'user__profile__employee_id')
+    # 3. [수정] 검색 기능 강화 (이름, 사번, 기수명, 공정명으로 검색 가능)
+    search_fields = (
+        'user__username',               # 아이디
+        'user__profile__name',          # 실명
+        'user__profile__employee_id',   # 사번
+        'user__profile__cohort__name',  # 기수 이름 (예: 1기)
+        'user__profile__process__name'  # 공정 이름 (예: 용접)
+    )
 
-    @admin.display(description='교육생', ordering='user__username')
-    def get_user(self, obj):
-        return obj.user.username
+    # --- 아래는 화면 표시를 위한 함수들입니다 ---
+
+    @admin.display(description='이름', ordering='user__profile__name')
+    def get_user_name(self, obj):
+        # 프로필이 있으면 실명을, 없으면 아이디를 표시
+        return obj.user.profile.name if hasattr(obj.user, 'profile') else obj.user.username
+
+    @admin.display(description='기수', ordering='user__profile__cohort__name')
+    def get_cohort(self, obj):
+        if hasattr(obj.user, 'profile') and obj.user.profile.cohort:
+            return obj.user.profile.cohort.name
+        return '-'
+
+    @admin.display(description='공정', ordering='user__profile__process__name')
+    def get_process(self, obj):
+        if hasattr(obj.user, 'profile') and obj.user.profile.process:
+            return obj.user.profile.process.name
+        return '-'
+
     @admin.display(description='퀴즈 제목', ordering='quiz__title')
     def get_quiz(self, obj):
         return obj.quiz.title
+
     @admin.display(description='완료 시간', ordering='completed_at')
     def get_completed_at(self, obj):
         return obj.completed_at.strftime('%Y-%m-%d %H:%M')

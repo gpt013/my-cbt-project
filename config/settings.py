@@ -35,9 +35,11 @@ else:
 
 # Application definition
 INSTALLED_APPS = [
-    'channels',
     'admin_interface',
     'colorfield',
+    'channels',
+    
+    
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -191,7 +193,7 @@ SESSION_SAVE_EVERY_REQUEST = True
 
 # Admin Interface (테마 및 그룹화)
 ADMIN_INTERFACE_SETTINGS = {
-    'TITLE': 'CBT 관리자 서버',
+    'TITLE': 'PMTC CBT 관리 사이트', # [수정] 여기를 변경
     'SHOW_HEADER': True,
     'SHOW_SIDEMENU': True,
 }

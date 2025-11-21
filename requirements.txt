@@ -1,25 +1,28 @@
 asgiref==3.8.1
+boto3==1.40.70
+botocore==1.40.70
+channels==4.0.0
+dj-database-url==3.0.1
 Django==5.2.7
 django-admin-interface==0.30.1
 django-colorfield==0.14.0
-Pillow==10.3.0
-channels==4.0.0
-
-
-pandas==2.2.2
-
+django-storages==1.14.6
+et_xmlfile==2.0.0
+gunicorn==23.0.0
+jmespath==1.0.1
+numpy==2.3.4
 openpyxl==3.1.3
-
-# Render 웹 서버 실행용
-gunicorn
-
-# Render PostgreSQL DB 연결용
-psycopg2-binary
-dj-database-url
-
-# 정적 파일(CSS/JS) 처리용
-whitenoise
-
-# Cloudflare R2 (파일 저장소) 연결용
-django-storages
-boto3
+packaging==25.0
+pandas==2.2.2
+pillow==10.3.0
+psycopg2-binary==2.9.11
+python-dateutil==2.9.0.post0
+python-slugify==8.0.4
+pytz==2025.2
+s3transfer==0.14.0
+six==1.17.0
+sqlparse==0.5.3
+text-unidecode==1.3
+tzdata==2025.2
+urllib3==2.5.0
+whitenoise==6.11.0

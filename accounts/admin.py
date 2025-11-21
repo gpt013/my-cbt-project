@@ -154,9 +154,9 @@ class UserInline(admin.TabularInline):
         
     @admin.display(description='소속 회사')
     def get_company(self, instance):
-         if hasattr(instance.user, 'profile') and instance.user.profile.company:
+        if hasattr(instance.user, 'profile') and instance.user.profile.company:
             return instance.user.profile.company.name
-         return ''
+        return ''
     @admin.display(description='공정')
     def process(self, instance):
         if hasattr(instance.user, 'profile') and instance.user.profile.process:

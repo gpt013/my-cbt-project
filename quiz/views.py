@@ -699,6 +699,10 @@ def submit_quiz(request):
 
 @login_required
 def my_incorrect_answers_index(request):
+    if not request.user.is_staff:
+        messages.error(request, "접근 권한이 없습니다. (관리자 전용)")
+        return redirect('quiz:index') # 또는 'dashboard'
+    
     incorrect_answers = UserAnswer.objects.filter(test_result__user=request.user, is_correct=False)
     quizzes_with_incorrects = Quiz.objects.filter(question__useranswer__in=incorrect_answers).distinct()
     context = {'quizzes_with_incorrects': quizzes_with_incorrects}

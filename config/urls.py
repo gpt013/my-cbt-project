@@ -29,7 +29,7 @@ urlpatterns = [
 urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 # --- [핵심] 관리자 사이트 제목 변경 ---
-admin.site.site_header = "CBT 관리자 서버"  # 로그인 화면 및 헤더에 표시될 이름
-admin.site.site_title = "CBT 관리자"         # 브라우저 탭에 표시될 이름
-admin.site.index_title = "CBT 시스템 관리"     # 관리자 페이지 메인에 표시될 이름
+admin.site.site_header = "PMTC CBT 관리 사이트"  # 로그인 화면 및 상단 바
+admin.site.site_title = "PMTC CBT"             # 브라우저 탭 제목
+admin.site.index_title = "데이터 관리 대시보드"   # 메인 화면 제목
 

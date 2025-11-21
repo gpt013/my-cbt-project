@@ -1,41 +1,58 @@
 {% extends 'base.html' %}
 
 {% block content %}
-    <h1>{{ result.quiz.title }} 오답노트</h1>
+    <h1>{{ result.quiz.title }} 결과</h1>
     <p>{{ result.completed_at|date:"Y년 m월 d일 H:i" }} 응시 / <strong>{{ result.score }}점</strong></p>
     <hr>
 
-    {% if incorrect_answers %}
-        {% for user_answer in incorrect_answers %}
-            <div>
-                <h4>{{ forloop.counter }}. {{ user_answer.question.question_text }}</h4>
-                {% if user_answer.question.image %}
-                    <img src="{{ user_answer.question.image.url }}" alt="문제 이미지" style="max-width: 300px; height: auto;">
-                {% endif %}
+    {# ▼▼▼ [수정] 관리자(Staff)일 때만 상세 오답노트를 보여줍니다 ▼▼▼ #}
+    {% if user.is_staff %}
+        
+        <div class="alert alert-secondary">
+            <strong>관리자 모드:</strong> 상세 오답 내용을 확인합니다.
+        </div>
 
-                <ul>
-                {% for choice in user_answer.question.choice_set.all %}
-                    <li>
-                        {% if choice.image %}
-                            <img src="{{ choice.image.url }}" alt="보기 이미지" style="max-height: 80px; vertical-align: middle;">
-                        {% endif %}
-                        {{ choice.choice_text }}
+        {% if incorrect_answers %}
+            {% for user_answer in incorrect_answers %}
+                <div>
+                    <h4>{{ forloop.counter }}. {{ user_answer.question.question_text }}</h4>
+                    {% if user_answer.question.image %}
+                        <img src="{{ user_answer.question.image.url }}" alt="문제 이미지" style="max-width: 300px; height: auto;">
+                    {% endif %}
 
-                        {% if choice.id == user_answer.selected_choice.id %}
-                            <span style="color: red; font-weight: bold;"> &lt;-- 나의 오답</span>
-                        {% elif choice.is_correct %}
-                            <span style="color: green; font-weight: bold;"> &lt;-- 정답</span>
-                        {% endif %}
-                    </li>
-                {% endfor %}
-                </ul>
-            </div>
-            <hr>
-        {% endfor %}
+                    <ul>
+                    {% for choice in user_answer.question.choice_set.all %}
+                        <li>
+                            {% if choice.image %}
+                                <img src="{{ choice.image.url }}" alt="보기 이미지" style="max-height: 80px; vertical-align: middle;">
+                            {% endif %}
+                            {{ choice.choice_text }}
+
+                            {% if choice.id == user_answer.selected_choice.id %}
+                                <span style="color: red; font-weight: bold;"> &lt;-- 교육생 오답</span>
+                            {% elif choice.is_correct %}
+                                <span style="color: green; font-weight: bold;"> &lt;-- 정답</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </div>
+                <hr>
+            {% endfor %}
+        {% else %}
+            <p>틀린 문제가 없습니다! (만점)</p>
+        {% endif %}
+
+    {# ▼▼▼ [수정] 관리자가 아닐 경우(일반 교육생) 보여줄 화면 ▼▼▼ #}
     {% else %}
-        <p>틀린 문제가 없습니다! 완벽합니다. 👍</p>
+        <div class="alert alert-info" role="alert">
+            <h4 class="alert-heading">수고하셨습니다!</h4>
+            <p>시험이 정상적으로 종료되었습니다.</p>
+            <hr>
+            <p class="mb-0">보안 정책상 상세 문제 풀이와 정답은 제공되지 않습니다.<br>점수 확인만 가능합니다.</p>
+        </div>
     {% endif %}
 
-    <a href="{% url 'quiz:my_results_index' %}">결과 목록으로 돌아가기</a>
+    <a href="{% url 'quiz:my_results_index' %}" class="btn btn-primary mt-3">결과 목록으로 돌아가기</a>
        
-{% endblock %}python3 -m venv venv
+{% endblock %}
