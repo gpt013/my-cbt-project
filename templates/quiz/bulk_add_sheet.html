@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>📋 엑셀 복사/붙여넣기 문제 등록</h2>
+        <a href="{% url 'quiz:index' %}" class="btn btn-secondary">목록으로 돌아가기</a>
+    </div>
+
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> 엑셀 데이터를 복사(Ctrl+C)하여 아래 표의 첫 번째 칸을 클릭하고 붙여넣기(Ctrl+V) 하세요.<br>
+        <strong>[문제내용 | 유형 | 난이도 | 태그 | 보기1 | 보기2 | 보기3 | 보기4 | 정답]</strong> 순서입니다.
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <label for="quiz-select" class="form-label fw-bold">문제를 추가할 시험 선택:</label>
+            <select id="quiz-select" class="form-select">
+                <option value="" selected disabled>-- 시험을 선택하세요 --</option>
+                {% for quiz in quizzes %}
+                    <option value="{{ quiz.id }}">{{ quiz.title }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div id="excel-grid" style="width: 100%; height: 500px; overflow: hidden; border: 1px solid #ccc;"></div>
+    
+    <button id="save-btn" class="btn btn-primary mt-3 btn-lg w-100">
+        <i class="bi bi-check-circle"></i> 위 내용으로 문제 일괄 등록하기
+    </button>
+</div>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+
+<script>
+    const container = document.getElementById('excel-grid');
+    
+    // 1. 초기 빈 데이터 생성 (20행 x 9열)
+    // 각 행마다 빈 문자열('')로 채워진 배열을 만듭니다.
+    const initialData = [];
+    for (let i = 0; i < 20; i++) {
+        initialData.push(['', '객관식', '하', '', '', '', '', '', '']); 
+        // 기본값 설정: 유형='객관식', 난이도='하' (사용자가 바꾸기 편하게)
+    }
+
+    // 2. 그리드 설정
+    const hot = new Handsontable(container, {
+        data: initialData,
+        rowHeaders: true,
+        colHeaders: [
+            '문제 내용 (필수)', 
+            '유형 (선택)', 
+            '난이도 (선택)', 
+            '태그 (쉼표구분)', 
+            '보기1', '보기2', '보기3', '보기4', 
+            '정답 (1~4 또는 텍스트)'
+        ],
+        colWidths: [350, 130, 80, 120, 100, 100, 100, 100, 100],
+        
+        // [핵심 수정] 각 열(Column)의 속성을 명확히 정의
+        columns: [
+            { type: 'text' }, // 0: 문제 내용
+            { 
+                type: 'dropdown', 
+                source: ['객관식', '다중선택', '주관식 (단일정답)', '주관식 (복수정답)'] 
+            }, // 1: 유형
+            { 
+                type: 'dropdown', 
+                source: ['상', '중', '하'] 
+            }, // 2: 난이도
+            { type: 'text' }, // 3: 태그
+            { type: 'text' }, // 4: 보기1
+            { type: 'text' }, // 5: 보기2
+            { type: 'text' }, // 6: 보기3
+            { type: 'text' }, // 7: 보기4
+            { type: 'text' }, // 8: 정답
+        ],
+        
+        licenseKey: 'non-commercial-and-evaluation',
+        contextMenu: true, // 우클릭 메뉴 허용
+        minSpareRows: 1,   // 맨 아래 빈 줄 하나 자동 추가
+        autoWrapRow: true,
+        autoWrapCol: true,
+    });
+
+    // 3. 저장 버튼 이벤트
+    document.getElementById('save-btn').addEventListener('click', function() {
+        const quizId = document.getElementById('quiz-select').value;
+        
+        // 유효성 검사: 시험 선택 확인
+        if (!quizId) {
+            alert('⚠️ 문제를 추가할 시험(Quiz)을 먼저 선택해주세요!');
+            document.getElementById('quiz-select').focus();
+            return;
+        }
+
+        const tableData = hot.getData();
+        
+        // 유효성 검사: 빈 줄 제거 (문제 내용이 있는 줄만 추림)
+        const cleanData = tableData.filter(row => {
+            return row[0] !== null && row[0].toString().trim() !== '';
+        });
+
+        if (cleanData.length === 0) {
+            alert('⚠️ 입력된 문제가 없습니다.\n표의 첫 번째 칸(문제 내용)부터 내용을 입력하거나 붙여넣어 주세요.');
+            return;
+        }
+
+        // 전송 전 확인
+        if (!confirm(`${cleanData.length}개의 문제를 등록하시겠습니까?`)) {
+            return;
+        }
+
+        // 서버로 전송 (AJAX)
+        fetch("{% url 'quiz:bulk_add_sheet_save' %}", {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ 
+                'quiz_id': quizId, 
+                'data': cleanData 
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                alert(`✅ 성공! ${data.count}개의 문제가 등록되었습니다.`);
+                
+                if(confirm("목록으로 이동하시겠습니까?\n[취소]를 누르면 계속 입력할 수 있습니다.")) {
+                    window.location.href = "{% url 'quiz:index' %}"; 
+                } else {
+                    // 입력창 초기화 (선택적)
+                    // hot.loadData(initialData); 
+                }
+            } else {
+                alert('❌ 오류 발생: ' + data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('서버 통신 중 오류가 발생했습니다.');
+        });
+    });
+</script>
+{% endblock %}

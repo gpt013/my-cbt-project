@@ -39,4 +39,7 @@ urlpatterns = [
     path('quiz/upload/', views.upload_quiz, name='upload_quiz'),
 
     path('evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
+    path('bulk-add-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
+    path('bulk-add-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
 ]
+
