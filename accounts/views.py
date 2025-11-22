@@ -4,6 +4,7 @@ from django.shortcuts import render, redirect
 from django.db import transaction
 from .forms import CustomUserCreationForm, ProfileForm
 from django.contrib import messages
+from django.contrib.auth import logout
 from django.http import JsonResponse
 # --- [핵심 1] import 수정 ---
 from .models import PartLeader, Profile
@@ -114,3 +115,7 @@ def load_part_leaders(request):
     except Exception as e:
         # (숫자가 아닌 'asd' 같은 값이 들어오면 여기서 500 오류가 납니다)
         return JsonResponse({'error': str(e)}, status=500)
+
+def custom_logout(request):
+    logout(request) # 로그아웃 처리 (세션 삭제)
+    return redirect('accounts:login') # 로그인 페이지로 이동

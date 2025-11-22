@@ -3,7 +3,6 @@
 
 {% block content %}
 <style>
-    /* (signup.html과 동일한 오류 메시지 스타일) */
     .errorlist {
         color: #dc3545;
         font-weight: bold;
@@ -37,17 +36,18 @@
                         {{ profile_form.name.errors }}
                         <input type="text" name="name" value="{{ profile_form.name.value|default:'' }}" class="form-control" required id="{{ profile_form.name.id_for_label }}">
                     </div>
+
                     <div class="mb-3">
                         <label for="{{ profile_form.employee_id.id_for_label }}" class="form-label">{{ profile_form.employee_id.label }}</label>
                         {{ profile_form.employee_id.errors }}
                         <input type="text" name="employee_id" value="{{ profile_form.employee_id.value|default:'' }}" class="form-control" required id="{{ profile_form.employee_id.id_for_label }}">
                     </div>
+
                     <div class="mb-3">
-                        <label for="{{ profile_form.class_number.id_for_label }}" class="form-label">{{ profile_form.class_number.label }}</label>
-                        {{ profile_form.class_number.errors }}
-                        <input type="text" name="class_number" value="{{ profile_form.class_number.value|default:'' }}" class="form-control" required id="{{ profile_form.class_number.id_for_label }}">
+                        <label for="{{ profile_form.cohort.id_for_label }}" class="form-label">{{ profile_form.cohort.label }}</label>
+                        {{ profile_form.cohort.errors }}
+                        {{ profile_form.cohort }}
                     </div>
-                    
                     <div class="mb-3">
                         <label for="{{ profile_form.process.id_for_label }}" class="form-label">{{ profile_form.process.label }}</label>
                         {{ profile_form.process.errors }}
@@ -98,7 +98,6 @@
             
             resetPLSelect("파트장 목록을 불러오는 중...", true);
 
-            // [확인] 'process_id'로 올바르게 요청 중
             fetch(`${url}?company_id=${companyId}&process_id=${processId}`)
                 .then(response => {
                     if (!response.ok) {
@@ -138,9 +137,10 @@
         companySelect.addEventListener("change", updatePartLeaders);
         processSelect.addEventListener("change", updatePartLeaders);
 
-        updatePartLeaders(); 
-        
-        if (!companySelect.value || !processSelect.value) {
+        // 초기 실행 (이미 선택된 값이 있을 경우 대비)
+        if (companySelect.value && processSelect.value) {
+            updatePartLeaders();
+        } else {
             resetPLSelect("회사와 공정을 먼저 선택하세요", true);
         }
     });

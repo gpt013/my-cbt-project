@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+    <h2>👑 타 공정 열람 요청 관리</h2>
+    <hr>
+    
+    {% if requests %}
+        <div class="list-group">
+            {% for req in requests %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <h5 class="mb-1">{{ req.requester.profile.name }} ({{ req.requester.profile.process.name }})</h5>
+                    <p class="mb-1">
+                        요청 대상: <strong>{{ req.target_process.name }}</strong> 공정
+                    </p>
+                    <small class="text-muted">{{ req.created_at|date:"Y-m-d H:i" }}</small>
+                </div>
+                <div>
+                    <a href="{% url 'quiz:approve_access_request' req.id 'approve' %}" class="btn btn-success btn-sm">승인</a>
+                    <a href="{% url 'quiz:approve_access_request' req.id 'reject' %}" class="btn btn-danger btn-sm">거절</a>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">대기 중인 요청이 없습니다.</div>
+    {% endif %}
+    
+    <a href="{% url 'quiz:dashboard' %}" class="btn btn-secondary mt-3">대시보드로 돌아가기</a>
+</div>
+{% endblock %}

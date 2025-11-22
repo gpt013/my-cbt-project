@@ -1,25 +1,18 @@
 """
 URL configuration for config project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from accounts import views as accounts_views
 
 urlpatterns = [
+    # ▼▼▼ [핵심 수정] 관리자 로그아웃을 가로채서 -> 우리가 만든 로그인 페이지(accounts:login)로 보냄 ▼▼▼
+    # 주의: 반드시 아래의 'path('admin/', ...)' 보다 윗줄에 적어야 작동합니다!
+    path('admin/logout/', accounts_views.custom_logout, name='logout'),
+    # ▲▲▲ ------------------------------------------------------------------------- ▲▲▲
+
     path('admin/', admin.site.urls),
     path('quiz/', include('quiz.urls')),
     path('accounts/', include('accounts.urls')),
@@ -32,4 +25,3 @@ urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 admin.site.site_header = "PMTC CBT 관리 사이트"  # 로그인 화면 및 상단 바
 admin.site.site_title = "PMTC CBT"             # 브라우저 탭 제목
 admin.site.index_title = "데이터 관리 대시보드"   # 메인 화면 제목
-

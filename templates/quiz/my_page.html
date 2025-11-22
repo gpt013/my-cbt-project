@@ -45,16 +45,30 @@
                     {% if latest_results %}
                         <ul class="list-group list-group-flush">
                             {% for result in latest_results %}
-                                <a href="{% url 'quiz:result_detail' result.id %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
                                     <span>
-                                        {{ result.quiz.title }} ({{ result.completed_at|date:"y.m.d" }}) - <strong>{{ result.score }}점</strong>
+                                        {% if user.is_staff %}
+                                            <a href="{% url 'quiz:result_detail' result.id %}" class="text-decoration-none fw-bold text-primary">
+                                                {{ result.quiz.title }}
+                                            </a>
+                                        {% else %}
+                                            <span class="fw-bold text-dark">{{ result.quiz.title }}</span>
+                                        {% endif %}
+                                        
+                                        <br>
+                                        <small class="text-muted">
+                                            {{ result.completed_at|date:"y.m.d" }} - <strong>{{ result.score }}점</strong>
+                                        </small>
                                     </span>
-                                    {% if result.is_pass %}
-                                        <span class="badge bg-success">합격</span>
-                                    {% else %}
-                                        <span class="badge bg-danger">불합격</span>
-                                    {% endif %}
-                                </a>
+
+                                    <div>
+                                        {% if result.is_pass %}
+                                            <span class="badge bg-success rounded-pill">합격</span>
+                                        {% else %}
+                                            <span class="badge bg-danger rounded-pill">불합격</span>
+                                        {% endif %}
+                                    </div>
+                                </li>
                             {% endfor %}
                         </ul>
                     {% else %}
@@ -113,7 +127,7 @@
                                         {% endif %}
                                     ">{{ record.get_record_type_display }}</span>
                                     <span class="ms-2">{{ record.description }}</span>
-                                    <small class="text-muted d-block text-end">{{ record.created_at|date:"y.m.d" }}</p>
+                                    <small class="text-muted d-block text-end">{{ record.created_at|date:"y.m.d" }}</small>
                                 </li>
                             {% endfor %}
                         </ul>

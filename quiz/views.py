@@ -23,7 +23,7 @@ from django.db.models import Avg, Count, Q, Max, F, Case, When, Value, CharField
 # accounts 앱의 모델들
 from accounts.models import (
     Profile, Badge, EvaluationRecord, EvaluationCategory, 
-    ManagerEvaluation, Cohort, Company, Process
+    ManagerEvaluation, Cohort, Company, Process, ProcessAccessRequest
 )
 
 # quiz 앱의 모델들
@@ -103,9 +103,8 @@ def index(request):
         ).distinct()
     else:
         my_process_quizzes_list = Quiz.objects.filter(
-            permission_query,             # 볼 수 있는 권한이 있어야 하고
-            Q(category=Quiz.Category.PROCESS), # 공정 시험이어야 하고
-            my_process_condition          # 내 공정이거나 나한테 할당된 것
+            Q(category=Quiz.Category.PROCESS) & 
+            (Q(associated_process=user_process) | permission_query)
         ).distinct()
 
     # -------------------------------------------------------
@@ -646,6 +645,11 @@ def my_results_by_quiz(request, quiz_id):
 
 @login_required
 def result_detail(request, result_id):
+    
+    if not request.user.is_staff:
+        messages.error(request, "보안 정책상 상세 문항 확인은 제한됩니다. (점수만 확인 가능)")
+        return redirect('quiz:my_results_index')
+    
     result = get_object_or_404(TestResult, pk=result_id, user=request.user)
     incorrect_answers = result.useranswer_set.filter(is_correct=False)
     
@@ -832,6 +836,32 @@ def my_incorrect_answers_by_quiz(request, quiz_id):
     return render(request, 'quiz/incorrect_answers_list.html', context)
 
 @login_required
+def approve_attempt(request, attempt_id):
+    # 1. 관리자 권한 확인
+    if not request.user.is_staff:
+        messages.error(request, "권한이 없습니다.")
+        return redirect('quiz:dashboard')
+
+    attempt = get_object_or_404(QuizAttempt, pk=attempt_id)
+    trainee_process = attempt.user.profile.process
+    
+    # 2. [핵심] 매니저의 공정과 교육생의 공정 비교 (최고 관리자는 제외)
+    # request.user가 최고 관리자(superuser)라면 통과, 아니라면 공정 체크
+    if not request.user.is_superuser:
+        manager_process = request.user.profile.process
+        
+        if manager_process != trainee_process:
+            messages.error(request, f"🚫 타 공정 교육생({trainee_process.name})은 승인할 수 없습니다.")
+            return redirect('quiz:dashboard')
+
+    # 3. 승인 처리
+    attempt.status = '승인됨'
+    attempt.save()
+    messages.success(request, f"{attempt.user.profile.name}님의 시험 요청을 승인했습니다.")
+    
+    return redirect('quiz:dashboard')
+
+@login_required
 def dashboard(request):
     if not request.user.is_staff:
         return redirect('quiz:index')
@@ -843,9 +873,55 @@ def dashboard(request):
     selected_quiz = request.GET.get('quiz')
     selected_student = request.GET.get('student')
 
+    # 매니저(슈퍼유저 아님)가 자기 공정이 아닌 것을 선택했는지 확인
+    if not request.user.is_superuser and hasattr(request.user, 'profile') and request.user.profile.process:
+        my_process_id = str(request.user.profile.process.id)
+        
+        # 1. 전체 승인 티켓이 있는지 확인 (최강 권한)
+        has_global_ticket = ProcessAccessRequest.objects.filter(
+            requester=request.user,
+            target_process__isnull=True, # 전체 공정 티켓
+            status='approved'
+        ).exists()
+
+        if not selected_process:
+            # 전체 보기를 원하는데, 전체 티켓이 없으면 -> 내 공정으로 강제
+            if not has_global_ticket:
+                selected_process = my_process_id
+        
+        elif str(selected_process) != my_process_id:
+            # 타 공정을 선택했는데
+            # 1. 전체 티켓이 있거나 OR 2. 해당 공정 티켓이 있으면 통과
+            has_specific_ticket = ProcessAccessRequest.objects.filter(
+                requester=request.user,
+                target_process_id=selected_process,
+                status='approved'
+            ).exists()
+
+            if not (has_global_ticket or has_specific_ticket):
+                messages.error(request, "⛔ 조회 권한이 없습니다.")
+                selected_process = my_process_id
+
     # 2. [Base QuerySet]
     results = TestResult.objects.select_related('user__profile', 'quiz')
     profiles = Profile.objects.select_related('cohort', 'company', 'process')
+
+    if not request.user.is_superuser:
+        # 매니저의 공정 확인
+        if hasattr(request.user, 'profile') and request.user.profile.process:
+            my_process = request.user.profile.process
+            
+            # 결과와 프로필을 내 공정으로만 한정
+            results = results.filter(user__profile__process=my_process)
+            profiles = profiles.filter(process=my_process)
+            
+            # (선택사항) 필터 드롭다운에서도 타 공정 숨기기
+            processes = Process.objects.filter(id=my_process.id)
+        else:
+            # 공정이 없는 매니저는 아무것도 못 보게 하거나, 예외 처리
+            messages.warning(request, "매니저님의 공정 정보가 설정되지 않아 데이터를 볼 수 없습니다.")
+            results = results.none()
+            profiles = profiles.none()
 
     # 3. [필터 적용]
     if selected_cohort:
@@ -1060,16 +1136,87 @@ def export_student_data(request):
     if not request.user.is_staff:
         return redirect('quiz:index')
 
+    # 1. 다운로드하려는 공정 ID 받기 (기본값: None)
+    target_process_id = request.GET.get('process_id')
+    
+    # 매니저 정보 확인
+    my_process = None
+    if hasattr(request.user, 'profile') and request.user.profile.process:
+        my_process = request.user.profile.process
+
+    # ----------------------------------------------------------------
+    # [권한 검증 및 데이터 필터링 로직 시작]
+    # ----------------------------------------------------------------
+    
+    # 기본 쿼리셋 준비 (아직 DB 조회 안 함)
     profiles = Profile.objects.select_related(
         'user', 'cohort', 'company', 'process', 'pl'
     ).prefetch_related(
         'user__testresult_set', 
-        'badges',               
-        'managerevaluation_set' 
+        'badges', 
+        'managerevaluation_set'
     ).order_by('cohort__start_date', 'user__username')
 
-    all_quizzes = Quiz.objects.all().order_by('title')
+    # [CASE 1] 슈퍼유저(최고 관리자)
+    if request.user.is_superuser:
+        if target_process_id:
+            profiles = profiles.filter(process_id=target_process_id)
+        # target_process_id가 없으면 전체 다운로드 (그대로 둠)
 
+    # [CASE 2] 일반 매니저
+    else:
+        if not my_process:
+            messages.error(request, "본인 공정 정보가 없어 다운로드할 수 없습니다.")
+            return redirect('quiz:dashboard')
+
+        # (A) 전체 데이터 다운로드 요청 ('ALL')
+        # 화면 모달에서 value="ALL"을 선택했을 때 실행됨
+        if target_process_id == 'ALL':
+            # '전체 공정' 티켓(target_process가 비어있는 티켓)이 있는지 확인
+            global_ticket = ProcessAccessRequest.objects.filter(
+                requester=request.user,
+                target_process__isnull=True, # 핵심: 대상이 없으면 전체로 간주
+                status='approved'
+            ).first()
+            
+            if global_ticket:
+                # 티켓 있음 -> profiles 필터링 안 함 (전체 다운로드)
+                # 티켓 사용 처리 (만료)
+                global_ticket.status = 'expired'
+                global_ticket.save()
+            else:
+                messages.error(request, "⛔ 전체 데이터 다운로드 권한이 없거나 이미 사용했습니다.")
+                return redirect('quiz:dashboard')
+
+        # (B) 내 공정 다운로드 (프리패스)
+        # ID가 없거나, 내 ID와 같으면
+        elif not target_process_id or str(target_process_id) == str(my_process.id):
+            profiles = profiles.filter(process=my_process)
+            
+        # (C) 특정 타 공정 다운로드 (개별 티켓 검사)
+        else:
+            # 해당 공정 티켓 확인
+            access_ticket = ProcessAccessRequest.objects.filter(
+                requester=request.user,
+                target_process_id=target_process_id,
+                status='approved'
+            ).first()
+            
+            if access_ticket:
+                # 티켓 있음 -> 해당 공정으로 필터링
+                profiles = profiles.filter(process_id=target_process_id)
+                
+                # 티켓 사용 처리 (만료)
+                access_ticket.status = 'expired'
+                access_ticket.save()
+            else:
+                messages.error(request, "⛔ 해당 공정 다운로드 권한이 없거나 이미 사용했습니다.")
+                return redirect('quiz:dashboard')
+    # ----------------------------------------------------------------
+    # [엑셀 생성 로직 (기존 코드 유지)]
+    # ----------------------------------------------------------------
+
+    all_quizzes = Quiz.objects.all().order_by('title')
     data_list = []
 
     for profile in profiles:
@@ -1128,9 +1275,14 @@ def export_student_data(request):
         }
 
         for quiz in all_quizzes:
-            col_name = f"[{quiz.title}] 1차 점수"
-            score = first_scores_map.get(quiz.id)
-            row_data[col_name] = score if score is not None else '-'
+            attempts = quiz_scores_map.get(quiz.id, [])
+            
+            # 1차 점수
+            row_data[f"[{quiz.title}] 1차"] = attempts[0] if len(attempts) > 0 else '-'
+            # 2차 점수
+            row_data[f"[{quiz.title}] 2차"] = attempts[1] if len(attempts) > 1 else '-'
+            # 3차 점수
+            row_data[f"[{quiz.title}] 3차"] = attempts[2] if len(attempts) > 2 else '-'
 
         row_data.update({
             '획득 뱃지 수': badge_count,
@@ -1147,12 +1299,85 @@ def export_student_data(request):
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    filename = f"trainee_full_data_{timezone.now().strftime('%Y%m%d')}.xlsx"
+    
+    # 파일명 설정 (공정 이름 포함)
+    p_name = "전체"
+    if target_process_id:
+        try:
+            p_name = Process.objects.get(pk=target_process_id).name
+        except:
+            pass
+    elif my_process:
+        p_name = my_process.name
+        
+    filename = f"{p_name}_교육생_데이터_{timezone.now().strftime('%Y%m%d')}.xlsx"
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     
     df.to_excel(response, index=False)
 
     return response
+
+@login_required
+def request_process_access(request):
+    if request.method == 'POST':
+        target_id = request.POST.get('target_process_id')
+        
+        # target_id가 'ALL'이면 전체 요청 (target_process=None)
+        target_process = None
+        target_name = "🌍 전체 공정"
+        
+        if target_id and target_id != 'ALL':
+            target_process = get_object_or_404(Process, pk=target_id)
+            target_name = target_process.name
+
+        # 중복 요청 확인
+        existing = ProcessAccessRequest.objects.filter(
+            requester=request.user, 
+            target_process=target_process, # None이면 전체 검색
+            status__in=['pending', 'approved']
+        ).first()
+        
+        if existing:
+            msg_status = "승인되었습니다" if existing.status == 'approved' else "대기 중입니다"
+            messages.warning(request, f"이미 '{target_name}' 권한이 {msg_status}.")
+        else:
+            ProcessAccessRequest.objects.create(
+                requester=request.user,
+                target_process=target_process # None이면 전체
+            )
+            messages.success(request, f"'{target_name}' 열람 권한을 요청했습니다.")
+
+    return redirect('quiz:dashboard')
+
+# 2. 요청 관리 페이지 (최고 관리자 전용)
+@login_required
+def manage_access_requests(request):
+    if not request.user.is_superuser:
+        messages.error(request, "접근 권한이 없습니다.")
+        return redirect('quiz:dashboard')
+        
+    pending_requests = ProcessAccessRequest.objects.filter(status='pending').order_by('-created_at')
+    
+    return render(request, 'quiz/manage_access_requests.html', {'requests': pending_requests})
+
+# 3. 승인/거절 처리 (최고 관리자 전용)
+@login_required
+def approve_access_request(request, request_id, action):
+    if not request.user.is_superuser:
+        return redirect('quiz:dashboard')
+        
+    access_req = get_object_or_404(ProcessAccessRequest, pk=request_id)
+    
+    if action == 'approve':
+        access_req.status = 'approved'
+        access_req.save()
+        messages.success(request, f"{access_req.requester.profile.name}님의 요청을 승인했습니다.")
+    elif action == 'reject':
+        access_req.status = 'rejected'
+        access_req.save()
+        messages.warning(request, "요청을 거절했습니다.")
+        
+    return redirect('quiz:manage_access_requests')
 
 @login_required
 def evaluate_trainee(request, profile_id):

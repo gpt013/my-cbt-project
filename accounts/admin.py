@@ -3,14 +3,73 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User, Group
 from django.urls import reverse
 from django.utils.html import format_html
-# [핵심] 새로 추가된 모델들 import
+
+# 모델들 Import
 from .models import (
     Profile, Badge, Company, EvaluationRecord, PartLeader, Process, RecordType, 
     Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation
 )
 from quiz.models import Quiz, TestResult
 
-# --- 1. 기본 정보 관리 ---
+# -----------------------------------------------------------
+# [1] 커스텀 액션 (Action) 함수 정의
+# -----------------------------------------------------------
+
+@admin.action(description='✅ 선택된 교육생 가입 승인 (계정 활성화)')
+def activate_users(modeladmin, request, queryset):
+    # (ProfileAdmin에서 호출될 경우)
+    if modeladmin.model == Profile:
+        count = 0
+        for profile in queryset:
+            user = profile.user
+            if not user.is_active:
+                user.is_active = True
+                user.save()
+                count += 1
+        if count > 0:
+            modeladmin.message_user(request, f"🎉 {count}명의 계정을 활성화했습니다.")
+        else:
+            modeladmin.message_user(request, "이미 활성화된 계정들입니다.", level='warning')
+            
+    # (UserAdmin에서 호출될 경우 - 슈퍼유저용)
+    elif modeladmin.model == User:
+        queryset.update(is_active=True)
+        modeladmin.message_user(request, "선택된 사용자들을 활성화했습니다.")
+
+@admin.action(description='🔐 선택한 사용자의 비밀번호를 "1234"로 초기화 (강제 변경 설정)')
+def reset_password_to_default(modeladmin, request, queryset):
+    if not request.user.is_staff:
+        return
+        
+    count = 0
+    for obj in queryset:
+        # ProfileAdmin인 경우 user를 추출, UserAdmin인 경우 obj가 user
+        target_user = obj.user if isinstance(obj, Profile) else obj
+        profile = target_user.profile
+
+        # [보안] 슈퍼유저는 초기화 불가
+        if target_user.is_superuser:
+            continue
+
+        target_user.set_password('1234')
+        target_user.save()
+        
+        # 강제 변경 플래그 설정
+        if hasattr(target_user, 'profile'):
+            target_user.profile.must_change_password = True
+            target_user.profile.save()
+            
+        count += 1
+    
+    if count > 0:
+        modeladmin.message_user(request, f"✅ {count}명의 비밀번호가 '1234'로 초기화되었습니다. (로그인 시 변경 요구됨)")
+    else:
+        modeladmin.message_user(request, "⚠️ 슈퍼유저는 초기화할 수 없습니다.", level='error')
+
+
+# -----------------------------------------------------------
+# [2] 기본 정보 모델 관리자
+# -----------------------------------------------------------
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
@@ -39,7 +98,6 @@ class RecordTypeAdmin(admin.ModelAdmin):
     list_display = ('name',)
     search_fields = ('name',)
 
-# --- [신규] 기수(Cohort) 관리 ---
 @admin.register(Cohort)
 class CohortAdmin(admin.ModelAdmin):
     list_display = ('name', 'start_date', 'end_date', 'is_registration_open')
@@ -48,7 +106,10 @@ class CohortAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     ordering = ('-start_date',)
 
-# --- [신규] 매니저 평가 항목 관리 ---
+# -----------------------------------------------------------
+# [3] 매니저 평가 시스템 관리자
+# -----------------------------------------------------------
+
 @admin.register(EvaluationCategory)
 class EvaluationCategoryAdmin(admin.ModelAdmin):
     list_display = ('name', 'order')
@@ -69,46 +130,77 @@ class ManagerEvaluationAdmin(admin.ModelAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "manager":
-            # is_staff=True인 사용자만 쿼리셋에 포함
             kwargs["queryset"] = User.objects.filter(is_staff=True)
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
-# --- 2. 'Profile' Admin ---
+
+# -----------------------------------------------------------
+# [4] 프로필(Profile) 관리자 - ★ 매니저 주 활동 영역 ★
+# -----------------------------------------------------------
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    # [수정] class_number -> get_cohort
-    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'is_profile_complete')
+    # 목록에 보여줄 필드 (승인 상태, 매니저 여부 등 포함)
+    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'is_profile_complete', 'get_is_active', 'is_manager', 'must_change_password')
     
-    search_fields = (
-        'user__username', 
-        'name',           
-        'employee_id',    
-        'cohort__name',   # [수정] 기수 이름으로 검색
-        'process__name',  
-        'company__name',  
-        'pl__name',       
-    )
-    
-    list_filter = ('is_profile_complete', 'cohort', 'company', 'process')
-    autocomplete_fields = ('user', 'company', 'process', 'pl', 'cohort') 
-    filter_horizontal = ('badges',)
-    
-    @admin.display(description='공정', ordering='process__name')
-    def get_process_name(self, obj):
-        return obj.process.name if obj.process else ''
+    # 목록에서 바로 수정 가능한 필드
+    list_editable = ('is_profile_complete',) 
 
+    search_fields = ('user__username', 'name', 'employee_id', 'cohort__name')
+    list_filter = ('user__is_active', 'is_manager', 'must_change_password', 'process', 'cohort', 'company')
+    autocomplete_fields = ('user', 'company', 'process', 'pl', 'cohort')
+    filter_horizontal = ('badges',)
+
+    # [액션 추가] 가입 승인 & 비번 초기화 버튼
+    actions = [activate_users, reset_password_to_default]
+
+    # ▼▼▼ [보안 1] 매니저에게는 '슈퍼유저' 목록을 아예 안 보여줌 (원천 차단) ▼▼▼
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        # 일반 매니저는 슈퍼유저가 아닌 사람만 볼 수 있음
+        return qs.filter(user__is_superuser=False)
+
+    # ▼▼▼ [보안 2] 수정 권한 제한 (민감한 정보 잠금) ▼▼▼
+    def get_readonly_fields(self, request, obj=None):
+        if request.user.is_superuser:
+            return ()
+        # 일반 매니저는 아래 필드 수정 불가
+        return ('user', 'is_manager', 'must_change_password', 'badges')
+
+    # [보안 3] URL 조작 방지 (슈퍼유저 수정 시도 차단)
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.user.is_superuser and not request.user.is_superuser:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.user.is_superuser and not request.user.is_superuser:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    # --- 화면 표시용 함수들 ---
     @admin.display(description='기수', ordering='cohort__name')
     def get_cohort(self, obj):
-        return obj.cohort.name if obj.cohort else ''
+        return obj.cohort.name if obj.cohort else '-'
+
+    @admin.display(description='공정', ordering='process__name')
+    def get_process_name(self, obj):
+        return obj.process.name if obj.process else '-'
     
-# --- 3. 'EvaluationRecord' Admin ---
+    @admin.display(description='승인 상태', boolean=True)
+    def get_is_active(self, obj):
+        return obj.user.is_active
+
+
+# -----------------------------------------------------------
+# [5] 평가 기록 (EvaluationRecord)
+# -----------------------------------------------------------
 @admin.register(EvaluationRecord)
 class EvaluationRecordAdmin(admin.ModelAdmin):
     list_display = ('profile_name', 'get_record_type', 'description_snippet', 'created_at')
-    # [수정] profile__cohort 필터 사용
     list_filter = ('record_type', 'profile__company', 'profile__cohort', 'profile__process', 'profile__pl')
     search_fields = ('profile__user__username', 'profile__name', 'description')
-    
     autocomplete_fields = ('profile',) 
 
     @admin.display(description='교육생 이름', ordering='profile__name')
@@ -123,12 +215,16 @@ class EvaluationRecordAdmin(admin.ModelAdmin):
     def description_snippet(self, obj):
         return obj.description[:30] + "..." if len(obj.description) > 30 else obj.description
 
-# --- 4. '그룹' 관리자 (UserInline) ---
+
+# -----------------------------------------------------------
+# [6] 그룹(Group) 및 사용자(User) - 슈퍼유저용
+# -----------------------------------------------------------
+
+# (UserInline: 그룹 내 사용자 보기용)
 class UserInline(admin.TabularInline):
     model = User.groups.through
     verbose_name = "소속된 교육생"
     verbose_name_plural = "소속된 교육생 목록"
-    # [수정] class_number -> get_cohort
     readonly_fields = ('user_link', 'name', 'employee_id', 'get_cohort', 'get_company', 'process', 'get_pl', 'first_attempt_scores')
     can_delete = False
     max_num = 0
@@ -145,7 +241,6 @@ class UserInline(admin.TabularInline):
     def employee_id(self, instance):
         return instance.user.profile.employee_id if hasattr(instance.user, 'profile') else ''
     
-    # [수정] 기수 표시
     @admin.display(description='기수')
     def get_cohort(self, instance):
         if hasattr(instance.user, 'profile') and instance.user.profile.cohort:
@@ -186,41 +281,24 @@ class CustomGroupAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     ordering = ('name',)
 
-# --- 5. '사용자' 관리자 (UserAdmin) ---
-class EvaluationRecordInline(admin.TabularInline):
-    model = EvaluationRecord
-    extra = 1
-    readonly_fields = ('created_at',)
-    fields = ('record_type', 'description', 'created_at')
-    autocomplete_fields = ('record_type',)
-
+# (ProfileInline: 사용자 상세 내 프로필 표시용)
 class ProfileInline(admin.StackedInline):
     model = Profile
     can_delete = False
     verbose_name_plural = '추가 정보'
     filter_horizontal = ('badges',)
-    # [수정] class_number -> cohort
     fields = ('is_profile_complete', 'company', 'name', 'employee_id', 'cohort', 'process', 'line', 'pl', 'badges')
     autocomplete_fields = ('company', 'process', 'pl', 'cohort') 
 
-@admin.action(description='선택된 사용자들을 활성 상태로 변경 (승인)')
-def activate_users(modeladmin, request, queryset):
-    queryset.update(is_active=True)
-
 class UserAdmin(BaseUserAdmin):
     inlines = (ProfileInline,)
-    # [수정] class_number_display -> get_cohort
     list_display = ('username', 'name', 'employee_id', 'get_cohort', 'get_company', 'get_process', 'get_pl', 'is_staff', 'is_active')
-    
-    # [수정] profile__class_number -> profile__cohort
     list_filter = ('is_active', 'is_staff', 'groups', 'profile__company', 'profile__cohort', 'profile__process', 'profile__pl')
     search_fields = ('username', 'profile__name', 'profile__employee_id')
-
     ordering = ('-is_staff', 'username')
-    actions = [activate_users]
     
-    class Media:
-        js = ('admin/js/process_handler.js',)
+    # 액션 추가
+    actions = [activate_users, reset_password_to_default]
     
     @admin.display(description='소속 회사', ordering='profile__company__name')
     def get_company(self, obj):
@@ -238,7 +316,6 @@ class UserAdmin(BaseUserAdmin):
             return obj.profile.pl.name
         return ''
     
-    # [수정] 기수 표시 메서드 변경
     @admin.display(description='기수', ordering='profile__cohort__name')
     def get_cohort(self, obj):
         if hasattr(obj, 'profile') and obj.profile.cohort:
@@ -256,7 +333,7 @@ class UserAdmin(BaseUserAdmin):
         return ''
     employee_id.short_description = '사번'
 
-# --- 6. 최종 등록 ---
+# 최종 등록 (User, Group)
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
 admin.site.unregister(Group)

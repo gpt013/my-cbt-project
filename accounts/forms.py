@@ -4,9 +4,9 @@ from django import forms
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.models import User
 from .models import Profile, Company, PartLeader, Process, Cohort
-from django.utils import timezone # 날짜 비교용
+from django.utils import timezone
 
-# UserCreationForm (기존과 동일)
+# 1. 회원가입 계정 생성 폼 (기존 동일)
 class CustomUserCreationForm(UserCreationForm):
     email = forms.EmailField(
         label="이메일",
@@ -32,47 +32,59 @@ class CustomUserCreationForm(UserCreationForm):
             })
 
 
-# ProfileForm (검증 로직 추가됨)
+# 2. 프로필 입력 폼 (수정됨)
 class ProfileForm(forms.ModelForm):
-
     class Meta:
         model = Profile
         fields = ['company', 'name', 'employee_id', 'cohort', 'process', 'pl']
+        
+        # ▼▼▼ [핵심 추가] 이 부분이 있어야 화면에 글자가 보입니다! ▼▼▼
+        labels = {
+            'company': '소속 회사',
+            'name': '이름',
+            'employee_id': '사번',
+            'cohort': '기수',       # <-- 여기가 핵심입니다
+            'process': '공정',
+            'pl': '담당 PL',
+        }
+        
+        # 디자인(CSS) 적용
+        widgets = {
+            'company': forms.Select(attrs={'class': 'form-select'}),
+            'name': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '실명을 입력하세요'}),
+            'employee_id': forms.TextInput(attrs={'class': 'form-control'}),
+            'cohort': forms.Select(attrs={'class': 'form-select'}),
+            'process': forms.Select(attrs={'class': 'form-select'}),
+            'pl': forms.Select(attrs={'class': 'form-select'}),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # 1. company 필드
-        self.fields['company'].required = True
+        # 1. 필수 입력 설정 및 안내 문구
         self.fields['company'].empty_label = "소속 회사를 선택하세요"
-        self.fields['company'].widget.attrs.update({'class': 'form-select'})
-
-        # 2. cohort (기수) 필드 설정
-        # [수정] 날짜 필터링을 제거했습니다.
-        # Admin에서 '가입 활성화' 체크한 기수는 날짜 상관없이 목록에 다 보입니다.
+        self.fields['process'].empty_label = "공정을 선택하세요"
+        self.fields['pl'].empty_label = "담당 PL님을 선택하세요"
+        
+        # 2. 기수(Cohort) 필터링 설정
+        # 가입 활성화(is_registration_open=True)된 기수만 목록에 표시
         self.fields['cohort'].queryset = Cohort.objects.filter(is_registration_open=True)
         self.fields['cohort'].empty_label = "소속 기수를 선택하세요"
-        self.fields['cohort'].widget.attrs.update({'class': 'form-select'})
-        self.fields['cohort'].required = True
+        
+        # ▼▼▼ [핵심 추가] 드롭다운에 날짜 없이 '기수 이름(예: 1기)'만 표시하는 설정 ▼▼▼
+        self.fields['cohort'].label_from_instance = lambda obj: obj.name
+        # ▲▲▲ ----------------------------------------------------------- ▲▲▲
 
-        # 3. process 필드
-        self.fields['process'].queryset = Process.objects.all()
-        self.fields['process'].empty_label = "공정을 선택하세요"
-        self.fields['process'].widget.attrs.update({'class': 'form-select'})
-        self.fields['process'].required = True
+        # 모든 필드 필수 입력으로 설정
+        for field in self.fields:
+            self.fields[field].required = True
 
-        # 4. pl 필드
-        self.fields['pl'].required = True
-        self.fields['pl'].empty_label = "담당 PL님을 선택하세요"
-        self.fields['pl'].widget.attrs.update({'class': 'form-select'})
-
-    # --- [핵심 추가] 기수 날짜 검증 로직 ---
+    # --- [기존 유지] 기수 날짜 검증 로직 ---
     def clean_cohort(self):
         cohort = self.cleaned_data.get('cohort')
         today = timezone.now().date()
 
         if cohort:
-            # 기수의 시작일/종료일이 설정되어 있는지 확인
             start = cohort.start_date
             end = cohort.end_date
 
@@ -89,4 +101,3 @@ class ProfileForm(forms.ModelForm):
                 )
         
         return cohort
-    # -------------------------------------

@@ -41,5 +41,8 @@ urlpatterns = [
     path('evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
     path('bulk-add-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
     path('bulk-add-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
+    path('request-access/', views.request_process_access, name='request_process_access'),
+    path('manage-requests/', views.manage_access_requests, name='manage_access_requests'),
+    path('approve-request/<int:request_id>/<str:action>/', views.approve_access_request, name='approve_access_request'),
 ]
 
