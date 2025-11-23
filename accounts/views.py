@@ -203,33 +203,37 @@ def load_part_leaders(request):
     PartLeader 목록을 JSON으로 반환하는 뷰
     """
     company_id = request.GET.get('company_id')
-    
-    # --- [핵심 확인 1] ---
-    # 'process_name'이 아니라 'process_id'를 받아야 합니다.
-    process_id = request.GET.get('process_id') 
-    # ---------------------
+    process_id = request.GET.get('process_id')
 
     if not company_id or not process_id:
         return JsonResponse({'pls': []})
 
     try:
-        # --- [핵심 확인 2] ---
-        # 'process__name=...'이 아니라 'process_id=...'로 필터링해야 합니다.
+        # [보안 및 로직 수정] 
+        # 1. ID 기반 필터링으로 정확도 향상
+        # 2. 예외 처리 강화
         pls = PartLeader.objects.filter(
             company_id=company_id, 
             process_id=process_id  
         ).order_by('name')
-        # ---------------------
         
         pl_list = [{"id": pl.id, "name": pl.name} for pl in pls]
         return JsonResponse({'pls': pl_list})
         
     except Exception as e:
-        # (숫자가 아닌 'asd' 같은 값이 들어오면 여기서 500 오류가 납니다)
-        return JsonResponse({'error': str(e)}, status=500)
+        # [보안 핵심] 내부 에러 상세 내용(e)은 서버 로그에만 기록
+        print(f"❌ AJAX Error (load_part_leaders): {e}")
+        
+        # 사용자에게는 일반적인 메시지만 전달하여 정보 유출 방지
+        return JsonResponse({
+            'error': '데이터를 불러오는 중 서버 오류가 발생했습니다. 관리자에게 문의하세요.'
+        }, status=500)
 
 def custom_logout(request):
-    logout(request) # 로그아웃 처리 (세션 삭제)
+    """
+    GET 방식 로그아웃 허용 (Django 5.0 이상 대응)
+    """
+    logout(request) # 세션 삭제
     return redirect('accounts:login') # 로그인 페이지로 이동
 
 # [신규] 계정 잠금(면담 필요) 안내 페이지
