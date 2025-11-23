@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-5" style="max-width: 500px;">
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white text-center">
+            <h4 class="mb-0"><i class="bi bi-envelope-check"></i> 이메일 인증</h4>
+        </div>
+        <div class="card-body p-4">
+            <p class="text-center mb-4">
+                <strong>{{ email }}</strong> 으로 인증 코드를 발송했습니다.<br>
+                메일함(스팸함 포함)을 확인 후 6자리 코드를 입력해주세요.
+            </p>
+
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-4">
+                    {{ form.code }}
+                </div>
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg">인증 완료</button>
+                </div>
+            </form>
+        </div>
+        <div class="card-footer text-center text-muted small">
+            메일이 오지 않나요? <a href="{% url 'accounts:signup' %}">다시 시도하기</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

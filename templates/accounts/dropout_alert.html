@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-5 text-center" style="max-width: 600px;">
+    <div class="card shadow border-danger">
+        <div class="card-body py-5">
+            <h1 class="display-1 text-danger mb-3"><i class="bi bi-x-octagon-fill"></i></h1>
+            <h3 class="text-danger">접속 권한이 없습니다.</h3>
+            <p class="lead mt-3">
+                귀하의 계정은 <strong>'퇴소'</strong> 처리되어<br>
+                더 이상 서비스를 이용하실 수 없습니다.
+            </p>
+            <form action="{% url 'accounts:logout' %}" method="post" class="mt-4">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-secondary">로그아웃</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

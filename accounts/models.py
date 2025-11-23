@@ -3,9 +3,13 @@ from django.contrib.auth.models import User, Group, Permission
 from django.contrib.contenttypes.models import ContentType 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-# quiz 앱의 모델들은 권한 부여 로직에서만 import (순환 참조 방지 위해 함수 내부 import 권장)
+from django.utils import timezone
+import random
 
-# --- [신규] 기수(Cohort) 모델 ---
+# -----------------------------------------------------------
+# 1. 기초 정보 모델 (기수, 회사, 공정, PL, 뱃지)
+# -----------------------------------------------------------
+
 class Cohort(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="기수 이름 (예: 25-01기)")
     start_date = models.DateField(verbose_name="교육 시작일")
@@ -24,7 +28,6 @@ class Cohort(models.Model):
     def __str__(self):
         return f"{self.name} ({self.start_date})"
 
-# --- 기존 모델 1: Company ---
 class Company(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="회사 이름")
     class Meta:
@@ -33,7 +36,26 @@ class Company(models.Model):
     def __str__(self):
         return self.name
 
-# --- 기존 모델 2: Badge ---
+class Process(models.Model):
+    name = models.CharField(max_length=100, unique=True, verbose_name="공정 이름")
+    class Meta:
+        verbose_name = "공정"
+        verbose_name_plural = "공정"
+    def __str__(self):
+        return self.name
+
+class PartLeader(models.Model):
+    name = models.CharField(max_length=50, unique=True, verbose_name="PL 이름")
+    email = models.EmailField(unique=True, verbose_name="PL 이메일", help_text="성적표 발송 및 알림용")
+    company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
+    process = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='담당 공정')
+
+    class Meta:
+        verbose_name = "PL(파트장)"
+        verbose_name_plural = "PL(파트장)"
+    def __str__(self):
+        return self.name
+
 class Badge(models.Model):
     name = models.CharField(max_length=100, verbose_name="뱃지 이름")
     description = models.TextField(verbose_name="획득 조건 설명")
@@ -44,36 +66,6 @@ class Badge(models.Model):
     def __str__(self):
         return self.name
 
-# --- 기존 모델 4: Process (순서 변경: PartLeader에서 참조하므로 위로 올림) ---
-class Process(models.Model):
-    name = models.CharField(max_length=100, unique=True, verbose_name="공정 이름")
-    class Meta:
-        verbose_name = "공정"
-        verbose_name_plural = "공정"
-    def __str__(self):
-        return self.name
-
-# --- 기존 모델 3: PartLeader ---
-class PartLeader(models.Model):
-    name = models.CharField(max_length=50, unique=True, verbose_name="PL 이름")
-    email = models.EmailField(unique=True, verbose_name="PL 이메일", help_text="2회 불합격 시 이 이메일로 알림이 갑니다.")
-    company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
-    
-    process = models.ForeignKey(
-        Process, 
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        verbose_name='담당 공정'
-    )
-
-    class Meta:
-        verbose_name = "PL(파트장)"
-        verbose_name_plural = "PL(파트장)"
-    def __str__(self):
-        return self.name
-
-
-# --- 기존 모델 5: RecordType ---
 class RecordType(models.Model):
     name = models.CharField(max_length=50, unique=True, verbose_name="기록 유형 이름")
     class Meta:
@@ -82,120 +74,137 @@ class RecordType(models.Model):
     def __str__(self):
         return self.name
 
-# --- 기존 모델 6: Profile (Cohort 필드 추가) ---
+
+# -----------------------------------------------------------
+# 2. 핵심 사용자 정보 (Profile) - 대거 수정됨
+# -----------------------------------------------------------
+
 class Profile(models.Model):
+    # [상태 정의]
+    STATUS_CHOICES = [
+        ('attending', '재직 (응시가능)'),
+        ('counseling', '면담필요 (시험잠김)'), # 3차 탈락 시 자동 전환
+        ('dropout', '퇴소 (접속차단)'),
+        ('completed', '수료 (과정완료)'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE)
+    
+    # 기본 정보
     company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
     name = models.CharField(max_length=50, verbose_name='이름')
     employee_id = models.CharField(max_length=50, verbose_name='사번')
-    
-    cohort = models.ForeignKey(
-        Cohort, 
-        on_delete=models.SET_NULL, 
-        null=True, blank=False, 
-        verbose_name="소속 기수"
-    )
-
-    process = models.ForeignKey(
-        Process, 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        verbose_name="공정"
-    )
+    cohort = models.ForeignKey(Cohort, on_delete=models.SET_NULL, null=True, blank=False, verbose_name="소속 기수")
+    process = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="공정")
     line = models.CharField(max_length=100, verbose_name='라인', blank=True, null=True)
-    pl = models.ForeignKey(
-        PartLeader, 
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        verbose_name="담당 PL"
-    )
+    pl = models.ForeignKey(PartLeader, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="담당 PL")
 
-    badges = models.ManyToManyField(Badge, blank=True, verbose_name="획득한 뱃지")
-    ai_summary = models.TextField(verbose_name="AI 종합 의견", blank=True, null=True, help_text="AI가 생성한 교육생 종합 평가입니다.")
-
-    is_profile_complete = models.BooleanField(
-        default=False, 
-        verbose_name="프로필 작성 완료"
-    )
+    # [기능성 필드]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='attending', verbose_name="현재 상태")
     
-    # ▼▼▼ [추가] 매니저 여부 체크박스 ▼▼▼
     is_manager = models.BooleanField(default=False, verbose_name="매니저 권한 여부")
+    is_pl = models.BooleanField(default=False, verbose_name="PL 권한 여부") # [신규] PL 대시보드 접근용
+    
+    is_profile_complete = models.BooleanField(default=False, verbose_name="프로필 작성 완료")
     must_change_password = models.BooleanField(default=False, verbose_name="비밀번호 변경 필요")
+    
+    badges = models.ManyToManyField(Badge, blank=True, verbose_name="획득한 뱃지")
+    
+    # (참고: ai_summary는 삭제 요청에 따라 제거됨)
 
     def __str__(self):
-        return f"{self.user.username}의 프로필"
+        return f"{self.name} ({self.get_status_display()})"
 
 
-# --- 기존 모델 7: EvaluationRecord ---
-class EvaluationRecord(models.Model):
-    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, verbose_name="프로필")
-    record_type = models.ForeignKey(
-        RecordType, 
-        on_delete=models.SET_NULL,
-        null=True, blank=False,
-        verbose_name="기록 유형"
-    )
-    description = models.TextField(verbose_name="세부 내용 (필수)", blank=False, null=False)
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="기록 일시")
+# -----------------------------------------------------------
+# 3. 평가 및 데이터 관리 모델 (종합 평가, 요청 등)
+# -----------------------------------------------------------
+
+# [신규] 이메일 인증 코드 저장
+class EmailVerification(models.Model):
+    email = models.EmailField(unique=True, verbose_name="이메일")
+    code = models.CharField(max_length=6, verbose_name="인증 코드")
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_verified = models.BooleanField(default=False, verbose_name="인증 완료 여부")
+
+    def is_expired(self):
+        # 5분 유효시간
+        return (timezone.now() - self.created_at).total_seconds() > 300
+
+# [신규] 종합 평가 (성적표/생기부용 데이터)
+class FinalAssessment(models.Model):
+    profile = models.OneToOneField(Profile, on_delete=models.CASCADE, related_name='final_assessment', verbose_name="대상 교육생")
+    
+    # 점수 입력란
+    exam_avg_score = models.FloatField(default=0, verbose_name="시험 평균(자동)")
+    practice_score = models.FloatField(default=0, verbose_name="실습 점수")
+    note_score = models.FloatField(default=0, verbose_name="노트 점수")
+    attitude_score = models.FloatField(default=0, verbose_name="인성/태도 점수")
+    
+    final_score = models.FloatField(default=0, verbose_name="최종 환산 점수")
+    rank = models.PositiveIntegerField(default=0, verbose_name="기수 내 등수", null=True, blank=True)
+    
+    manager_comment = models.TextField(verbose_name="최종 코멘트", blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "평가 기록"
-        verbose_name_plural = "평가 기록"
+        verbose_name = "최종 종합 평가"
+        verbose_name_plural = "최종 종합 평가"
+
+    def calculate_final_score(self):
+        # 예시 비율: 시험40 + 실습30 + 노트15 + 인성15
+        self.final_score = (
+            (self.exam_avg_score * 0.4) + 
+            (self.practice_score * 0.3) + 
+            (self.note_score * 0.15) + 
+            (self.attitude_score * 0.15)
+        )
+        self.save()
+
+# (기존) 일반 평가 기록
+class EvaluationRecord(models.Model):
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, verbose_name="프로필")
+    record_type = models.ForeignKey(RecordType, on_delete=models.SET_NULL, null=True, verbose_name="기록 유형")
+    description = models.TextField(verbose_name="세부 내용")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "수시 평가 기록"
+        verbose_name_plural = "수시 평가 기록"
         ordering = ['-created_at']
 
-    def __str__(self):
-        return f"{self.profile.user.username} - {self.record_type.name if self.record_type else '미분류'}"
-
-
-# --- [신규] 매니저 평가 시스템 모델들 ---
-
-# A. 평가 항목
+# (기존) 매니저 평가 시스템 (체크리스트)
 class EvaluationCategory(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="평가 항목")
     order = models.PositiveIntegerField(default=0, verbose_name="표시 순서")
-
+    
     class Meta:
-        verbose_name = "매니저 평가 항목"
-        verbose_name_plural = "매니저 평가 항목 (대분류)"
+        verbose_name = "평가 항목 (대분류)"         # [수정] 한글 이름
+        verbose_name_plural = "평가 항목 (대분류)"  # [수정] 한글 이름 (복수형)
         ordering = ['order']
 
     def __str__(self):
         return self.name
 
-# B. 평가 세부 내용
 class EvaluationItem(models.Model):
     category = models.ForeignKey(EvaluationCategory, on_delete=models.CASCADE, verbose_name="평가 항목")
     description = models.CharField(max_length=255, verbose_name="평가 예시 (체크할 내용)")
     is_positive = models.BooleanField(default=True, verbose_name="긍정/부정 (장점/단점)")
 
     class Meta:
-        verbose_name = "매니저 평가 예시"
-        verbose_name_plural = "매니저 평가 예시 (체크리스트)"
+        verbose_name = "평가 세부 항목 (체크리스트)"        # [수정] 한글 이름
+        verbose_name_plural = "평가 세부 항목 (체크리스트)" # [수정] 한글 이름
         ordering = ['category__order', 'id']
 
     def __str__(self):
         return f"[{self.category.name}] {self.description}"
 
-# C. 매니저 최종 평가서
 class ManagerEvaluation(models.Model):
-    trainee_profile = models.ForeignKey(
-        Profile, 
-        on_delete=models.CASCADE, 
-        verbose_name="평가 대상 교육생"
-    )
-    manager = models.ForeignKey(
-        User, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        verbose_name="평가자 (매니저)"
-    )
-    selected_items = models.ManyToManyField(
-        EvaluationItem, 
-        blank=True, 
-        verbose_name="선택된 평가 항목"
-    )
-    overall_comment = models.TextField(verbose_name="종합 정성 평가 (코멘트)")
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="작성일시")
+    trainee_profile = models.ForeignKey(Profile, on_delete=models.CASCADE)
+    manager = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    selected_items = models.ManyToManyField(EvaluationItem, blank=True)
+    overall_comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "매니저 최종 평가서"
@@ -206,32 +215,27 @@ class ManagerEvaluation(models.Model):
         manager_name = self.manager.username if self.manager else "알 수 없음"
         return f"{self.trainee_profile.name} 평가 ({manager_name})"
 
-
-# --- [신규] 권한 요청 모델 (티켓 시스템) ---
+# (기존) 권한 요청 티켓
 class ProcessAccessRequest(models.Model):
     STATUS_CHOICES = [
         ('pending', '대기중'),
-        ('approved', '승인됨 (미사용)'), # 아직 안 씀
-        ('expired', '사용완료 (만료)'), # 1회 사용 후 변환됨
+        ('approved', '승인됨 (미사용)'),
+        ('expired', '사용완료 (만료)'),
         ('rejected', '거절됨'),
     ]
-
-    # [수정] requester 필드 추가 (누가 요청했는지)
     requester = models.ForeignKey(User, on_delete=models.CASCADE, related_name='access_requests')
-    
-    # [수정] target_process: null=True 허용 (전체 요청 시 비워둠)
-    target_process = models.ForeignKey('accounts.Process', on_delete=models.CASCADE, null=True, blank=True)
-    
+    target_process = models.ForeignKey(Process, on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        # 이름 표시할 때도 에러 안 나게 처리
         target_name = self.target_process.name if self.target_process else "🌍 전체 공정"
         return f"{self.requester.profile.name} -> {target_name} ({self.status})"
 
 
-# --- Signal (자동화 로직) ---
+# -----------------------------------------------------------
+# 4. Signals (자동화 로직)
+# -----------------------------------------------------------
 
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
@@ -244,7 +248,6 @@ def save_user_profile(sender, instance, **kwargs):
         Profile.objects.create(user=instance)
     instance.profile.save()
 
-# ▼▼▼ [핵심] 매니저 권한 자동 부여 Signal ▼▼▼
 @receiver(post_save, sender=Profile)
 def manage_permissions(sender, instance, created, **kwargs):
     user = instance.user
@@ -264,15 +267,14 @@ def manage_permissions(sender, instance, created, **kwargs):
         )
         from accounts.models import (
             Profile, PartLeader,                     # 교육생 관리
-            ManagerEvaluation, EvaluationRecord      # 평가 관리
+            ManagerEvaluation, EvaluationRecord, FinalAssessment # 평가 관리 (FinalAssessment 추가됨)
         )
 
         # [1] 완전 관리 권한 (추가/수정/삭제/조회) 부여할 모델들
-        # -> 문제 출제, 태그, PL 관리, 평가서 작성 등은 자유롭게 가능
         full_access_models = [
             Quiz, Question, Choice, ExamSheet, Tag,  # 퀴즈 관련
             PartLeader,                              # PL 관리
-            ManagerEvaluation, EvaluationRecord      # 평가 관련
+            ManagerEvaluation, EvaluationRecord, FinalAssessment # 평가 관련
         ]
         
         for model in full_access_models:
@@ -280,16 +282,14 @@ def manage_permissions(sender, instance, created, **kwargs):
             perms = Permission.objects.filter(content_type=ct) # CRUD 전체 부여
             manager_group.permissions.add(*perms)
 
-        # [2] 결과 및 요청 관리 (수정/조회/삭제) - 추가(Add)는 시스템이 하므로 제외 가능하지만 편의상 줌
-        # -> 최종 결과 수정/삭제, 응시 요청 승인 등
+        # [2] 결과 및 요청 관리 (수정/조회/삭제)
         result_models = [TestResult, QuizAttempt]
         for model in result_models:
             ct = ContentType.objects.get_for_model(model)
             perms = Permission.objects.filter(content_type=ct)
             manager_group.permissions.add(*perms)
 
-        # [3] 프로필 관리 (수정/조회만 가능) - ★삭제(Delete) 권한은 위험하므로 제외★
-        # -> 매니저가 교육생 정보를 수정하거나 승인할 수는 있지만, 계정을 삭제하진 못하게 함
+        # [3] 프로필 관리 (수정/조회만 가능) - 삭제 불가
         ct_profile = ContentType.objects.get_for_model(Profile)
         perms_profile = Permission.objects.filter(
             content_type=ct_profile, 
@@ -297,7 +297,10 @@ def manage_permissions(sender, instance, created, **kwargs):
         )
         manager_group.permissions.add(*perms_profile)
 
-        
+        # [4] 사용자(User) 정보 (조회만 가능)
+        ct_user = ContentType.objects.get_for_model(User)
+        perms_user = Permission.objects.filter(content_type=ct_user, codename='view_user')
+        manager_group.permissions.add(*perms_user)
 
         manager_group.save()
         print("✅ 매니저 그룹에 '안전한 실무 권한'이 자동 부여되었습니다.")
@@ -312,9 +315,33 @@ def manage_permissions(sender, instance, created, **kwargs):
         if not user.groups.filter(name='매니저').exists():
             user.groups.add(manager_group)
     else:
+        # 매니저 해제 (슈퍼유저 제외)
         if not user.is_superuser:
             if user.is_staff:
                 user.is_staff = False
                 user.save()
             if user.groups.filter(name='매니저').exists():
                 user.groups.remove(manager_group)
+
+# quiz.views의 랭킹 계산 함수를 호출하기 위해 임시로 함수 정의 (실제 호출은 views.py가 필요)
+# 여기서는 DB 저장 시 최종 점수 계산만 먼저 수행합니다.
+@receiver(post_save, sender=FinalAssessment)
+def auto_calculate_and_rank(sender, instance, created, **kwargs):
+    # 1. 최종 점수 계산 및 저장 (FinalAssessment 모델에 정의된 메서드 호출)
+    instance.calculate_final_score()
+    
+    # 2. 시험 평균 점수(exam_avg_score) 자동 계산 (최신 데이터 반영)
+    # FinalAssessment가 생성될 때, 해당 Profile의 시험 평균을 자동으로 계산하여 입력합니다.
+    if created:
+        profile = instance.profile
+        from quiz.models import TestResult # 지연 import
+        
+        avg_score_result = TestResult.objects.filter(user=profile.user).aggregate(avg_score=models.Avg('score'))
+        avg_score = avg_score_result.get('avg_score', 0) or 0
+        
+        if avg_score != instance.exam_avg_score: # 변경 사항이 있다면
+            instance.exam_avg_score = avg_score
+            instance.save(update_fields=['exam_avg_score'])
+            
+    # 3. 랭킹 업데이트 (관리자 명령어 실행 필요)
+    # 매니저가 점수를 저장하면 최종 점수가 갱신되고, 관리자가 랭킹 업데이트 명령을 실행할 수 있게 됩니다.

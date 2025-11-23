@@ -1,39 +1,57 @@
 {% extends 'base.html' %}
-{% load static %}
 
 {% block content %}
-<style>
-    /* 오류 메시지 (누락 없음) */
-    .errorlist {
-        color: #dc3545;
-        font-weight: bold;
-        list-style: none;
-        padding-left: 0;
-        font-size: 0.9em;
-    }
-</style>
-
-<div class="container" style="max-width: 600px;">
-    <div class="card mt-5 mb-5">
-        <div class="card-header">
-            <h3 class="text-center">회원가입</h3>
-            <p class="text-center text-muted mb-0">가입 후 관리자의 승인을 기다려야 로그인이 가능합니다.</p>
+<div class="container mt-5" style="max-width: 500px;">
+    <div class="card shadow-sm">
+        <div class="card-header bg-light text-center">
+            <h3 class="mb-1">회원가입</h3>
+            <small class="text-muted">가입 후 이메일 인증을 완료해야 로그인이 가능합니다.</small>
         </div>
-        <div class="card-body">
+        <div class="card-body p-4">
             <form method="post">
                 {% csrf_token %}
                 
-                <fieldset>
-                    <legend class="fs-5 border-bottom mb-3 pb-2">계정 정보</legend>
-                    {{ user_form.as_p }}
-                </fieldset>
+                {% if form.non_field_errors %}
+                    <div class="alert alert-danger">
+                        {% for error in form.non_field_errors %}
+                            <div>{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                {% for field in form %}
+                    <div class="mb-3">
+                        <label for="{{ field.id_for_label }}" class="form-label fw-bold">{{ field.label }}</label>
+                        
+                        {{ field }}
+                        
+                        {% if field.help_text %}
+                            <div class="form-text text-muted small">{{ field.help_text }}</div>
+                        {% endif %}
+
+                        {% for error in field.errors %}
+                            <div class="text-danger small mt-1">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
 
                 <div class="d-grid mt-4">
-                    <button type="submit" class="btn btn-primary">가입 신청</button>
+                    <button type="submit" class="btn btn-primary btn-lg">인증 코드 받기</button>
                 </div>
             </form>
+        </div>
+        <div class="card-footer text-center text-muted">
+            이미 계정이 있으신가요? <a href="{% url 'accounts:login' %}">로그인</a>
         </div>
     </div>
 </div>
 
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        var inputs = document.querySelectorAll('input');
+        inputs.forEach(function(input) {
+            input.classList.add('form-control');
+        });
+    });
+</script>
 {% endblock %}

@@ -1,6 +1,23 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="fw-bold mb-1">마이 페이지</h1>
+            <p class="text-muted mb-0">환영합니다, <strong>{{ user.profile.name|default:user.username }}</strong>님!</p>
+        </div>
+        
+        <div class="btn-group">
+            <a href="{% url 'accounts:profile_update' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-person-lines-fill"></i> 정보 수정
+            </a>
+            <a href="{% url 'accounts:password_change' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-key-fill"></i> 비밀번호 변경
+            </a>
+        </div>
+    </div>
+
+    <hr class="my-4">
     <h1 class="mb-4">마이 페이지</h1>
     <p class="fs-5 text-muted">환영합니다, {{ user.profile.name|default:user.username }}님! 현재 상태를 한눈에 확인하세요.</p>
 

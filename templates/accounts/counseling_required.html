@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-5 text-center" style="max-width: 600px;">
+    <div class="card shadow border-warning">
+        <div class="card-header bg-warning text-dark">
+            <h4 class="mb-0"><i class="bi bi-lock-fill"></i> 계정 일시 정지</h4>
+        </div>
+        <div class="card-body py-5">
+            <h3 class="text-danger mb-3">시험 응시가 제한되었습니다.</h3>
+            <p class="lead">
+                3회 이상 불합격 또는 성적 미달로 인해<br>
+                <strong>'면담 필요'</strong> 상태로 전환되었습니다.
+            </p>
+            <hr>
+            <p class="text-muted">
+                담당 매니저(PL)님과 면담을 진행하신 후,<br>
+                매니저가 승인해야 다시 서비스를 이용하실 수 있습니다.
+            </p>
+            <form action="{% url 'accounts:logout' %}" method="post" class="mt-4">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-secondary">로그아웃</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

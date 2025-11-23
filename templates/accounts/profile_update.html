@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-5" style="max-width: 600px;">
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <h4 class="mb-0 fw-bold"><i class="bi bi-person-gear"></i> 개인 정보 수정</h4>
+        </div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                
+                {% for field in form %}
+                    <div class="mb-3">
+                        <label for="{{ field.id_for_label }}" class="form-label fw-bold">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.errors %}
+                            <div class="text-danger small">{{ field.errors }}</div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+
+                <div class="d-flex justify-content-between mt-4">
+                    <a href="{% url 'quiz:my_page' %}" class="btn btn-secondary">취소</a>
+                    <button type="submit" class="btn btn-primary">수정 완료</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 입력칸 스타일 적용
+    document.querySelectorAll('input, select').forEach(el => {
+        el.classList.add('form-control', 'form-select');
+        // form-select 클래스가 중복되어도 상관없음 (부트스트랩이 처리)
+        if(el.tagName === 'INPUT') el.classList.remove('form-select');
+    });
+</script>
+{% endblock %}

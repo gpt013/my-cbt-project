@@ -4,10 +4,10 @@ from django.contrib.auth.models import User, Group
 from django.urls import reverse
 from django.utils.html import format_html
 
-# 모델들 Import
+# 모델들 Import (빠짐없이 포함)
 from .models import (
     Profile, Badge, Company, EvaluationRecord, PartLeader, Process, RecordType, 
-    Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation
+    Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation, FinalAssessment
 )
 from quiz.models import Quiz, TestResult
 
@@ -43,10 +43,8 @@ def reset_password_to_default(modeladmin, request, queryset):
         
     count = 0
     for obj in queryset:
-        # ProfileAdmin인 경우 user를 추출, UserAdmin인 경우 obj가 user
         target_user = obj.user if isinstance(obj, Profile) else obj
-        profile = target_user.profile
-
+        
         # [보안] 슈퍼유저는 초기화 불가
         if target_user.is_superuser:
             continue
@@ -62,9 +60,24 @@ def reset_password_to_default(modeladmin, request, queryset):
         count += 1
     
     if count > 0:
-        modeladmin.message_user(request, f"✅ {count}명의 비밀번호가 '1234'로 초기화되었습니다. (로그인 시 변경 요구됨)")
+        modeladmin.message_user(request, f"✅ {count}명의 비밀번호가 '1234'로 초기화되었습니다.")
     else:
         modeladmin.message_user(request, "⚠️ 슈퍼유저는 초기화할 수 없습니다.", level='error')
+
+@admin.action(description='🎓 선택된 교육생 일괄 수료 처리 (재직 인원만)')
+def mark_as_completed(modeladmin, request, queryset):
+    if not request.user.is_staff: return
+    count = 0
+    skipped = 0
+    for profile in queryset:
+        if profile.status == 'attending':
+            profile.status = 'completed'
+            profile.save()
+            count += 1
+        else:
+            skipped += 1
+    if count > 0: modeladmin.message_user(request, f"🎉 {count}명 수료 처리 완료.")
+    if skipped > 0: modeladmin.message_user(request, f"⚠️ {skipped}명 제외됨 (재직 상태 아님).", level='warning')
 
 
 # -----------------------------------------------------------
@@ -137,38 +150,60 @@ class ManagerEvaluationAdmin(admin.ModelAdmin):
 # -----------------------------------------------------------
 # [4] 프로필(Profile) 관리자 - ★ 매니저 주 활동 영역 ★
 # -----------------------------------------------------------
+
+# [중요] FinalAssessmentInline을 ProfileAdmin보다 먼저 정의해야 에러가 안 남!
+class FinalAssessmentInline(admin.StackedInline):
+    model = FinalAssessment
+    can_delete = False
+    verbose_name_plural = "최종 종합 평가서 (점수 입력)"
+    readonly_fields = ('exam_avg_score', 'final_score', 'rank', 'updated_at')
+    fields = (
+        ('exam_avg_score', 'final_score', 'rank'),
+        ('practice_score', 'note_score', 'attitude_score'),
+        'manager_comment'
+    )
+    extra = 0
+
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    # 목록에 보여줄 필드 (승인 상태, 매니저 여부 등 포함)
-    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'is_profile_complete', 'get_is_active', 'is_manager', 'must_change_password')
+    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'status', 'is_profile_complete', 'get_is_active', 'is_manager')
     
-    # 목록에서 바로 수정 가능한 필드
-    list_editable = ('is_profile_complete',) 
+    # list_editable = ('is_profile_complete', 'status') -> 제거하거나 status만 남김
+    list_editable = ('status',) 
+
+    # 인라인 연결 (위에서 정의했으므로 에러 안 남)
+    inlines = [FinalAssessmentInline] 
 
     search_fields = ('user__username', 'name', 'employee_id', 'cohort__name')
-    list_filter = ('user__is_active', 'is_manager', 'must_change_password', 'process', 'cohort', 'company')
+    list_filter = ('status', 'user__is_active', 'is_manager', 'must_change_password', 'process', 'cohort', 'company')
     autocomplete_fields = ('user', 'company', 'process', 'pl', 'cohort')
     filter_horizontal = ('badges',)
 
-    # [액션 추가] 가입 승인 & 비번 초기화 버튼
-    actions = [activate_users, reset_password_to_default]
+    # 액션 추가 (가입승인, 비번초기화, 수료처리)
+    actions = [activate_users, reset_password_to_default, mark_as_completed]
 
-    # ▼▼▼ [보안 1] 매니저에게는 '슈퍼유저' 목록을 아예 안 보여줌 (원천 차단) ▼▼▼
+    # [보안 1] 매니저에게는 '슈퍼유저' 목록 숨김
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         if request.user.is_superuser:
             return qs
-        # 일반 매니저는 슈퍼유저가 아닌 사람만 볼 수 있음
         return qs.filter(user__is_superuser=False)
 
-    # ▼▼▼ [보안 2] 수정 권한 제한 (민감한 정보 잠금) ▼▼▼
+    # [보안 2] 수정 권한 제한
     def get_readonly_fields(self, request, obj=None):
         if request.user.is_superuser:
             return ()
-        # 일반 매니저는 아래 필드 수정 불가
-        return ('user', 'is_manager', 'must_change_password', 'badges')
+        # 일반 매니저용 읽기 전용 필드 (수정 불가, 눈으로만 확인)
+        return (
+            'user', 
+            'is_manager', 
+            'must_change_password', 
+            'badges', 
+            'is_pl',               # [추가] PL 권한 부여 불가
+            'is_profile_complete'  # [추가] 프로필 완료 여부 수정 불가
+        )
 
-    # [보안 3] URL 조작 방지 (슈퍼유저 수정 시도 차단)
+    # [보안 3] URL 조작 방지
     def has_change_permission(self, request, obj=None):
         if obj and obj.user.is_superuser and not request.user.is_superuser:
             return False
@@ -179,7 +214,11 @@ class ProfileAdmin(admin.ModelAdmin):
             return False
         return super().has_delete_permission(request, obj)
 
-    # --- 화면 표시용 함수들 ---
+    # --- Display Helper Methods ---
+    @admin.display(description='승인 상태', boolean=True)
+    def get_is_active(self, obj):
+        return obj.user.is_active
+
     @admin.display(description='기수', ordering='cohort__name')
     def get_cohort(self, obj):
         return obj.cohort.name if obj.cohort else '-'
@@ -187,10 +226,6 @@ class ProfileAdmin(admin.ModelAdmin):
     @admin.display(description='공정', ordering='process__name')
     def get_process_name(self, obj):
         return obj.process.name if obj.process else '-'
-    
-    @admin.display(description='승인 상태', boolean=True)
-    def get_is_active(self, obj):
-        return obj.user.is_active
 
 
 # -----------------------------------------------------------

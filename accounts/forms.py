@@ -36,7 +36,7 @@ class CustomUserCreationForm(UserCreationForm):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = Profile
-        fields = ['company', 'name', 'employee_id', 'cohort', 'process', 'pl']
+        fields = ['company', 'name', 'employee_id', 'cohort', 'process', 'line', 'pl']
         
         # ▼▼▼ [핵심 추가] 이 부분이 있어야 화면에 글자가 보입니다! ▼▼▼
         labels = {
@@ -45,6 +45,7 @@ class ProfileForm(forms.ModelForm):
             'employee_id': '사번',
             'cohort': '기수',       # <-- 여기가 핵심입니다
             'process': '공정',
+            'line': '라인',
             'pl': '담당 PL',
         }
         
@@ -55,6 +56,7 @@ class ProfileForm(forms.ModelForm):
             'employee_id': forms.TextInput(attrs={'class': 'form-control'}),
             'cohort': forms.Select(attrs={'class': 'form-select'}),
             'process': forms.Select(attrs={'class': 'form-select'}),
+            'line': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '상세 라인을 입력하세요'}),
             'pl': forms.Select(attrs={'class': 'form-select'}),
         }
 
@@ -101,3 +103,14 @@ class ProfileForm(forms.ModelForm):
                 )
         
         return cohort
+    
+class EmailVerificationForm(forms.Form):
+    code = forms.CharField(
+        label="인증 코드 6자리",
+        max_length=6,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control form-control-lg text-center', 
+            'placeholder': '123456',
+            'autofocus': 'autofocus'
+        })
+    )

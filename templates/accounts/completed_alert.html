@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-5 text-center" style="max-width: 600px;">
+    <div class="card shadow border-success">
+        <div class="card-body py-5">
+            <h1 class="display-1 text-success mb-3"><i class="bi bi-mortarboard-fill"></i></h1>
+            <h3 class="text-success">교육 수료를 축하합니다!</h3>
+            <p class="lead mt-3">
+                귀하는 교육 과정을 모두 <strong>수료</strong>하였습니다.<br>
+                보안 정책상 수료 이후에는 사이트 접속이 제한됩니다.
+            </p>
+            <form action="{% url 'accounts:logout' %}" method="post" class="mt-4">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-secondary">로그아웃</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

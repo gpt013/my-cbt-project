@@ -44,5 +44,7 @@ urlpatterns = [
     path('request-access/', views.request_process_access, name='request_process_access'),
     path('manage-requests/', views.manage_access_requests, name='manage_access_requests'),
     path('approve-request/<int:request_id>/<str:action>/', views.approve_access_request, name='approve_access_request'),
+    path('pl-dashboard/', views.pl_dashboard, name='pl_dashboard'),
+    path('pl-dashboard/detail/<int:profile_id>/', views.pl_trainee_detail, name='pl_trainee_detail'),
 ]
 
