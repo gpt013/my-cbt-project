@@ -92,8 +92,8 @@ class Profile(models.Model):
     
     # 기본 정보
     company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
-    name = models.CharField(max_length=50, verbose_name='이름')
-    employee_id = models.CharField(max_length=50, verbose_name='사번')
+    name = models.CharField(max_length=50, verbose_name='이름', blank=True, null=True)
+    employee_id = models.CharField(max_length=50, verbose_name='사번', blank=True, null=True)
     cohort = models.ForeignKey(Cohort, on_delete=models.SET_NULL, null=True, blank=False, verbose_name="소속 기수")
     process = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="공정")
     line = models.CharField(max_length=100, verbose_name='라인', blank=True, null=True)
