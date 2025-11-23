@@ -31,8 +31,8 @@ def get_env_variable(var_name, default=None):
 SECRET_KEY = get_env_variable('DJANGO_SECRET_KEY')
 
 # DEBUG는 기본적으로 False입니다. 환경 변수에 'True'라고 명시해야만 켜집니다.
-# DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
+# DEBUG = True
 # ALLOWED_HOSTS: DEBUG가 꺼져있을 때는 반드시 도메인을 제한합니다.
 ALLOWED_HOSTS = []
 if not DEBUG:
