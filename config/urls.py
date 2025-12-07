@@ -16,6 +16,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('quiz/', include('quiz.urls')),
     path('accounts/', include('accounts.urls')),
+    path('attendance/', include('attendance.urls')),
 ]
 
 # 미디어 파일(이미지 등)을 배포 환경에서 보여주기 위한 설정

@@ -7,7 +7,7 @@ from django.utils.html import format_html
 # 모델들 Import (빠짐없이 포함)
 from .models import (
     Profile, Badge, Company, EvaluationRecord, PartLeader, Process, RecordType, 
-    Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation, FinalAssessment
+    Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation, FinalAssessment, Interview, FinalAssessment
 )
 from quiz.models import Quiz, TestResult
 
@@ -156,13 +156,22 @@ class FinalAssessmentInline(admin.StackedInline):
     model = FinalAssessment
     can_delete = False
     verbose_name_plural = "최종 종합 평가서 (점수 입력)"
+
+    # [설명]
+    # exam_avg_score: 시험 평균 (자동 계산됨)
+    # final_score: 최종 환산 점수 (자동 계산됨)
+    # rank: 석차 (자동 계산됨)
+    # 나머지는 매니저가 직접 입력하는 칸입니다.
+    
     readonly_fields = ('exam_avg_score', 'final_score', 'rank', 'updated_at')
     fields = (
-        ('exam_avg_score', 'final_score', 'rank'),
-        ('practice_score', 'note_score', 'attitude_score'),
+        ('exam_avg_score', 'final_score', 'rank'), # 보기 전용 (자동)
+        ('practice_score', 'note_score', 'attitude_score'), # 입력 가능 (수동)
         'manager_comment'
     )
     extra = 0
+
+    
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
@@ -367,6 +376,17 @@ class UserAdmin(BaseUserAdmin):
             return obj.profile.employee_id
         return ''
     employee_id.short_description = '사번'
+
+@admin.register(Interview)
+class InterviewAdmin(admin.ModelAdmin):
+    list_display = ('profile', 'get_stage_display', 'interviewer', 'is_passed', 'created_at')
+    list_filter = ('stage', 'is_passed', 'profile__cohort', 'profile__process')
+    search_fields = ('profile__name', 'content', 'interviewer__username')
+    autocomplete_fields = ('profile', 'interviewer')
+
+    def get_stage_display(self, obj):
+        return obj.get_stage_display()
+    get_stage_display.short_description = "면담 차수"
 
 # 최종 등록 (User, Group)
 admin.site.unregister(User)

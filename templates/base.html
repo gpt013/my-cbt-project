@@ -5,18 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>나만의 CBT 사이트</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 </head>
 <body>
-    {# --- "시험 중"이 아닐 때만 이 헤더 전체를 보여줍니다 --- #}
-    
+    {# --- "시험 중"이거나 "프로필 설정 중"이 아닐 때만 헤더 표시 --- #}
     {% if not is_in_test_mode and not is_completing_profile %} 
     <header>
-        <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <nav class="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
             <div class="container-fluid">
-                <a class="navbar-brand" href="{% url 'quiz:index' %}">CBT 사이트</a>
+                <a class="navbar-brand fw-bold" href="{% url 'quiz:index' %}">CBT 사이트</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                     <span class="navbar-toggler-icon"></span>
                 </button>
+                
                 <div class="collapse navbar-collapse" id="navbarNav">
                     <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         {% if user.is_authenticated %}
@@ -30,17 +31,20 @@
                                 <a class="nav-link" href="{% url 'quiz:my_results_index' %}">내 시험 결과</a>
                             </li>
                             <li class="nav-item">
-                            {% if user.is_staff %}
-<li class="nav-item">
-    <a class="nav-link" href="{% url 'quiz:my_incorrect_answers_index' %}">누적 오답노트</a>
-</li>
-{% endif %}
-                            <li class="nav-item">
                                 <a class="nav-link" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a>
                             </li>
                             
+                            <li class="nav-item ms-lg-2">
+                                <a class="nav-link" href="{% url 'attendance:upload_mdm' %}">📷 MDM 인증</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'attendance:schedule_index' %}">📅 근무표 관리</a>
+                            </li>
+
                             {% if user.is_staff %}
-                            
+                            <li class="nav-item ms-lg-2 border-start ps-lg-2">
+                                <a class="nav-link" href="{% url 'quiz:my_incorrect_answers_index' %}">누적 오답노트</a>
+                            </li>
                             <li class="nav-item">
                                 <a class="nav-link fw-bold text-primary" href="{% url 'admin:index' %}">
                                     [관리자 페이지]
@@ -49,10 +53,11 @@
                             {% endif %}
                         {% endif %}
                     </ul>
+
                     <div class="d-flex align-items-center">
                         {% if user.is_authenticated %}
                             <span class="navbar-text me-3">
-                                <strong>{{ user.username }}</strong>님 환영합니다.
+                                <strong>{{ user.username }}</strong>님
                             </span>
                             <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
                                 {% csrf_token %}
@@ -68,13 +73,13 @@
         </nav>
     </header>
     {% endif %}
-    {# ---------------------------------------------------- #}
 
     <main class="container mt-4">
         {% if messages %}
             {% for message in messages %}
-                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %}" role="alert">
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show" role="alert">
                     {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
             {% endfor %}
         {% endif %}
@@ -88,6 +93,8 @@
     {% if user.is_authenticated and not is_in_test_mode and not is_completing_profile %} 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // 웹소켓 기능이 서버에 구현되어 있지 않다면 아래 코드는 콘솔 에러를 유발할 수 있습니다.
+            // 현재 알림 기능(Channels)을 사용하지 않는다면 이 <script> 블록 전체를 삭제해도 됩니다.
             const notificationSocket = new WebSocket(
                 (window.location.protocol === "https:" ? "wss://" : "ws://") 
                 + window.location.host 
@@ -99,7 +106,7 @@
                 window.location.reload();
             };
             notificationSocket.onclose = function(e) {
-                console.error('Notification socket closed unexpectedly');
+                console.log('Notification socket closed');
             };
         });
     </script>

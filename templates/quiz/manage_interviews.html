@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>💬 면담 관리 시스템</h2>
+        <a href="{% url 'quiz:pl_dashboard' %}" class="btn btn-secondary">대시보드로 돌아가기</a>
+    </div>
+
+    <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+            <h5 class="card-title">{{ profile.name }} <small class="text-muted">({{ profile.get_status_display }})</small></h5>
+            <p class="card-text">
+                소속: {{ profile.cohort.name }} / {{ profile.process.name }}<br>
+                현재 상태: 
+                {% if profile.status == 'counseling' %}
+                    <span class="badge bg-warning text-dark">⚠️ 면담 필요 (잠김)</span>
+                {% elif profile.status == 'attending' %}
+                    <span class="badge bg-success">재직 중 (정상)</span>
+                {% else %}
+                    <span class="badge bg-danger">{{ profile.get_status_display }}</span>
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-7">
+            <h5 class="mb-3"><i class="bi bi-journal-text"></i> 면담 기록</h5>
+            {% if interviews %}
+                <div class="list-group">
+                    {% for interview in interviews %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h5 class="mb-1 text-primary">{{ interview.get_stage_display }}</h5>
+                            <small>{{ interview.created_at|date:"Y-m-d H:i" }}</small>
+                        </div>
+                        <p class="mb-1"><strong>내용:</strong> {{ interview.content }}</p>
+                        <p class="mb-1"><strong>의견:</strong> {{ interview.opinion }}</p>
+                        <small class="text-muted">진행자: {{ interview.interviewer.profile.name|default:interview.interviewer.username }}</small>
+                        
+                        {% if interview.is_passed %}
+                            <span class="badge bg-success float-end">✅ 통과/해제됨</span>
+                        {% else %}
+                            <span class="badge bg-secondary float-end">기록됨</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-light border text-center py-5">
+                    아직 진행된 면담이 없습니다.
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="col-md-5">
+            <div class="card bg-light border-0">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-pencil-square"></i> 새 면담 기록 작성
+                </div>
+                <div class="card-body">
+                    {% if next_stage %}
+                        <form method="post">
+                            {% csrf_token %}
+                            
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">진행 단계</label>
+                                <input type="text" class="form-control" value="{{ next_stage }}차 면담" disabled>
+                                <input type="hidden" name="stage" value="{{ next_stage }}">
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">면담 내용 (한줄평)</label>
+                                <textarea name="content" class="form-control" rows="3" required placeholder="면담 내용을 입력하세요..."></textarea>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">조치 의견</label>
+                                <input type="text" name="opinion" class="form-control" placeholder="예: 격려 후 기회 부여">
+                            </div>
+
+                            <div class="mb-3 form-check p-3 bg-white border rounded">
+                                <input type="checkbox" class="form-check-input" id="passCheck" name="is_passed">
+                                <label class="form-check-label fw-bold text-danger" for="passCheck">
+                                    ✅ 이 단계 통과 및 계정 잠금 해제
+                                </label>
+                                <div class="form-text">
+                                    체크하고 저장하면 교육생의 상태가 <strong>'재직'</strong>으로 변경되어 즉시 시험 응시가 가능해집니다.
+                                    (3차 면담인 경우 '퇴소' 처리됩니다.)
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100">저장 및 적용</button>
+                        </form>
+                    {% else %}
+                        <div class="alert alert-success text-center">
+                            모든 단계의 면담이 완료되었습니다.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

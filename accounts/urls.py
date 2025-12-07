@@ -63,4 +63,5 @@ urlpatterns = [
     path('status/dropout/', views.dropout_alert, name='dropout_alert'),
     path('status/completed/', views.completed_alert, name='completed_alert'),
     path('profile/update/', views.profile_update, name='profile_update'),
+    path('status/expired/', views.cohort_expired, name='cohort_expired'),
 ]

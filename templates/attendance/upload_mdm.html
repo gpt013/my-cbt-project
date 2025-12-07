@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-5" style="max-width: 600px;">
+    <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white text-center">
+            <h4 class="mb-0"><i class="bi bi-shield-lock-fill"></i> MDM 보안 인증 / 출석 체크</h4>
+        </div>
+        <div class="card-body p-4">
+            
+            <div class="alert alert-info" role="alert">
+                <h6 class="alert-heading fw-bold"><i class="bi bi-info-circle"></i> 필독 사항</h6>
+                <ul class="mb-0 small">
+                    <li>반드시 <strong>현재 시간</strong>이 포함된 MDM 스크린샷을 올려주세요.</li>
+                    <li><strong>파란색(보안 해제)</strong> 화면은 인증되지 않습니다. (녹색/적색 등 보안 작동 중이어야 함)</li>
+                    <li>이미지 내 시간과 현재 시간이 <strong>5분 이상 차이</strong>나면 실패합니다.</li>
+                </ul>
+            </div>
+
+            <form method="post" enctype="multipart/form-data" class="text-center">
+                {% csrf_token %}
+                
+                <div class="mb-4">
+                    <label for="mdmFile" class="form-label fw-bold">스크린샷 업로드</label>
+                    <input class="form-control form-control-lg" type="file" id="mdmFile" name="mdm_image" accept="image/*" required>
+                </div>
+
+                {% if record %}
+                    <div class="alert alert-warning">
+                        오늘 이미 인증 기록이 있습니다.<br>
+                        다시 업로드하면 <strong>기존 기록이 덮어씌워집니다.</strong>
+                    </div>
+                {% endif %}
+
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-primary btn-lg">
+                        <i class="bi bi-cloud-upload-fill"></i> 인증하고 출석하기
+                    </button>
+                </div>
+            </form>
+        </div>
+        <div class="card-footer text-center">
+            <a href="{% url 'attendance:mdm_status' %}" class="text-decoration-none">내 인증 기록 보기 &rarr;</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

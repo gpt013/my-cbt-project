@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2 class="fw-bold mb-4"><i class="bi bi-clock-history"></i> 나의 MDM 인증 기록</h2>
+
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th>날짜</th>
+                            <th>이미지</th>
+                            <th>인식된 시간</th>
+                            <th>보안 상태</th>
+                            <th>출석 판정</th>
+                            <th>관리자 코멘트</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in logs %}
+                        <tr>
+                            <td>{{ log.date|date:"Y-m-d (D)" }}</td>
+                            <td>
+                                {% if log.mdm_image %}
+                                    <a href="{{ log.mdm_image.url }}" target="_blank">
+                                        <img src="{{ log.mdm_image.url }}" alt="스크린샷" style="height: 50px; border-radius: 5px; border: 1px solid #ddd;">
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.captured_time %}
+                                    {{ log.captured_time|date:"H:i:s" }}
+                                {% else %}
+                                    <span class="text-muted">인식 불가</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.security_status == 'safe' %}
+                                    <span class="badge bg-success">보안 준수</span>
+                                {% elif log.security_status == 'violation' %}
+                                    <span class="badge bg-danger">🚨 위반 (파란색)</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">판독 불가</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if log.attendance_status == 'present' %}
+                                    <span class="badge bg-primary">출석</span>
+                                {% elif log.attendance_status == 'late' %}
+                                    <span class="badge bg-warning text-dark">지각</span>
+                                {% elif log.attendance_status == 'error' %}
+                                    <span class="badge bg-danger">인증 실패</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ log.get_attendance_status_display }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-start text-muted small">
+                                {{ log.admin_comment|default:"-" }}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="py-5 text-muted">인증 기록이 없습니다.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-4 text-end">
+        <a href="{% url 'attendance:upload_mdm' %}" class="btn btn-primary">
+            <i class="bi bi-camera-fill"></i> 오늘 출석 인증하기
+        </a>
+    </div>
+</div>
+{% endblock %}

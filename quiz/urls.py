@@ -46,5 +46,7 @@ urlpatterns = [
     path('approve-request/<int:request_id>/<str:action>/', views.approve_access_request, name='approve_access_request'),
     path('pl-dashboard/', views.pl_dashboard, name='pl_dashboard'),
     path('pl-dashboard/detail/<int:profile_id>/', views.pl_trainee_detail, name='pl_trainee_detail'),
+    path('pl-dashboard/report/', views.pl_report_view, name='pl_report_view'),
+    path('manage-interviews/<int:profile_id>/', views.manage_interviews, name='manage_interviews'),
 ]
 

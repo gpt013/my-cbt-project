@@ -1,0 +1,432 @@
+{% extends 'base.html' %}
+{% load static custom_tags %}
+
+{% block content %}
+<style>
+    /* 1. 테이블 컨테이너 */
+    .schedule-table-container { 
+        overflow: auto; 
+        max-height: 70vh; 
+        position: relative; 
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        transition: border-color 0.3s;
+        background: #fff;
+    }
+    
+    .schedule-table-container.edit-mode-active {
+        border: 2px solid #0d6efd;
+        box-shadow: 0 0 15px rgba(13, 110, 253, 0.15);
+    }
+
+    /* 2. 테이블 셀 스타일 */
+    .schedule-table th, .schedule-table td { 
+        white-space: nowrap; 
+        text-align: center; 
+        vertical-align: middle; 
+        padding: 4px 2px; 
+        border: 1px solid #eee; 
+        min-width: 45px; 
+        font-size: 0.85em; 
+    }
+
+    /* 3. Sticky Header (상단 고정) */
+    .schedule-table thead th { 
+        position: sticky; top: 0; background-color: #f8f9fa; z-index: 10; 
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    /* 4. Sticky Column (왼쪽 이름 고정) */
+    .schedule-table tbody th { 
+        position: sticky; left: 0; background-color: #fff; z-index: 5; 
+        border-right: 2px solid #dee2e6; min-width: 100px;
+    }
+    .schedule-table thead th:first-child { 
+        left: 0; z-index: 20; background-color: #e9ecef; border-right: 2px solid #dee2e6;
+    }
+
+    /* 5. 날짜 스타일 */
+    .today-col { background-color: #fff3cd !important; border-left: 2px solid #ffc107 !important; border-right: 2px solid #ffc107 !important; font-weight: bold; }
+    .holiday-col { color: #dc3545; background-color: #fff0f0; } 
+    .sat-col { color: #0d6efd; background-color: #f0f8ff; }
+
+    /* 6. 근무 버튼 스타일 (2줄 세로 정렬) */
+    .type-btn { 
+        width: 42px; height: 42px; 
+        border-radius: 6px; 
+        border: 1px solid #ced4da; 
+        cursor: not-allowed; opacity: 0.6;
+        
+        /* [디자인 핵심] 텍스트 위아래 정렬 */
+        display: inline-flex; 
+        flex-direction: column; 
+        align-items: center; 
+        justify-content: center;
+        text-align: center;
+        
+        margin-right: 3px; 
+        font-size: 0.7rem; 
+        font-weight: 700;
+        color: #333; 
+        line-height: 1.1; 
+        white-space: normal; 
+        word-break: keep-all; 
+        padding: 1px;
+        
+        transition: all 0.2s;
+        pointer-events: none; user-select: none;
+    }
+    
+    .edit-mode-active .type-btn { cursor: pointer; opacity: 1; pointer-events: auto; }
+    .edit-mode-active .type-btn:hover { transform: translateY(-2px); border-color: #0d6efd; }
+    .edit-mode-active .type-btn.active { border: 2px solid #212529; transform: scale(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 2; }
+
+    /* 7. 셀 편집 스타일 */
+    .cell-editable { cursor: default; }
+    .schedule-table-container.edit-mode-active .cell-editable { cursor: pointer; }
+    .schedule-table-container.edit-mode-active .cell-editable:hover { opacity: 0.8; outline: 2px solid #0d6efd; outline-offset: -2px; }
+
+    .cell-text {
+        display: block;
+        white-space: normal;
+        line-height: 1.1;
+        font-size: 0.8em;
+    }
+
+    /* 8. 컨트롤 박스 */
+    .control-box { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px 15px; margin-bottom: 20px; }
+</style>
+
+<div class="container-fluid mt-4 pb-5">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="fw-bold text-dark m-0">
+            <i class="bi bi-calendar-week-fill text-primary me-2"></i>근무표 ({{ year }}.{{ month }})
+        </h3>
+        
+        <div class="d-flex gap-2 align-items-center">
+            {% if is_manager %}
+            <button class="btn btn-warning shadow-sm fw-bold position-relative btn-sm text-nowrap" onclick="openApprovalModal()">
+                <i class="bi bi-bell-fill"></i> 결재
+                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="badge-count" style="display:none;">0</span>
+            </button>
+            
+            <form class="d-flex gap-2 align-items-center bg-white p-1 rounded border shadow-sm">
+                <select name="role" id="roleSelect" class="form-select form-select-sm border-0 fw-bold" style="width:auto;" onchange="this.form.submit()">
+                    <option value="student" {% if sel_role == 'student' %}selected{% endif %}>교육생</option>
+                    <option value="manager" {% if sel_role == 'manager' %}selected{% endif %}>매니저</option>
+                </select>
+                <div class="vr"></div>
+                <select name="cohort" class="form-select form-select-sm border-0" style="width:auto;" onchange="this.form.submit()">
+                    <option value="">전체 기수</option>
+                    {% for c in cohorts %}<option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+                </select>
+                <div class="vr"></div>
+                <select name="process" class="form-select form-select-sm border-0" style="width:auto;" onchange="this.form.submit()">
+                    <option value="">전체 공정</option>
+                    {% for p in processes %}<option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+                </select>
+            </form>
+            {% else %}
+            <div class="bg-white px-3 py-1 rounded border text-muted shadow-sm small text-nowrap">
+                <i class="bi bi-person-circle"></i> 내 과정 조회
+            </div>
+            {% endif %}
+            
+            <div class="btn-group shadow-sm">
+                <a href="?year={{ prev_month|slice:':4' }}&month={{ prev_month|slice:'5:' }}" class="btn btn-light border fw-bold btn-sm">◀</a>
+                <a href="?year={{ next_month|slice:':4' }}&month={{ next_month|slice:'5:' }}" class="btn btn-light border fw-bold btn-sm">▶</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="control-box d-flex flex-wrap align-items-center justify-content-between shadow-sm" id="palette-toolbar">
+        <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center">
+                <strong class="me-3 text-secondary small text-nowrap"><i class="bi bi-palette-fill"></i> 근무 선택</strong>
+                <div id="type-btn-group" class="d-flex flex-wrap">
+                    {% for wt in work_types %}
+                        <div class="type-btn" 
+                             style="background-color: {{ wt.color }};" 
+                             title="{{ wt.name }}"
+                             onclick="selectWorkType(this, '{{ wt.id }}', '{{ wt.color }}', '{{ wt.short_name }}')">
+                            {{ wt.short_name }}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <small class="text-muted border-start ps-3 d-none d-md-block" id="mode-instruction" style="font-size: 0.85em;">
+                * <strong>[수정하기]</strong> 버튼을 눌러야 편집이 가능합니다.
+            </small>
+        </div>
+        
+        <div class="d-flex gap-2 mt-2 mt-md-0">
+            <div id="view-mode-btns" class="d-flex gap-2">
+                {% if is_manager %}
+                <button class="btn btn-sm btn-outline-success fw-bold text-nowrap" onclick="applyAllNormal()">
+                    <i class="bi bi-magic"></i> 전체 정상
+                </button>
+                {% endif %}
+                <button class="btn btn-sm btn-primary fw-bold px-3 text-nowrap" onclick="startEditMode()">
+                    <i class="bi bi-pencil-square"></i> 수정하기
+                </button>
+            </div>
+
+            <div id="edit-mode-btns" class="d-flex gap-2" style="display: none !important;">
+                <button class="btn btn-sm btn-secondary fw-bold px-3 text-nowrap" onclick="cancelEditMode()">
+                    취소
+                </button>
+                <button class="btn btn-sm btn-danger fw-bold px-3 shadow text-nowrap" onclick="finishEditMode()">
+                    <i class="bi bi-save-fill"></i> 저장
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="schedule-table-container shadow-sm" id="scheduleContainer">
+        <table class="schedule-table w-100 mb-0">
+            <thead>
+                <tr>
+                    <th style="min-width: 120px; background-color: #e9ecef;">이름 / 공정</th>
+                    {% for day in days_in_month %}
+                        <th class="{% if day.is_today %}today-col{% endif %} 
+                                   {% if day.is_holiday %}holiday-col{% elif day.weekday == '토' %}sat-col{% elif day.is_weekend %}holiday-col{% endif %}"
+                            title="{{ day.holiday_name }}">
+                            {{ day.day }}<br>
+                            <span style="font-size:0.8em; font-weight:normal;">{{ day.weekday }}</span>
+                            {% if day.is_holiday %}
+                                <br><span style="font-size:0.6em;" class="badge bg-danger rounded-pill">{{ day.holiday_name|truncatechars:4 }}</span>
+                            {% endif %}
+                        </th>
+                    {% endfor %}
+                    <th class="bg-light text-secondary border-start">출근</th>
+                    <th class="bg-light text-secondary">휴무</th> <th class="bg-light text-secondary">연차</th>
+                    <th class="bg-light text-secondary">반차</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pid, data in schedule_map.items %}
+                <tr data-profile-id="{{ pid }}">
+                    <th>
+                        <div class="fw-bold text-dark" style="font-size:0.95em;">{{ data.profile.name }}</div>
+                        <small class="text-muted fw-normal" style="font-size:0.8em;">{{ data.profile.process.name|default:"-" }}</small>
+                    </th>
+                    
+                    {% for day in days_in_month %}
+                        {% with cell_val=data.daily_data|get_item:day.date_str %}
+                        <td class="cell-editable {% if day.is_today %}today-col{% endif %}"
+                            data-date="{{ day.date_str }}"
+                            onclick="applyCell(this)"
+                            style="
+                                {% if cell_val == 'DEFAULT_F' %}
+                                    /* 기본 F */
+                                {% elif cell_val %}
+                                    background-color: {{ cell_val.color }};
+                                {% elif day.is_holiday or day.is_weekend %}
+                                    background-color: #f8f9fa; color: #ced4da;
+                                {% endif %}
+                            ">
+                            
+                            <span class="cell-text fw-bold">
+                                {% if cell_val == 'DEFAULT_F' %}
+                                    <span class="text-secondary" style="opacity:0.3;">F</span>
+                                {% elif cell_val %}
+                                    {{ cell_val.short_name }}
+                                {% elif day.is_holiday or day.is_weekend %}
+                                    <span style="color: #dc3545; font-size: 0.8em;">휴무</span>
+                                {% endif %}
+                            </span>
+                        </td>
+                        {% endwith %}
+                    {% endfor %}
+                    
+                    <td class="fw-bold text-dark bg-light border-start">{{ data.stats.work }}</td>
+                    <td class="text-muted bg-light fw-bold">{{ data.stats.rest }}</td> <td class="text-danger bg-light">{{ data.stats.leave }}</td>
+                    <td class="text-primary bg-light">{{ data.stats.half }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="45" class="p-5 text-center text-muted">표시할 인원이 없습니다.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal fade" id="approvalModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-warning text-dark">
+                <h5 class="modal-title fw-bold">결재 대기 목록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-hover mb-0">
+                    <tbody id="approvalListBody"></tbody>
+                </table>
+                <div id="noRequestMsg" class="text-center py-4 text-muted" style="display:none;">대기 중인 요청이 없습니다.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let selectedTypeId = null;
+    let selectedColor = null;
+    let selectedText = null;
+    let isEditMode = false;
+    let pendingChanges = [];
+
+    function startEditMode() {
+        isEditMode = true;
+        pendingChanges = [];
+        document.getElementById('view-mode-btns').style.setProperty('display', 'none', 'important');
+        document.getElementById('edit-mode-btns').style.setProperty('display', 'flex', 'important');
+        document.getElementById('scheduleContainer').classList.add('edit-mode-active');
+        document.getElementById('palette-toolbar').classList.add('edit-mode-active');
+        document.getElementById('mode-instruction').innerHTML = '<span class="text-danger fw-bold">수정 모드 ON</span> (저장 필수)';
+    }
+
+    function cancelEditMode() {
+        if(pendingChanges.length > 0 && !confirm('작성 중인 내용이 사라집니다. 취소하시겠습니까?')) return;
+        location.reload();
+    }
+
+    // [핵심 로직] 저장 버튼 클릭 -> 서버 응답에 따라 사유 입력 처리
+    async function finishEditMode() {
+        if (pendingChanges.length === 0) { cancelEditMode(); return; }
+        if(!confirm(`총 ${pendingChanges.length}건을 저장하시겠습니까?`)) return;
+
+        try {
+            for (let i = 0; i < pendingChanges.length; i++) {
+                let change = pendingChanges[i];
+                
+                // 1. 저장 시도
+                let response = await fetch("{% url 'attendance:update_schedule' %}", {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+                    body: JSON.stringify(change)
+                });
+                let data = await response.json();
+
+                // 2. 서버가 사유 입력을 요구하면 (승인 필요 건)
+                if (data.status === 'reason_required') {
+                    // 사용자에게 입력 받기
+                    let userReason = prompt(`📝 [승인 필요] ${change.date} 근무 변경 사유를 입력해주세요:\n(취소 시 해당 건은 저장되지 않습니다)`);
+                    
+                    if (userReason) {
+                        change.reason = userReason;
+                        // 사유를 담아서 재전송
+                        let retryResponse = await fetch("{% url 'attendance:update_schedule' %}", {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+                            body: JSON.stringify(change)
+                        });
+                        let retryData = await retryResponse.json();
+                        
+                        if (retryData.status === 'request_sent') {
+                            console.log(`승인 요청됨: ${change.date}`);
+                        }
+                    } else {
+                        console.log(`저장 취소됨: ${change.date}`);
+                    }
+                }
+            }
+            alert("저장 작업이 완료되었습니다.");
+            location.reload();
+        } catch (error) {
+            console.error(error);
+            alert("저장 중 통신 오류가 발생했습니다.");
+        }
+    }
+
+    function selectWorkType(el, id, color, text) {
+        if (!isEditMode) return;
+        document.querySelectorAll('.type-btn').forEach(btn => btn.classList.remove('active'));
+        el.classList.add('active');
+        selectedTypeId = id;
+        selectedColor = color;
+        selectedText = text;
+    }
+
+    function applyCell(cell) {
+        if (!isEditMode) return;
+        if (!selectedTypeId) { alert('근무 유형을 먼저 선택하세요!'); return; }
+        
+        const profileId = cell.parentElement.getAttribute('data-profile-id');
+        const date = cell.getAttribute('data-date');
+
+        cell.style.backgroundColor = selectedColor;
+        cell.querySelector('.cell-text').innerText = selectedText;
+        cell.querySelector('.cell-text').style.color = '#000'; 
+        
+        pendingChanges = pendingChanges.filter(c => !(c.profile_id === profileId && c.date === date));
+        pendingChanges.push({ profile_id: profileId, date: date, work_type_id: selectedTypeId, reason: null });
+    }
+
+    function applyAllNormal() {
+        if(!confirm("빈 평일을 모두 '정상 근무'로 채우시겠습니까?")) return;
+        const profileIds = [];
+        document.querySelectorAll('tr[data-profile-id]').forEach(tr => profileIds.push(tr.getAttribute('data-profile-id')));
+        
+        fetch("{% url 'attendance:apply_all_normal' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({ year: {{ year }}, month: {{ month }}, profile_ids: profileIds })
+        }).then(res => res.json()).then(data => {
+            alert('적용 완료. 새로고침합니다.');
+            location.reload();
+        });
+    }
+
+    // 승인 모달 관련
+    function openApprovalModal() {
+        const modal = new bootstrap.Modal(document.getElementById('approvalModal'));
+        document.getElementById('approvalListBody').innerHTML = '<tr><td class="text-center">로딩 중...</td></tr>';
+        modal.show();
+        fetch("{% url 'attendance:get_pending_requests' %}").then(res => res.json()).then(data => {
+            const tbody = document.getElementById('approvalListBody');
+            tbody.innerHTML = '';
+            if(data.requests.length === 0) {
+                document.getElementById('noRequestMsg').style.display = 'block';
+            } else {
+                document.getElementById('noRequestMsg').style.display = 'none';
+                data.requests.forEach(req => {
+                    tbody.innerHTML += `
+                        <tr id="req-${req.id}">
+                            <td class="fw-bold">${req.name}</td>
+                            <td>${req.date}</td>
+                            <td><span class="badge bg-primary">${req.type}</span></td>
+                            <td class="small text-muted">${req.reason}</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-success me-1" onclick="processReq(${req.id}, 'approve')">승인</button>
+                                <button class="btn btn-sm btn-danger" onclick="processReq(${req.id}, 'reject')">거절</button>
+                            </td>
+                        </tr>`;
+                });
+            }
+        });
+    }
+
+    function processReq(reqId, action) {
+        fetch("{% url 'attendance:process_request' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({ request_id: reqId, action: action })
+        }).then(res => res.json()).then(data => {
+            document.getElementById(`req-${reqId}`).remove();
+            if(document.getElementById('approvalListBody').children.length === 0) document.getElementById('noRequestMsg').style.display = 'block';
+        });
+    }
+
+    window.onload = function() {
+        const todayHeader = document.querySelector('.today-col');
+        if (todayHeader) todayHeader.scrollIntoView({behavior: "smooth", block: "center", inline: "center"});
+        
+        {% if is_manager %}
+        fetch("{% url 'attendance:get_pending_requests' %}").then(res => res.json()).then(data => {
+            const badge = document.getElementById('badge-count');
+            if(data.requests.length > 0) { badge.innerText = data.requests.length; badge.style.display = 'block'; }
+        });
+        {% endif %}
+    };
+</script>
+{% endblock %}

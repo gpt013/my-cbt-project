@@ -7,13 +7,14 @@ from django.contrib import messages
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
-import random
+import random, holidays
 from django.db import transaction
 from .forms import CustomUserCreationForm, ProfileForm,EmailVerificationForm
 from django.http import JsonResponse
 # --- [핵심 1] import 수정 ---
 from .models import PartLeader, Profile, EmailVerification
 from django.contrib.auth.decorators import login_required
+from django.db.models import Sum, Count, Q
 # -------------------------
 
 # --- [핵심 2] signup 뷰 수정 (ProfileForm 제거) ---
@@ -263,3 +264,7 @@ def profile_update(request):
         form = ProfileForm(instance=profile)
 
     return render(request, 'accounts/profile_update.html', {'form': form})
+
+def cohort_expired(request):
+    return render(request, 'accounts/cohort_expired.html')
+

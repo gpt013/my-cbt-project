@@ -345,3 +345,112 @@ def auto_calculate_and_rank(sender, instance, created, **kwargs):
             
     # 3. 랭킹 업데이트 (관리자 명령어 실행 필요)
     # 매니저가 점수를 저장하면 최종 점수가 갱신되고, 관리자가 랭킹 업데이트 명령을 실행할 수 있게 됩니다.
+
+class Interview(models.Model):
+    STAGE_CHOICES = [
+        (1, '1차 면담 (교수/센터장)'),
+        (2, '2차 면담 (파트장/PL)'),
+        (3, '3차 면담 (퇴소/최종)'),
+    ]
+    
+    profile = models.ForeignKey(
+        Profile, 
+        on_delete=models.CASCADE, 
+        related_name='interviews',
+        verbose_name="대상 교육생"
+    )
+    
+    interviewer = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        verbose_name="면담 진행자"
+    )
+    
+    stage = models.IntegerField(choices=STAGE_CHOICES, verbose_name="면담 차수")
+    
+    content = models.TextField(verbose_name="면담 내용 (한줄평)")
+    opinion = models.TextField(verbose_name="조치 의견", blank=True, help_text="예: 경고 조치, 기회 부여, 퇴소 처리 등")
+    
+    is_passed = models.BooleanField(
+        default=False, 
+        verbose_name="통과/완료 여부",
+        help_text="체크해야 다음 단계(시험/면담)가 활성화됩니다."
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="작성일")
+
+    class Meta:
+        verbose_name = "면담 기록"
+        verbose_name_plural = "면담 기록 (단계별)"
+        ordering = ['profile', 'stage']
+        unique_together = ('profile', 'stage') # 한 사람이 같은 차수 면담을 중복해서 만들지 않도록 제한
+
+    def __str__(self):
+        return f"{self.profile.name} - {self.get_stage_display()}"
+    
+def update_score_and_rank(sender, instance, created, **kwargs):
+    # 1. 무한 루프 방지 (이미 처리 중이면 건너뜀)
+    if getattr(instance, '_processing', False):
+        return
+
+    # 2. 시험 평균 점수 최신화 (Quiz 결과에서 가져오기)
+    # (매니저가 점수 입력할 때 시험 점수도 최신으로 갱신해 줌)
+    from quiz.models import TestResult # 지연 import
+    
+    avg_data = TestResult.objects.filter(user=instance.profile.user).aggregate(avg=Avg('score'))
+    current_exam_avg = avg_data['avg'] if avg_data['avg'] else 0
+    
+    # 3. 변경사항 적용 (시험점수 or 환산점수 계산)
+    need_save = False
+    
+    if instance.exam_avg_score != current_exam_avg:
+        instance.exam_avg_score = current_exam_avg
+        need_save = True
+
+    # 환산 점수 공식 (시험40 + 실습30 + 노트15 + 인성15)
+    # (관리자님이 비율 바꾸고 싶으면 여기 숫자를 고치면 됩니다)
+    new_final_score = (
+        (instance.exam_avg_score * 0.4) + 
+        (instance.practice_score * 0.3) + 
+        (instance.note_score * 0.15) + 
+        (instance.attitude_score * 0.15)
+    )
+    
+    if instance.final_score != new_final_score:
+        instance.final_score = new_final_score
+        need_save = True
+
+    # 4. 저장 (변경된 경우에만)
+    if need_save:
+        instance._processing = True # 루프 방지 락 걸기
+        instance.save()
+        instance._processing = False
+
+    # 5. [핵심] 기수 전체 랭킹 재산정 (한 명이라도 점수가 바뀌면 등수가 바뀔 수 있음)
+    # 해당 기수의 모든 평가서를 가져와서 점수순 정렬
+    cohort_assessments = FinalAssessment.objects.filter(
+        profile__cohort=instance.profile.cohort
+    ).order_by('-final_score')
+
+    # DenseRank로 등수 매기기 (동점자는 같은 등수, 다음 등수 건너뛰지 않음)
+    # 예: 1등, 1등, 2등...
+    ranked_list = []
+    current_rank = 1
+    prev_score = -1
+    
+    for i, assessment in enumerate(cohort_assessments):
+        if i == 0:
+            assessment.rank = 1
+            prev_score = assessment.final_score
+        else:
+            if assessment.final_score < prev_score:
+                current_rank += 1
+            assessment.rank = current_rank
+            prev_score = assessment.final_score
+        
+        # 랭킹 저장 (Signal 루프 방지를 위해 update 사용 권장하지만, 여기선 save로 처리)
+        # 단, 여기서 save()를 호출하면 또 이 함수가 실행되므로 _processing 플래그 활용
+        assessment._processing = True
+        assessment.save(update_fields=['rank'])
+        assessment._processing = False

@@ -9,9 +9,16 @@
         
         <div class="d-flex gap-2">
             {% if user.is_superuser %}
-                <a href="{% url 'quiz:manage_access_requests' %}" class="btn btn-warning shadow-sm">
-                    <i class="bi bi-shield-lock-fill"></i> 👑 권한 요청 관리
-                </a>
+                <a href="{% url 'quiz:manage_access_requests' %}" class="btn btn-warning shadow-sm position-relative">
+        <i class="bi bi-shield-lock-fill"></i> 👑 권한 요청 관리
+        
+        {% if pending_requests_count > 0 %}
+            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                {{ pending_requests_count }}
+                <span class="visually-hidden">unread messages</span>
+            </span>
+        {% endif %}
+    </a>
             {% else %}
                 <button type="button" class="btn btn-outline-secondary shadow-sm" data-bs-toggle="modal" data-bs-target="#requestAccessModal">
                     <i class="bi bi-lock-fill"></i> 타 공정 조회 요청
@@ -225,20 +232,24 @@
                                 {{ item.wrong }} / {{ item.total }}
                             </td>
                             <td class="text-center">
-                                <div class="progress" style="height: 20px;">
-                                    <div class="progress-bar bg-danger" role="progressbar" style="width: {{ item.rate }}%;" 
-                                         aria-valuenow="{{ item.rate }}" aria-valuemin="0" aria-valuemax="100">
-                                        {{ item.rate }}%
-                                    </div>
-                                </div>
+    <div class="progress" style="height: 20px;">
+        <div class="progress-bar bg-danger" role="progressbar" style="width: {{ item.rate }}%;" 
+             aria-valuenow="{{ item.rate }}" aria-valuemin="0" aria-valuemax="100">
+            {{ item.rate }}%
+        </div>
+    </div>
 
-                                {% if item.difficulty == '하' and item.rate > 50 %}
-                                    <div class="mt-1">
-                                        <span class="badge bg-secondary text-wrap" style="font-size:0.7em;">
-                                            ⚠️ 난이도 상향 추천
-                                        </span>
-                                    </div>
-                                {% endif %}
+    {% if item.suggestion %}
+        <div class="mt-1">
+            <span class="badge 
+                {% if '하향' in item.suggestion %}bg-info text-dark
+                {% else %}bg-secondary{% endif %} 
+                text-wrap" style="font-size:0.7em;">
+                {{ item.suggestion }}
+            </span>
+        </div>
+    {% endif %}
+    </td>
 
                                 {% if item.difficulty == '상' and item.rate < 30 %}
                                     <div class="mt-1">
@@ -315,13 +326,20 @@
 </div>
 
 <div class="modal fade" id="downloadModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form action="{% url 'quiz:export_student_data' %}" method="get">
-                <div class="modal-header bg-success text-white">
-                    <h5 class="modal-title"><i class="bi bi-file-earmark-spreadsheet"></i> 데이터 다운로드</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
+    <div class="modal-body">
+        <div class="alert alert-info">
+            <i class="bi bi-envelope-paper-fill"></i> <strong>안내:</strong><br>
+            보안을 위해 파일은 <strong>본인 이메일로 전송</strong>됩니다.<br>
+            (타 공정 요청 시, 메일 발송과 동시에 승인 권한이 차감됩니다.)
+        </div>
+        </div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-send-fill"></i> 이메일로 받기
+        </button>
+    </div>
+    </div>
                 <div class="modal-body">
                     <div class="alert alert-warning">
                         <i class="bi bi-exclamation-triangle"></i> <strong>주의:</strong><br>

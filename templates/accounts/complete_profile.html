@@ -53,6 +53,11 @@
                         {{ profile_form.process.errors }}
                         {{ profile_form.process }}
                     </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">{{ profile_form.line.label }}</label>
+                        {{ profile_form.line }}
+                    </div>
                     
                     <div class="mb-3">
                         <label for="{{ profile_form.pl.id_for_label }}" class="form-label">{{ profile_form.pl.label }}</label>

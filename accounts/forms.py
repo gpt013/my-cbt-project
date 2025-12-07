@@ -77,6 +77,12 @@ class ProfileForm(forms.ModelForm):
         self.fields['cohort'].label_from_instance = lambda obj: obj.name
         # ▲▲▲ ----------------------------------------------------------- ▲▲▲
 
+        for name, field in self.fields.items():
+            if name != 'line':
+                field.required = True
+            else:
+                field.required = False # 라인은 없어도 넘어감
+
         # 모든 필드 필수 입력으로 설정
         for field in self.fields:
             self.fields[field].required = True
