@@ -34,21 +34,66 @@
                                 <a class="nav-link" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a>
                             </li>
                             
-                            <li class="nav-item ms-lg-2">
+                            <div class="vr mx-2 text-muted d-none d-lg-block"></div>
+
+                            <li class="nav-item">
                                 <a class="nav-link" href="{% url 'attendance:upload_mdm' %}">📷 MDM 인증</a>
                             </li>
+                            
                             <li class="nav-item">
-                                <a class="nav-link" href="{% url 'attendance:schedule_index' %}">📅 근무표 관리</a>
+                                <a class="nav-link" href="{% url 'attendance:schedule_index' %}">📅 근무표</a>
                             </li>
 
                             {% if user.is_staff %}
-                            <li class="nav-item ms-lg-2 border-start ps-lg-2">
-                                <a class="nav-link" href="{% url 'quiz:my_incorrect_answers_index' %}">누적 오답노트</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link fw-bold text-primary" href="{% url 'admin:index' %}">
-                                    [관리자 페이지]
+                            <li class="nav-item dropdown ms-lg-3 border-start ps-lg-3">
+                                <a class="nav-link dropdown-toggle fw-bold text-primary" href="#" id="managerMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-gear-fill"></i> 매니저 센터
                                 </a>
+                                <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="managerMenu">
+                                    <li><h6 class="dropdown-header">메인 관리</h6></li>
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'quiz:manager_dashboard' %}">
+                                            <i class="bi bi-speedometer2"></i> 대시보드
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'quiz:manager_trainee_list' %}">
+                                            <i class="bi bi-people"></i> 교육생 통합 관리
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'attendance:schedule_index' %}?role=manager">
+                                            <i class="bi bi-calendar-check"></i> 근무표/출석 관리
+                                        </a>
+                                    </li>
+                                    
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><h6 class="dropdown-header">시험 및 평가</h6></li>
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'quiz:manager_exam_requests' %}">
+                                            <i class="bi bi-bell"></i> 응시 요청 승인
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'quiz:manager_quiz_list' %}">
+                                            <i class="bi bi-file-earmark-text"></i> 시험/문제 관리
+                                        </a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" href="{% url 'quiz:bulk_add_sheet_view' %}">
+                                            <i class="bi bi-table"></i> 엑셀 문제 등록
+                                        </a>
+                                    </li>
+
+                                    {% if user.is_superuser %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <a class="dropdown-item text-danger" href="{% url 'admin:index' %}" target="_blank">
+                                            <i class="bi bi-shield-lock"></i> Django Admin (개발자용)
+                                        </a>
+                                    </li>
+                                    {% endif %}
+                                </ul>
                             </li>
                             {% endif %}
                         {% endif %}
@@ -58,6 +103,11 @@
                         {% if user.is_authenticated %}
                             <span class="navbar-text me-3">
                                 <strong>{{ user.username }}</strong>님
+                                {% if user.is_superuser %}
+                                <span class="badge bg-danger">관리자</span>
+                                {% elif user.is_staff %}
+                                <span class="badge bg-primary">매니저</span>
+                                {% endif %}
                             </span>
                             <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
                                 {% csrf_token %}
@@ -77,7 +127,7 @@
     <main class="container mt-4">
         {% if messages %}
             {% for message in messages %}
-                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show" role="alert">
+                <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags }}{% endif %} alert-dismissible fade show shadow-sm" role="alert">
                     {{ message }}
                     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                 </div>
@@ -95,19 +145,23 @@
         document.addEventListener('DOMContentLoaded', function() {
             // 웹소켓 기능이 서버에 구현되어 있지 않다면 아래 코드는 콘솔 에러를 유발할 수 있습니다.
             // 현재 알림 기능(Channels)을 사용하지 않는다면 이 <script> 블록 전체를 삭제해도 됩니다.
-            const notificationSocket = new WebSocket(
-                (window.location.protocol === "https:" ? "wss://" : "ws://") 
-                + window.location.host 
-                + '/ws/notifications/'
-            );
-            notificationSocket.onmessage = function(e) {
-                const data = JSON.parse(e.data);
-                alert(data.message);
-                window.location.reload();
-            };
-            notificationSocket.onclose = function(e) {
-                console.log('Notification socket closed');
-            };
+            const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+            const wsPath = wsScheme + '://' + window.location.host + '/ws/notifications/';
+            
+            // WebSocket 연결 시도 (실패 시 조용히 무시)
+            try {
+                const notificationSocket = new WebSocket(wsPath);
+                notificationSocket.onmessage = function(e) {
+                    const data = JSON.parse(e.data);
+                    alert(data.message);
+                    window.location.reload();
+                };
+                notificationSocket.onclose = function(e) {
+                    console.log('Notification socket closed');
+                };
+            } catch (e) {
+                console.log('WebSocket connection failed or not supported.');
+            }
         });
     </script>
     {% endif %}

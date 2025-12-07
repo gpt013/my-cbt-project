@@ -4,10 +4,11 @@ from django.contrib.auth.models import User, Group
 from django.urls import reverse
 from django.utils.html import format_html
 
-# 모델들 Import (빠짐없이 포함)
+# 모델들 Import (StudentLog 추가, Interview 제거)
 from .models import (
     Profile, Badge, Company, EvaluationRecord, PartLeader, Process, RecordType, 
-    Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation, FinalAssessment, Interview, FinalAssessment
+    Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation, FinalAssessment,
+    StudentLog, ProcessAccessRequest # StudentLog 추가됨
 )
 from quiz.models import Quiz, TestResult
 
@@ -156,12 +157,6 @@ class FinalAssessmentInline(admin.StackedInline):
     model = FinalAssessment
     can_delete = False
     verbose_name_plural = "최종 종합 평가서 (점수 입력)"
-
-    # [설명]
-    # exam_avg_score: 시험 평균 (자동 계산됨)
-    # final_score: 최종 환산 점수 (자동 계산됨)
-    # rank: 석차 (자동 계산됨)
-    # 나머지는 매니저가 직접 입력하는 칸입니다.
     
     readonly_fields = ('exam_avg_score', 'final_score', 'rank', 'updated_at')
     fields = (
@@ -171,16 +166,14 @@ class FinalAssessmentInline(admin.StackedInline):
     )
     extra = 0
 
-    
-
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'status', 'is_profile_complete', 'get_is_active', 'is_manager')
+    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'status', 'warning_count', 'is_profile_complete', 'get_is_active', 'is_manager')
     
-    # list_editable = ('is_profile_complete', 'status') -> 제거하거나 status만 남김
-    list_editable = ('status',) 
+    # warning_count(경고횟수)도 리스트에서 바로 수정 가능하게 추가
+    list_editable = ('status', 'warning_count') 
 
-    # 인라인 연결 (위에서 정의했으므로 에러 안 남)
+    # 인라인 연결
     inlines = [FinalAssessmentInline] 
 
     search_fields = ('user__username', 'name', 'employee_id', 'cohort__name')
@@ -208,8 +201,8 @@ class ProfileAdmin(admin.ModelAdmin):
             'is_manager', 
             'must_change_password', 
             'badges', 
-            'is_pl',               # [추가] PL 권한 부여 불가
-            'is_profile_complete'  # [추가] 프로필 완료 여부 수정 불가
+            'is_pl',               
+            'is_profile_complete'  
         )
 
     # [보안 3] URL 조작 방지
@@ -377,16 +370,22 @@ class UserAdmin(BaseUserAdmin):
         return ''
     employee_id.short_description = '사번'
 
-@admin.register(Interview)
-class InterviewAdmin(admin.ModelAdmin):
-    list_display = ('profile', 'get_stage_display', 'interviewer', 'is_passed', 'created_at')
-    list_filter = ('stage', 'is_passed', 'profile__cohort', 'profile__process')
-    search_fields = ('profile__name', 'content', 'interviewer__username')
-    autocomplete_fields = ('profile', 'interviewer')
+# [수정] Interview 대신 StudentLog 등록
+@admin.register(StudentLog)
+class StudentLogAdmin(admin.ModelAdmin):
+    list_display = ('profile', 'log_type', 'reason_snippet', 'recorder', 'is_resolved', 'created_at')
+    list_filter = ('log_type', 'is_resolved', 'profile__cohort', 'profile__process')
+    search_fields = ('profile__name', 'reason', 'recorder__username')
+    autocomplete_fields = ('profile', 'recorder')
+    
+    @admin.display(description='사유 요약')
+    def reason_snippet(self, obj):
+        return obj.reason[:30] + "..." if len(obj.reason) > 30 else obj.reason
 
-    def get_stage_display(self, obj):
-        return obj.get_stage_display()
-    get_stage_display.short_description = "면담 차수"
+@admin.register(ProcessAccessRequest)
+class ProcessAccessRequestAdmin(admin.ModelAdmin):
+    list_display = ('requester', 'target_process', 'status', 'created_at')
+    list_filter = ('status',)
 
 # 최종 등록 (User, Group)
 admin.site.unregister(User)

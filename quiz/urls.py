@@ -4,49 +4,83 @@ from . import views
 app_name = 'quiz'
 
 urlpatterns = [
-    # --- 1. '마이 페이지' (로그인 후 첫 화면) ---
+    # ==========================================
+    # [Section 1] 교육생 전용 (Student Zone)
+    # ==========================================
     path('mypage/', views.my_page, name='my_page'),
-    
-    # --- 2. '시험 목록' ---
     path('', views.index, name='index'),
     
-    # --- 3. 시험 응시/시작 로직 ---
+    # 시험 응시 프로세스
     path('quiz/<int:quiz_id>/request/', views.request_quiz, name='request_quiz'),
     path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'),
     path('quiz/attempt/<int:attempt_id>/start/', views.start_quiz, name='start_quiz'),
-    
-    # --- 4. 시험 진행 ---
     path('quiz/take/<int:page_number>/', views.take_quiz, name='take_quiz'),
     path('quiz/submit-page/<int:page_number>/', views.submit_page, name='submit_page'),
     path('quiz/submit-quiz/', views.submit_quiz, name='submit_quiz'),
     
-    # --- 5. 결과 및 오답노트 ---
+    # 결과 및 오답노트
     path('quiz/results/', views.quiz_results, name='quiz_results'),
     path('quiz/my-results/', views.my_results_index, name='my_results_index'),
     path('quiz/my-results/<int:quiz_id>/', views.my_results_by_quiz, name='my_results_by_quiz'),
     path('quiz/results/<int:result_id>/', views.result_detail, name='result_detail'),
     
-    # --- 6. 누적 오답노트 ---
     path('quiz/my-incorrect-answers/', views.my_incorrect_answers_index, name='my_incorrect_answers_index'),
     path('quiz/my-incorrect-answers/<int:quiz_id>/', views.my_incorrect_answers_by_quiz, name='my_incorrect_answers_by_quiz'),
-    
-    # --- 7. 대시보드 ---
-    path('quiz/dashboard/', views.dashboard, name='dashboard'),
     path('quiz/personal_dashboard/', views.personal_dashboard, name='personal_dashboard'),
-    
-    # --- 8. 엑셀 기능 (현재 비활성화) ---
-    path('quiz/export-student-data/', views.export_student_data, name='export_student_data'),
-    path('quiz/upload/', views.upload_quiz, name='upload_quiz'),
+    path('certificate/', views.certificate_view, name='certificate_view'),
 
-    path('evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
-    path('bulk-add-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
-    path('bulk-add-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
+    # ==========================================
+    # [Section 2] 매니저 센터 (Manager Center)
+    # ==========================================
+    
+    # 1. 대시보드
+    path('manager/', views.manager_dashboard, name='manager_dashboard'),
+    
+    # 2. 교육생 관리
+    path('manager/trainees/', views.manager_trainee_list, name='manager_trainee_list'),
+    path('manager/trainees/<int:profile_id>/', views.manager_trainee_detail, name='manager_trainee_detail'),
+    
+    # 3. 면담 및 평가
+    path('manager/interview/<int:profile_id>/', views.manage_interviews, name='manage_interviews'),
+    path('manager/log/<int:profile_id>/', views.manage_student_logs, name='manage_student_logs'),
+    path('manager/evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
+
+    # 4. 액션 (AJAX)
+    path('manager/action/approve-signup/', views.approve_signup_bulk, name='approve_signup_bulk'),
+    path('manager/action/reset-password/', views.reset_password_bulk, name='reset_password_bulk'),
+    path('manager/action/unlock-account/<int:profile_id>/', views.unlock_account, name='unlock_account'),
+
+    # 5. 시험 및 요청 관리
+    path('manager/requests/', views.manager_exam_requests, name='manager_exam_requests'),
+    path('manager/requests/approve/<int:attempt_id>/', views.approve_attempt, name='approve_attempt'),
+
+    # 6. 퀴즈 제작 및 관리
+    path('manager/quizzes/', views.manager_quiz_list, name='manager_quiz_list'),
+    path('manager/quiz/create-ui/', views.quiz_create, name='quiz_create'),
+    path('manager/quiz/<int:quiz_id>/update/', views.quiz_update, name='quiz_update'),
+    path('manager/quiz/<int:quiz_id>/delete/', views.quiz_delete, name='quiz_delete'),
+    
+    # 7. 문제(Question) 관리
+    path('manager/quiz/<int:quiz_id>/questions/', views.question_list, name='question_list'),
+    path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
+    path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
+    path('manager/question/<int:question_id>/delete/', views.question_delete, name='question_delete'),
+
+    # 8. 엑셀 업로드
+    path('manager/quiz/upload-excel/', views.upload_quiz, name='upload_quiz'),
+    path('manager/quiz/bulk-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
+    path('manager/quiz/bulk-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
+
+    # 9. 리포트 및 기타
+    path('manager/report/pl/', views.pl_report_view, name='pl_report_view'),
+    path('pl-dashboard/detail/<int:profile_id>/', views.pl_trainee_detail, name='pl_trainee_detail'),
+    
+    # [복구됨] 공정 열람 권한 요청 (기존 대시보드 호환용)
     path('request-access/', views.request_process_access, name='request_process_access'),
     path('manage-requests/', views.manage_access_requests, name='manage_access_requests'),
     path('approve-request/<int:request_id>/<str:action>/', views.approve_access_request, name='approve_access_request'),
-    path('pl-dashboard/', views.pl_dashboard, name='pl_dashboard'),
-    path('pl-dashboard/detail/<int:profile_id>/', views.pl_trainee_detail, name='pl_trainee_detail'),
-    path('pl-dashboard/report/', views.pl_report_view, name='pl_report_view'),
-    path('manage-interviews/<int:profile_id>/', views.manage_interviews, name='manage_interviews'),
-]
 
+    # (구버전 호환)
+    path('quiz/dashboard/', views.dashboard, name='dashboard'),
+    path('pl-dashboard/', views.pl_dashboard, name='pl_dashboard'),
+]

@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 800px;">
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white py-3">
+            <h4 class="fw-bold mb-0 text-primary">
+                {% if form.instance.pk %}
+                    <i class="bi bi-pencil-square"></i> 문제 및 정답 수정
+                {% else %}
+                    <i class="bi bi-plus-circle"></i> 새 문제 추가
+                {% endif %}
+            </h4>
+            <small class="text-muted">시험: <strong>{{ quiz.title }}</strong></small>
+        </div>
+        <div class="card-body p-4">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <h5 class="fw-bold border-bottom pb-2 mb-3">문제 정보</h5>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">문제 내용</label>
+                    {{ form.question_text }}
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">유형</label>
+                        {{ form.question_type }}
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">난이도</label>
+                        {{ form.difficulty }}
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">태그</label>
+                    {{ form.tags }}
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fw-bold">이미지</label>
+                    {{ form.image }}
+                </div>
+
+                {% if formset %}
+                    <h5 class="fw-bold border-bottom pb-2 mb-3 mt-4">보기 및 정답 설정</h5>
+                    {{ formset.management_form }}
+                    
+                    <div class="vstack gap-2">
+                        {% for choice_form in formset %}
+                            <div class="input-group">
+                                <span class="input-group-text bg-light fw-bold">보기 {{ forloop.counter }}</span>
+                                {{ choice_form.id }} {{ choice_form.choice_text }}
+                                <div class="input-group-text bg-white">
+                                    <div class="form-check mb-0">
+                                        {{ choice_form.is_correct }}
+                                        <label class="form-check-label text-success fw-bold small">정답</label>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <div class="alert alert-info mt-3 small">
+                        <i class="bi bi-info-circle-fill"></i> 
+                        객관식/다중선택 유형인 경우, <strong>정답</strong> 체크박스를 통해 정답을 지정하세요.
+                    </div>
+                {% endif %}
+
+                <hr class="my-4">
+
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{% url 'quiz:question_list' quiz.id %}" class="btn btn-secondary fw-bold px-3">취소</a>
+                    <button type="submit" class="btn btn-primary fw-bold px-4">
+                        <i class="bi bi-save"></i> 저장하기
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* 보기 텍스트 입력창 스타일 */
+    input[name$='-choice_text'] {
+        form-control;
+        flex: 1 1 auto;
+        width: 1%;
+        min-width: 0;
+        border: 1px solid #dee2e6;
+        padding: .375rem .75rem;
+    }
+</style>
+{% endblock %}

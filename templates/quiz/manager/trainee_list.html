@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="fw-bold"><i class="bi bi-people-fill"></i> 교육생 통합 관리</h3>
+        
+        <div class="btn-group">
+            <button class="btn btn-outline-primary" onclick="bulkAction('approve_signup')">
+                <i class="bi bi-check-circle"></i> 선택 가입 승인
+            </button>
+            <button class="btn btn-outline-danger" onclick="bulkAction('reset_password')">
+                <i class="bi bi-key"></i> 선택 비번 초기화 (1234)
+            </button>
+        </div>
+    </div>
+
+    <div class="card mb-4 border-0 shadow-sm bg-light">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-center">
+                <div class="col-md-2">{{ form.cohort }}</div>
+                <div class="col-md-2">{{ form.process }}</div>
+                <div class="col-md-2">{{ form.status }}</div>
+                <div class="col-md-4">{{ form.search }}</div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100"><i class="bi bi-search"></i> 검색</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th width="5%"><input type="checkbox" id="checkAll" class="form-check-input"></th>
+                            <th>이름 (사번)</th>
+                            <th>기수 / 공정</th>
+                            <th>상태</th>
+                            <th>계정 상태</th>
+                            <th class="text-end">관리</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in pending_users %}
+                        <tr class="table-warning">
+                            <td><input type="checkbox" name="user_id" value="{{ u.id }}" class="form-check-input user-check"></td>
+                            <td class="fw-bold">{{ u.username }} (가입대기)</td>
+                            <td>-</td>
+                            <td><span class="badge bg-warning text-dark">승인 대기</span></td>
+                            <td><small class="text-muted">{{ u.date_joined|date:"Y-m-d" }} 가입</small></td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-success" onclick="approveSingle({{ u.id }})">승인</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+
+                        {% for p in profiles %}
+                        <tr>
+                            <td><input type="checkbox" name="user_id" value="{{ p.user.id }}" class="form-check-input user-check"></td>
+                            <td>
+                                <a href="{% url 'quiz:manager_trainee_detail' p.id %}" class="text-decoration-none fw-bold text-dark">
+                                    {{ p.name }} <small class="text-muted">({{ p.employee_id }})</small>
+                                </a>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">{{ p.cohort.name }}</span>
+                                <span class="badge bg-info text-dark">{{ p.process.name }}</span>
+                            </td>
+                            <td>
+                                {% if p.status == 'attending' %}<span class="badge bg-success">재직</span>
+                                {% elif p.status == 'counseling' %}<span class="badge bg-danger">면담필요(잠금)</span>
+                                {% elif p.status == 'dropout' %}<span class="badge bg-dark">퇴소</span>
+                                {% elif p.status == 'completed' %}<span class="badge bg-primary">수료</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if p.user.is_active %}<span class="text-success"><i class="bi bi-check-circle"></i> 활성</span>
+                                {% else %}<span class="text-muted"><i class="bi bi-dash-circle"></i> 비활성</span>{% endif %}
+                            </td>
+                            <td class="text-end">
+                                <a href="{% url 'quiz:manager_trainee_detail' p.id %}" class="btn btn-sm btn-outline-secondary">
+                                    상세 <i class="bi bi-chevron-right"></i>
+                                </a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="text-center py-5 text-muted">검색된 교육생이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% if profiles.has_other_pages %}
+        <div class="card-footer py-2">
+            <ul class="pagination justify-content-center mb-0">
+                {% if profiles.has_previous %}
+                <li class="page-item"><a class="page-link" href="?page={{ profiles.previous_page_number }}">이전</a></li>
+                {% endif %}
+                <li class="page-item disabled"><a class="page-link">{{ profiles.number }} / {{ profiles.paginator.num_pages }}</a></li>
+                {% if profiles.has_next %}
+                <li class="page-item"><a class="page-link" href="?page={{ profiles.next_page_number }}">다음</a></li>
+                {% endif %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    // 전체 선택
+    document.getElementById('checkAll').addEventListener('change', function() {
+        document.querySelectorAll('.user-check').forEach(ck => ck.checked = this.checked);
+    });
+
+    // 일괄 처리 AJAX 함수
+    function bulkAction(actionType) {
+        let selected = [];
+        document.querySelectorAll('.user-check:checked').forEach(ck => selected.push(ck.value));
+
+        if (selected.length === 0) {
+            alert("선택된 인원이 없습니다.");
+            return;
+        }
+
+        let url = "";
+        let confirmMsg = "";
+
+        if (actionType === 'reset_password') {
+            url = "{% url 'quiz:reset_password_bulk' %}";
+            confirmMsg = `선택한 ${selected.length}명의 비밀번호를 '1234'로 초기화하시겠습니까?`;
+        } else if (actionType === 'approve_signup') {
+            url = "{% url 'quiz:approve_signup_bulk' %}";
+            confirmMsg = `선택한 ${selected.length}명의 가입을 승인하시겠습니까?`;
+        }
+
+        if (!confirm(confirmMsg)) return;
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': '{{ csrf_token }}'
+            },
+            body: JSON.stringify({ 'user_ids': selected, 'action': 'approve' })
+        })
+        .then(res => res.json())
+        .then(data => {
+            alert(data.message);
+            location.reload();
+        })
+        .catch(err => alert("오류 발생: " + err));
+    }
+
+    function approveSingle(userId) {
+        if(!confirm("가입을 승인하시겠습니까?")) return;
+        // 단건 승인도 벌크 API 재활용
+        fetch("{% url 'quiz:approve_signup_bulk' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({ 'user_ids': [userId], 'action': 'approve' })
+        }).then(res => res.json()).then(data => { alert(data.message); location.reload(); });
+    }
+</script>
+{% endblock %}

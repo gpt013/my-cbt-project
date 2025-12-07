@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4" style="max-width: 1000px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3>🚨 특이사항 및 경고 관리</h3>
+        <a href="{% url 'quiz:manager_trainee_detail' profile.id %}" class="btn btn-secondary">돌아가기</a>
+    </div>
+
+    <div class="card bg-light border-0 mb-4">
+        <div class="card-body">
+            <div class="d-flex align-items-center">
+                <h4 class="mb-0 me-3">{{ profile.name }}</h4>
+                <div class="me-auto">
+                    {% if profile.status == 'attending' %}
+                        <span class="badge bg-success">정상 (재직)</span>
+                    {% elif profile.status == 'caution' %}
+                        <span class="badge bg-warning text-dark">주의 (경고 1회)</span>
+                    {% elif profile.status == 'counseling' %}
+                        <span class="badge bg-danger">잠금 (면담필요)</span>
+                    {% elif profile.status == 'dropout' %}
+                        <span class="badge bg-dark">퇴소</span>
+                    {% endif %}
+                </div>
+                <div class="text-end">
+                    <strong>누적 경고:</strong> <span class="text-danger fs-5 fw-bold">{{ profile.warning_count }}</span> 회
+                </div>
+            </div>
+            <div class="progress mt-2" style="height: 10px;">
+                <div class="progress-bar bg-danger" role="progressbar" style="width: {% widthratio profile.warning_count 4 100 %}%;"></div>
+            </div>
+            <div class="d-flex justify-content-between small text-muted mt-1">
+                <span>0회</span>
+                <span>2회(1차 경고장)</span>
+                <span>3회(2차 경고장)</span>
+                <span>4회(퇴소)</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-5">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white fw-bold">📝 새 기록 작성</div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">유형 선택</label>
+                            {{ form.log_type }}
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">사유 및 내용 <span class="text-danger">*</span></label>
+                            {{ form.reason }}
+                            <div class="form-text">
+                                * 경고 발부 시 <strong>육하원칙</strong>에 의거하여 구체적인 사유를 작성해주세요.
+                            </div>
+                        </div>
+
+                        <div class="mb-3 form-check bg-light p-3 rounded border">
+                            <input type="checkbox" class="form-check-input" name="resolve_lock" id="resolveCheck">
+                            <label class="form-check-label fw-bold text-primary" for="resolveCheck">
+                                🔓 조치 완료 및 잠금 해제
+                            </label>
+                            <div class="form-text small">
+                                '면담' 유형일 때 체크하면 계정이 <strong>정상 상태</strong>로 복구됩니다.
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100">등록하기</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <h5 class="fw-bold mb-3">📜 기록 히스토리</h5>
+            <div class="vstack gap-3">
+                {% for log in logs %}
+                <div class="card border-start border-4 
+                    {% if log.log_type == 'warning' %}border-warning
+                    {% elif log.log_type == 'warning_letter' %}border-danger
+                    {% elif log.log_type == 'counseling' %}border-success
+                    {% else %}border-secondary{% endif %} shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="badge 
+                                {% if log.log_type == 'warning' %}bg-warning text-dark
+                                {% elif log.log_type == 'warning_letter' %}bg-danger
+                                {% elif log.log_type == 'counseling' %}bg-success
+                                {% else %}bg-secondary{% endif %}">
+                                {{ log.get_log_type_display }}
+                            </span>
+                            <small class="text-muted">{{ log.created_at|date:"Y-m-d H:i" }} by {{ log.recorder.profile.name }}</small>
+                        </div>
+                        <p class="card-text fw-bold mb-1">{{ log.reason|linebreaksbr }}</p>
+                        {% if log.is_resolved %}
+                            <div class="text-end"><span class="badge bg-primary-subtle text-primary">조치 완료</span></div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-center text-muted py-5">기록이 없습니다.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

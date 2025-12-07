@@ -1,64 +1,160 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<div class="container mt-4" style="max-width: 800px;">
-    <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white">
-            <h3 class="mb-0">{{ trainee.name }} 교육생 평가</h3>
-            <small>{{ trainee.cohort.name }} / {{ trainee.process }} / 사번: {{ trainee.employee_id }}</small>
-        </div>
-        <div class="card-body">
+<div class="container-fluid mt-4 pb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold"><i class="bi bi-file-earmark-person-fill text-success"></i> 최종 평가서 작성</h2>
+        <a href="{% url 'quiz:manager_trainee_detail' trainee.id %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 취소 및 돌아가기
+        </a>
+    </div>
 
-            {% if not is_all_passed %}
-                <div class="alert alert-warning" role="alert">
-                    <i class="bi bi-exclamation-triangle-fill"></i> 
-                    <strong>주의:</strong> 이 교육생은 아직 모든 필수 과정(공통/자공정 시험)을 통과하지 않았습니다.
+    <form method="post">
+        {% csrf_token %}
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="card shadow-sm border-0 mb-3 sticky-top" style="top: 20px; z-index: 1;">
+                    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">대상자 정보</h5>
+                        <span class="badge bg-light text-dark">{{ trainee.process.name }}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center mb-4">
+                            <h3 class="fw-bold">{{ trainee.name }}</h3>
+                            <p class="text-muted mb-0">{{ trainee.employee_id }} | {{ trainee.cohort.name }}</p>
+                            <span class="badge {% if trainee.status == 'attending' %}bg-success{% else %}bg-danger{% endif %}">
+                                {{ trainee.get_status_display }}
+                            </span>
+                        </div>
+
+                        <h6 class="fw-bold text-secondary border-bottom pb-1"><i class="bi bi-graph-up"></i> 시험 성적</h6>
+                        <ul class="list-group list-group-flush mb-3 small">
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>평균 점수</span> <span class="fw-bold">{{ avg_score }}점</span>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between">
+                                <span>재시험/불합격</span> <span class="text-danger">{{ fail_count }}회</span>
+                            </li>
+                        </ul>
+
+                        <h6 class="fw-bold text-secondary border-bottom pb-1"><i class="bi bi-journal-medical"></i> 특이사항 & 경고</h6>
+                        <div class="mb-3" style="max-height: 200px; overflow-y: auto;">
+                            {% for log in logs %}
+                                <div class="p-2 border-bottom small">
+                                    <span class="badge bg-secondary">{{ log.get_log_type_display }}</span>
+                                    <span class="text-muted" style="font-size:0.8em;">{{ log.created_at|date:"m-d" }}</span>
+                                    <div class="text-truncate">{{ log.reason }}</div>
+                                </div>
+                            {% empty %}
+                                <p class="text-muted small text-center py-2">기록된 특이사항 없음</p>
+                            {% endfor %}
+                        </div>
+
+                        <h6 class="fw-bold text-secondary border-bottom pb-1"><i class="bi bi-calendar-check"></i> 근태 현황</h6>
+                         <div class="d-flex flex-wrap gap-1 mt-2">
+                            {% for stat in attendance_stats %}
+                                <span class="badge bg-light text-dark border">
+                                    {{ stat.work_type__name }}: {{ stat.count }}
+                                </span>
+                            {% empty %}
+                                <span class="text-muted small">데이터 없음</span>
+                            {% endfor %}
+                         </div>
+                    </div>
                 </div>
-            {% else %}
-                 <div class="alert alert-success" role="alert">
-                    <i class="bi bi-check-circle-fill"></i> 
-                    모든 필수 과정을 수료한 교육생입니다.
+            </div>
+
+            <div class="col-lg-8">
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold text-primary">
+                        📊 정량 평가 점수 입력
+                    </div>
+                    <div class="card-body bg-light">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">시험 평균 (40%)</label>
+                                <input type="text" class="form-control" value="{{ final_assessment.exam_avg_score }}" disabled readonly>
+                                <div class="form-text">자동 산출</div>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">실습 점수 (30%)</label>
+                                <input type="number" name="practice_score" class="form-control" step="0.1" min="0" max="100" 
+                                       value="{{ final_assessment.practice_score }}" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">노트 점수 (15%)</label>
+                                <input type="number" name="note_score" class="form-control" step="0.1" min="0" max="100" 
+                                       value="{{ final_assessment.note_score }}" required>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label fw-bold">태도 점수 (15%)</label>
+                                <input type="number" name="attitude_score" class="form-control" step="0.1" min="0" max="100" 
+                                       value="{{ final_assessment.attitude_score }}" required>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-            {% endif %}
 
-            <hr>
-
-            <form method="post">
-                {% csrf_token %}
-
-                {% for category in categories %}
-                    <div class="mb-4">
-                        <h5 class="border-bottom pb-2 text-secondary">{{ category.name }}</h5>
-                        
-                        <div class="row">
-                            {% for item in category.evaluationitem_set.all %}
-                                <div class="col-md-6 mb-2">
-                                    <div class="form-check">
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold text-success">
+                        ✅ 태도 및 역량 체크리스트
+                    </div>
+                    <div class="card-body">
+                        {% for category in categories %}
+                        <div class="mb-4">
+                            <h5 class="fw-bold border-bottom pb-2 mb-3">
+                                <span class="badge bg-success me-2">{{ forloop.counter }}</span> {{ category.name }}
+                            </h5>
+                            <div class="row g-2">
+                                {% for item in category.evaluationitem_set.all %}
+                                <div class="col-md-6">
+                                    <div class="form-check p-3 border rounded bg-white h-100 hover-shadow cursor-pointer" onclick="document.getElementById('item_{{ item.id }}').click();">
                                         <input class="form-check-input" type="checkbox" name="selected_items" value="{{ item.id }}" id="item_{{ item.id }}"
-                                            {% if item in form.instance.selected_items.all %}checked{% endif %}>
-                                        
-                                        <label class="form-check-label {% if not item.is_positive %}text-danger{% endif %}" for="item_{{ item.id }}">
-                                            {{ item.description }}
-                                            {% if item.is_positive %} (긍정){% else %} (부정){% endif %}
+                                            {% if item in form.instance.selected_items.all %}checked{% endif %} onclick="event.stopPropagation();">
+                                        <label class="form-check-label w-100 ps-2" for="item_{{ item.id }}" style="cursor: pointer;">
+                                            <span class="{% if not item.is_positive %}text-danger fw-bold{% else %}text-dark{% endif %}">
+                                                {{ item.description }}
+                                            </span>
                                         </label>
                                     </div>
                                 </div>
-                            {% endfor %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="card shadow-sm border-0 mb-4">
+                    <div class="card-header bg-white fw-bold">
+                        💬 매니저 종합 의견
+                    </div>
+                    <div class="card-body">
+                        {{ form.overall_comment }}
+                        <div class="form-text text-muted mt-2">
+                            * 교육생의 강점, 보완점, 향후 지도 방향 등을 자유롭게 기술해주세요. 이 내용은 최종 리포트에 출력됩니다.
                         </div>
                     </div>
-                {% endfor %}
-
-                <div class="mb-4">
-                    <label class="form-label fw-bold">종합 정성 평가</label>
-                    {{ form.overall_comment }}
                 </div>
 
-                <div class="d-grid gap-2">
-                    <button type="submit" class="btn btn-primary btn-lg">평가 저장 및 완료</button>
-                    <a href="{% url 'quiz:dashboard' %}" class="btn btn-secondary">취소</a>
+                <div class="d-grid gap-2 mb-5">
+                    <button type="submit" class="btn btn-primary btn-lg fw-bold py-3 shadow">
+                        <i class="bi bi-save"></i> 평가 저장 및 완료
+                    </button>
                 </div>
-            </form>
+            </div>
         </div>
-    </div>
+    </form>
 </div>
+
+<style>
+    .hover-shadow:hover {
+        box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important;
+        transform: translateY(-2px);
+        transition: 0.3s;
+        border-color: #0d6efd !important;
+    }
+    .cursor-pointer { cursor: pointer; }
+</style>
 {% endblock %}

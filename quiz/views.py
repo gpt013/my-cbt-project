@@ -17,17 +17,17 @@ from django.views.decorators.cache import cache_control
 from django.core.mail import send_mail
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_POST
-from accounts.models import Interview # 상단 import 확인 필수!
-
+from accounts.models import StudentLog # 상단 import 확인 필수!
+from django.forms import inlineformset_factory
 # [핵심] 데이터 분석 및 집계를 위한 필수 모듈 (누락된 부분 추가됨)
 from django.db.models import Avg, Count, Q, Max,Min, F, Case, When, Value, CharField, Window
-
+from attendance.models import DailySchedule
 from django.db.models.functions import DenseRank, Coalesce
 
 # accounts 앱의 모델들
 from accounts.models import (
     Profile, Badge, EvaluationRecord, EvaluationCategory, 
-    ManagerEvaluation, Cohort, Company, Process, ProcessAccessRequest, FinalAssessment, PartLeader
+    ManagerEvaluation, Cohort, Company, Process, ProcessAccessRequest, FinalAssessment, PartLeader, StudentLog
 )
 
 # quiz 앱의 모델들
@@ -37,7 +37,7 @@ from .models import (
 )
 
 # 폼
-from .forms import EvaluationForm
+from .forms import EvaluationForm, TraineeFilterForm, QuizForm, QuestionForm, StudentLogForm
 
 def is_process_manager(user, target_profile):
     """
@@ -1545,6 +1545,196 @@ def get_pl_dashboard_data(pl_user):
         
     return data_list
 
+@login_required
+def manager_dashboard(request):
+    user = request.user
+    if not (user.is_staff or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))):
+        messages.error(request, "접근 권한이 없습니다.")
+        return redirect('quiz:index')
+
+    signup_pending_count = User.objects.filter(is_active=False).count()
+    
+    if user.is_superuser:
+        exam_pending_count = QuizAttempt.objects.filter(status='대기중').count()
+    elif hasattr(user, 'profile') and user.profile.process:
+        exam_pending_count = QuizAttempt.objects.filter(
+            status='대기중', 
+            user__profile__process=user.profile.process
+        ).count()
+    else:
+        exam_pending_count = 0
+
+    risk_qs = Profile.objects.filter(status='counseling')
+    if not user.is_superuser and hasattr(user, 'profile') and user.profile.process:
+        risk_qs = risk_qs.filter(process=user.profile.process)
+    risk_count = risk_qs.count()
+
+    context = {
+        'signup_pending_count': signup_pending_count,
+        'exam_pending_count': exam_pending_count,
+        'risk_count': risk_count,
+    }
+    return render(request, 'quiz/manager/dashboard_main.html', context)
+
+
+# 2. 교육생 목록 (드릴다운 진입점)
+@login_required
+def manager_trainee_list(request):
+    if not request.user.is_staff: return redirect('quiz:index')
+
+    form = TraineeFilterForm(request.GET)
+    profiles = Profile.objects.select_related('user', 'cohort', 'process').exclude(user__is_superuser=True, is_manager=True).order_by('cohort__start_date', 'name')
+
+    if form.is_valid():
+        if form.cleaned_data['cohort']:
+            profiles = profiles.filter(cohort=form.cleaned_data['cohort'])
+        if form.cleaned_data['process']:
+            profiles = profiles.filter(process=form.cleaned_data['process'])
+        if form.cleaned_data['status']:
+            profiles = profiles.filter(status=form.cleaned_data['status'])
+        if form.cleaned_data['search']:
+            q = form.cleaned_data['search']
+            profiles = profiles.filter(Q(name__icontains=q) | Q(employee_id__icontains=q) | Q(user__username__icontains=q))
+
+    # 매니저 권한: 본인 공정 우선 필터링 (선택사항: 강제할지 말지)
+    if not request.user.is_superuser and hasattr(request.user, 'profile') and request.user.profile.process:
+        # profiles = profiles.filter(process=request.user.profile.process) # 강제 필터링 하려면 주석 해제
+        pass
+
+    paginator = Paginator(profiles, 50)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    pending_users = User.objects.filter(is_active=False).order_by('-date_joined')
+
+    context = {
+        'form': form,
+        'profiles': page_obj,
+        'pending_users': pending_users,
+        'total_count': profiles.count(),
+    }
+    return render(request, 'quiz/manager/trainee_list.html', context)
+
+
+# 3. 교육생 상세 (드릴다운 상세)
+@login_required
+def manager_trainee_detail(request, profile_id):
+    if not request.user.is_staff: return redirect('quiz:index')
+    
+    profile = get_object_or_404(Profile, pk=profile_id)
+    
+    # 1. 시험 결과 (최신순)
+    results = TestResult.objects.filter(user=profile.user).order_by('-completed_at')
+    
+    # 2. [수정됨] 면담 기록 (Interview -> StudentLog)
+    # profile.interviews 가 아니라 profile.logs 를 가져와야 합니다.
+    logs = profile.logs.all().order_by('-created_at')
+    
+    # 3. 획득 뱃지
+    badges = profile.badges.all()
+
+    context = {
+        'profile': profile,
+        'results': results,
+        'logs': logs,  # interviews 대신 logs 전달
+        'badges': badges,
+    }
+    return render(request, 'quiz/manager/trainee_detail.html', context)
+
+
+# 4. 액션: 비번 초기화 (AJAX)
+@login_required
+@require_POST
+def reset_password_bulk(request):
+    if not request.user.is_staff:
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+        user_ids = data.get('user_ids', [])
+        
+        users = User.objects.filter(id__in=user_ids)
+        count = 0
+        for user in users:
+            user.set_password('1234')
+            if hasattr(user, 'profile'):
+                user.profile.must_change_password = True
+                user.profile.save()
+            user.save()
+            count += 1
+            
+        return JsonResponse({'status': 'success', 'message': f'{count}명의 비밀번호가 1234로 초기화되었습니다.'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+# 5. 액션: 가입 승인 (AJAX)
+@login_required
+@require_POST
+def approve_signup_bulk(request):
+    if not request.user.is_staff:
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+        
+    try:
+        data = json.loads(request.body)
+        user_ids = data.get('user_ids', [])
+        action = data.get('action') 
+
+        users = User.objects.filter(id__in=user_ids)
+        count = 0
+        
+        if action == 'approve':
+            for user in users:
+                user.is_active = True
+                user.save()
+                count += 1
+            msg = f'{count}명의 가입을 승인했습니다.'
+        else:
+            count = users.count()
+            users.delete()
+            msg = f'{count}명의 가입 요청을 거절(삭제)했습니다.'
+
+        return JsonResponse({'status': 'success', 'message': msg})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+# 6. [누락되었던 함수] 액션: 계정 잠금 해제 (AJAX)
+@login_required
+@require_POST
+def unlock_account(request, profile_id):
+    if not request.user.is_staff:
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+    
+    try:
+        profile = get_object_or_404(Profile, pk=profile_id)
+        # 상담 필요 상태이거나 퇴소 상태인 경우 -> 재직으로 복구
+        if profile.status in ['counseling', 'dropout']:
+            profile.status = 'attending'
+            profile.save()
+            return JsonResponse({'status': 'success', 'message': '계정 잠금이 해제되었습니다. (재직 상태로 변경)'})
+        else:
+            return JsonResponse({'status': 'info', 'message': '이미 정상(재직) 상태입니다.'})
+            
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+# 7. 응시 요청 관리 페이지
+@login_required
+def manager_exam_requests(request):
+    if not request.user.is_staff: return redirect('quiz:index')
+
+    # 매니저의 경우 자기 공정 요청만 보기
+    if not request.user.is_superuser and hasattr(request.user, 'profile') and request.user.profile.process:
+        requests = QuizAttempt.objects.filter(
+            status='대기중',
+            user__profile__process=request.user.profile.process
+        ).order_by('requested_at')
+    else:
+        requests = QuizAttempt.objects.filter(status='대기중').order_by('requested_at')
+
+    return render(request, 'quiz/manager/exam_requests.html', {'requests': requests})
 
 # --- PL 전용 대시보드 뷰 ---
 # 1. PL 대시보드 (필터링 기능 강화)
@@ -1781,124 +1971,233 @@ def approve_access_request(request, request_id, action):
 
 @login_required
 def manage_interviews(request, profile_id):
-    # 1. 권한 체크 (관리자 또는 해당 PL)
-    profile = get_object_or_404(Profile, pk=profile_id)
-    if not request.user.is_superuser:
-        try:
-            pl_obj = PartLeader.objects.get(email=request.user.email)
-            if profile.pl != pl_obj:
-                messages.error(request, "본인 담당 교육생만 면담할 수 있습니다.")
-                return redirect('quiz:pl_dashboard')
-        except:
-            messages.error(request, "접근 권한이 없습니다.")
-            return redirect('quiz:index')
+    """
+    [구버전 호환용]
+    예전 면담 페이지 URL로 접속 시, 새로운 '특이사항/경고 관리' 페이지로 이동시킵니다.
+    """
+    return redirect('quiz:manage_student_logs', profile_id=profile_id)
 
-    # 2. 기존 면담 기록 조회 (순서대로)
-    interviews = profile.interviews.all().order_by('stage')
+@login_required
+def manager_quiz_list(request):
+    """매니저용 시험 목록 관리"""
+    if not request.user.is_staff: return redirect('quiz:index')
     
-    # 3. 다음 진행해야 할 면담 단계 계산
-    # (1차 없음 -> 1차 / 1차 있음 -> 2차 / 2차 있음 -> 3차)
-    next_stage = 1
-    if interviews.exists():
-        last_stage = interviews.last().stage
-        if last_stage < 3:
-            next_stage = last_stage + 1
-        else:
-            next_stage = None # 모든 면담 완료
+    # 관리자는 전체, 매니저는 (공통 + 자기공정)
+    if request.user.is_superuser:
+        quizzes = Quiz.objects.all().order_by('-id')
+    elif hasattr(request.user, 'profile') and request.user.profile.process:
+        my_process = request.user.profile.process
+        quizzes = Quiz.objects.filter(
+            Q(category=Quiz.Category.COMMON) | Q(associated_process=my_process)
+        ).distinct().order_by('-id')
+    else:
+        # 공정 없는 매니저는 공통만
+        quizzes = Quiz.objects.filter(category=Quiz.Category.COMMON).order_by('-id')
 
-    # 4. 면담 기록 저장 (POST)
+    return render(request, 'quiz/manager/quiz_list.html', {'quizzes': quizzes})
+
+@login_required
+def quiz_create(request):
+    if not request.user.is_staff: return redirect('quiz:index')
+    
     if request.method == 'POST':
-        stage = int(request.POST.get('stage'))
-        content = request.POST.get('content')
-        opinion = request.POST.get('opinion')
-        is_passed = request.POST.get('is_passed') == 'on'
+        form = QuizForm(request.POST)
+        if form.is_valid():
+            quiz = form.save()
+            messages.success(request, f"시험 '{quiz.title}'이(가) 생성되었습니다.")
+            return redirect('quiz:manager_quiz_list')
+    else:
+        form = QuizForm()
+    
+    return render(request, 'quiz/manager/quiz_form.html', {'form': form, 'title': '새 시험 만들기'})
+
+@login_required
+def quiz_update(request, quiz_id):
+    if not request.user.is_staff: return redirect('quiz:index')
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    
+    if request.method == 'POST':
+        form = QuizForm(request.POST, instance=quiz)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "시험 정보가 수정되었습니다.")
+            return redirect('quiz:manager_quiz_list')
+    else:
+        form = QuizForm(instance=quiz)
+    
+    return render(request, 'quiz/manager/quiz_form.html', {'form': form, 'title': '시험 수정'})
+
+@login_required
+def quiz_delete(request, quiz_id):
+    if not request.user.is_staff: return redirect('quiz:index')
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    
+    if request.method == 'POST':
+        quiz.delete()
+        messages.success(request, "시험이 삭제되었습니다.")
+    
+    return redirect('quiz:manager_quiz_list')
+
+# --- 문제(Question) 관리 뷰 ---
+
+@login_required
+def question_list(request, quiz_id):
+    if not request.user.is_staff: return redirect('quiz:index')
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    questions = quiz.question_set.all()
+    return render(request, 'quiz/manager/question_list.html', {'quiz': quiz, 'questions': questions})
+
+@login_required
+def question_create(request, quiz_id):
+    if not request.user.is_staff: return redirect('quiz:index')
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    
+    # [핵심] 보기(Choice) 입력 폼셋 정의
+    # extra=4 : 새 문제 작성 시 빈 보기 칸 4개를 미리 보여줌
+    ChoiceFormSet = inlineformset_factory(Question, Choice, fields=('choice_text', 'is_correct'), extra=4, can_delete=False)
+
+    if request.method == 'POST':
+        form = QuestionForm(request.POST, request.FILES)
+        formset = ChoiceFormSet(request.POST)
         
-        # 유효성 검사: 순서 지키기
-        if stage != next_stage and not request.user.is_superuser:
-             messages.error(request, f"이전 단계 면담이 완료되지 않았습니다. 현재 {next_stage}차 면담 차례입니다.")
-             return redirect('quiz:manage_interviews', profile_id=profile.id)
+        if form.is_valid() and formset.is_valid():
+            question = form.save(commit=False)
+            question.quiz = quiz
+            question.save()
+            
+            # [중요] 폼셋에 방금 만든 문제(instance)를 연결하고 저장
+            choices = formset.save(commit=False)
+            for choice in choices:
+                # 내용이 있는 보기만 저장 (빈칸은 무시)
+                if choice.choice_text.strip():
+                    choice.question = question
+                    choice.save()
+            
+            form.save_m2m() # 태그 저장
+            messages.success(request, "문제와 보기가 성공적으로 등록되었습니다.")
+            return redirect('quiz:question_list', quiz_id=quiz.id)
+    else:
+        form = QuestionForm()
+        # GET 요청 시 빈 폼셋 생성 (보기 1~4번 입력칸)
+        formset = ChoiceFormSet()
+    
+    return render(request, 'quiz/manager/question_form.html', {
+        'form': form, 
+        'formset': formset, # 템플릿으로 폼셋 전달
+        'quiz': quiz, 
+        'title': '새 문제 추가'
+    })
 
-        # 면담 저장
-        Interview.objects.create(
-            profile=profile,
-            interviewer=request.user,
-            stage=stage,
-            content=content,
-            opinion=opinion,
-            is_passed=is_passed
-        )
+@login_required
+def question_update(request, question_id):
+    if not request.user.is_staff: return redirect('quiz:index')
+    question = get_object_or_404(Question, pk=question_id)
+    
+    # [핵심] Question과 연결된 Choice들을 수정하기 위한 폼셋 생성
+    # extra=0: 빈 줄 추가 안 함 (기존 보기만 수정)
+    # can_delete=False: 삭제 불가 (보통 4지선다 유지하므로)
+    ChoiceFormSet = inlineformset_factory(Question, Choice, fields=('choice_text', 'is_correct'), extra=0, can_delete=False)
+
+    if request.method == 'POST':
+        form = QuestionForm(request.POST, request.FILES, instance=question)
+        formset = ChoiceFormSet(request.POST, instance=question)
         
-        # [핵심 로직] 상태 자동 변경
-        # 통과(is_passed) 체크 시 -> '재직(attending)'으로 복귀 (잠금 해제)
-        # 단, 3차(퇴소) 면담인 경우 -> '퇴소(dropout)' 처리
-        if is_passed:
-            if stage == 3:
-                profile.status = 'dropout'
-                messages.warning(request, "3차 면담 결과에 따라 '퇴소' 처리되었습니다.")
-            else:
-                profile.status = 'attending'
-                messages.success(request, f"{stage}차 면담 통과! 계정 잠금이 해제되었습니다.")
-            profile.save()
-        else:
-            messages.info(request, "면담이 기록되었습니다. (미통과 상태 유지)")
+        if form.is_valid() and formset.is_valid():
+            form.save()
+            formset.save() # 보기(Choice) 수정 사항 저장
+            messages.success(request, "문제와 보기가 성공적으로 수정되었습니다.")
+            return redirect('quiz:question_list', quiz_id=question.quiz.id)
+    else:
+        form = QuestionForm(instance=question)
+        formset = ChoiceFormSet(instance=question)
+    
+    return render(request, 'quiz/manager/question_form.html', {
+        'form': form, 
+        'formset': formset, # 폼셋 전달
+        'quiz': question.quiz, 
+        'title': '문제 수정'
+    })
 
-        return redirect('quiz:manage_interviews', profile_id=profile.id)
-
-    context = {
-        'profile': profile,
-        'interviews': interviews,
-        'next_stage': next_stage,
-        'STAGE_CHOICES': Interview.STAGE_CHOICES,
-    }
-    return render(request, 'quiz/manage_interviews.html', context)
+@login_required
+def question_delete(request, question_id):
+    if not request.user.is_staff: return redirect('quiz:index')
+    question = get_object_or_404(Question, pk=question_id)
+    quiz_id = question.quiz.id
+    if request.method == 'POST':
+        question.delete()
+        messages.success(request, "문제가 삭제되었습니다.")
+    return redirect('quiz:question_list', quiz_id=quiz_id)
 
 
 @login_required
 def evaluate_trainee(request, profile_id):
-    if not request.user.is_staff:
-        messages.error(request, "접근 권한이 없습니다.")
-        return redirect('quiz:index')
-
+    # 1. 대상자 조회 및 권한 체크
     trainee = get_object_or_404(Profile, pk=profile_id)
-
-    common_quizzes = Quiz.objects.filter(category=Quiz.Category.COMMON)
-    process_quizzes = Quiz.objects.filter(
-        category=Quiz.Category.PROCESS, 
-        associated_process=trainee.process
-    )
-    required_quizzes = common_quizzes | process_quizzes
     
-    passed_quiz_ids = set(TestResult.objects.filter(
-        user=trainee.user, 
-        is_pass=True
-    ).values_list('quiz_id', flat=True))
+    # [보안] 담당 매니저(교수) 또는 관리자만 평가 가능
+    if not is_process_manager(request.user, trainee):
+        messages.error(request, "🚫 담당 공정의 매니저만 평가서를 작성할 수 있습니다.")
+        return redirect('quiz:dashboard')
 
-    required_quiz_ids = set(required_quizzes.values_list('id', flat=True))
-    is_all_passed = required_quiz_ids.issubset(passed_quiz_ids)
-
+    # 2. 기존 평가 데이터 가져오기 (수정 모드)
     existing_evaluation = ManagerEvaluation.objects.filter(trainee_profile=trainee).first()
+    final_assessment, _ = FinalAssessment.objects.get_or_create(profile=trainee)
 
     if request.method == 'POST':
         form = EvaluationForm(request.POST, instance=existing_evaluation)
         if form.is_valid():
+            # (1) 정성 평가 (체크리스트 + 코멘트) 저장
             evaluation = form.save(commit=False)
             evaluation.manager = request.user
             evaluation.trainee_profile = trainee
             evaluation.save()
-            form.save_m2m() 
+            form.save_m2m()
             
-            messages.success(request, f"{trainee.name} 님에 대한 평가가 저장되었습니다.")
-            return redirect('quiz:dashboard') 
+            # (2) 정량 평가 (점수) 저장 - FinalAssessment 모델 업데이트
+            try:
+                final_assessment.practice_score = float(request.POST.get('practice_score', 0))
+                final_assessment.note_score = float(request.POST.get('note_score', 0))
+                final_assessment.attitude_score = float(request.POST.get('attitude_score', 0))
+                
+                # 최종 점수 재계산 (Signal이 처리하거나 직접 호출)
+                final_assessment.calculate_final_score() 
+                final_assessment.save()
+                
+                messages.success(request, f"✅ {trainee.name} 님의 최종 평가가 저장되었습니다.")
+                return redirect('quiz:manager_trainee_detail', profile_id=trainee.id)
+            except ValueError:
+                messages.error(request, "점수는 숫자만 입력 가능합니다.")
+
     else:
         form = EvaluationForm(instance=existing_evaluation)
 
+    # 3. [종합 데이터 로드] 평가를 위한 참고 자료
+    # (A) 성적 현황
+    test_results = TestResult.objects.filter(user=trainee.user)
+    avg_score = test_results.aggregate(Avg('score'))['score__avg'] or 0
+    fail_count = test_results.filter(is_pass=False).count()
+    
+    # (B) 근태 현황 (DailySchedule 집계)
+    attendance_stats = DailySchedule.objects.filter(profile=trainee).values('work_type__name').annotate(count=Count('id'))
+    # 예: [{'work_type__name': '지각', 'count': 2}, ...]
+    
+    # (C) 특이사항/상벌점 로그
+    logs = StudentLog.objects.filter(profile=trainee).order_by('-created_at')
+
+    # (D) 체크리스트 항목
     categories = EvaluationCategory.objects.prefetch_related('evaluationitem_set').order_by('order')
 
     context = {
         'trainee': trainee,
         'form': form,
         'categories': categories,
-        'is_all_passed': is_all_passed,
+        'final_assessment': final_assessment, # 점수 입력용
+        
+        # 참고 데이터
+        'avg_score': round(avg_score, 1),
+        'fail_count': fail_count,
+        'attendance_stats': attendance_stats,
+        'logs': logs,
     }
     return render(request, 'quiz/evaluate_trainee.html', context)
 
@@ -1976,6 +2275,99 @@ def pl_report_view(request):
         'today': timezone.now().date(),
     }
     return render(request, 'quiz/pl_report_print.html', context)
+
+@login_required
+def manage_student_logs(request, profile_id):
+    # 1. 권한 체크
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+
+    profile = get_object_or_404(Profile, pk=profile_id)
+    logs = profile.logs.all()
+
+    if request.method == 'POST':
+        form = StudentLogForm(request.POST)
+        if form.is_valid():
+            log = form.save(commit=False)
+            log.profile = profile
+            log.recorder = request.user
+            
+            # --- [핵심 비즈니스 로직] ---
+            
+            # A. 일반 경고 등록
+            if log.log_type == 'warning':
+                profile.warning_count += 1
+                log.save() # 경고 로그 저장
+                
+                # 누적 2회 -> 1차 경고장 자동 발부 (매니저 면담 필요)
+                if profile.warning_count == 2:
+                    StudentLog.objects.create(
+                        profile=profile, recorder=request.user,
+                        log_type='warning_letter',
+                        reason="[시스템 자동] 일반 경고 2회 누적으로 인한 1차 경고장 발부"
+                    )
+                    profile.status = 'counseling' # 잠금
+                    messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 발부되고 계정이 잠겼습니다.")
+
+                # 누적 3회 -> 2차 경고장 자동 발부 (PL 면담 필요)
+                elif profile.warning_count == 3:
+                    StudentLog.objects.create(
+                        profile=profile, recorder=request.user,
+                        log_type='warning_letter',
+                        reason="[시스템 자동] 일반 경고 3회 누적으로 인한 2차 경고장 발부"
+                    )
+                    profile.status = 'counseling'
+                    messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다. (PL 면담 필수)")
+
+                # 누적 4회 -> 퇴소
+                elif profile.warning_count >= 4:
+                    profile.status = 'dropout'
+                    messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
+                
+                else:
+                    profile.status = 'caution' # 1회는 주의 상태
+                    messages.info(request, "일반 경고가 등록되었습니다.")
+            
+            # B. 경고장 즉시 발부 (중대 과실)
+            elif log.log_type == 'warning_letter':
+                # 즉시 발부 시 경고 카운트를 강제로 2회(또는 상황에 맞춰)로 조정하거나 유지
+                # 여기서는 중대 과실이므로 바로 잠금 처리
+                profile.status = 'counseling'
+                log.save()
+                messages.warning(request, "⛔ 경고장이 즉시 발부되었습니다. 계정이 잠깁니다.")
+
+            # C. 면담 및 조치 (잠금 해제)
+            elif log.log_type == 'counseling':
+                # 화면에서 '조치 완료(잠금해제)' 체크박스를 받음 (폼에는 없으므로 request.POST 확인)
+                is_resolve = request.POST.get('resolve_lock') == 'on'
+                log.is_resolved = is_resolve
+                log.save()
+
+                if is_resolve:
+                    if profile.warning_count >= 4: # 4회 이상이면 퇴소 유지
+                        profile.status = 'dropout'
+                    else:
+                        profile.status = 'attending' # 정상 복귀
+                        messages.success(request, "✅ 면담 후 조치가 완료되어 계정이 정상화되었습니다.")
+                else:
+                    messages.info(request, "면담 내용이 기록되었습니다.")
+
+            else:
+                log.save()
+                messages.success(request, "기록이 저장되었습니다.")
+
+            profile.save()
+            return redirect('quiz:manage_student_logs', profile_id=profile.id)
+
+    else:
+        form = StudentLogForm()
+
+    context = {
+        'profile': profile,
+        'logs': logs,
+        'form': form,
+    }
+    return render(request, 'quiz/manager/manage_student_logs.html', context)
 
 
 def award_badges(user, test_result):

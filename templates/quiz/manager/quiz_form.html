@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4" style="max-width: 700px;">
+    <div class="card shadow border-0">
+        <div class="card-header bg-white py-3">
+            <h4 class="fw-bold mb-0 text-primary">
+                {% if form.instance.pk %}
+                    <i class="bi bi-gear-fill"></i> 시험 설정 수정
+                {% else %}
+                    <i class="bi bi-plus-circle-fill"></i> 새 시험 생성
+                {% endif %}
+            </h4>
+        </div>
+        <div class="card-body p-4">
+            <form method="post">
+                {% csrf_token %}
+                
+                <div class="mb-4">
+                    <label class="form-label fw-bold">시험 제목</label>
+                    {{ form.title }}
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">분류</label>
+                        {{ form.category }}
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">관련 공정</label>
+                        {{ form.associated_process }}
+                        <div class="form-text small">공정 시험인 경우 필수로 선택하세요.</div>
+                    </div>
+                </div>
+
+                <div class="mb-4 bg-light p-3 rounded border">
+                    <label class="form-label fw-bold"><i class="bi bi-shuffle"></i> 문제 출제 방식</label>
+                    {{ form.generation_method }}
+                    <div class="form-text mt-2 text-dark small">
+                        <ul class="mb-0 ps-3">
+                            <li><strong>랜덤:</strong> 등록된 문제 중 난이도 비율(상/중/하)에 맞춰 무작위 출제</li>
+                            <li><strong>태그:</strong> 아래 '필수 태그'를 가진 문제들 중에서만 무작위 출제</li>
+                            <li><strong>지정:</strong> '문제 세트'를 연결하여 고정된 문제만 출제</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">필수 태그 (태그 방식용)</label>
+                    {{ form.required_tags }}
+                    <div class="form-text">Ctrl (Mac은 Cmd) 키를 누르고 클릭하면 다중 선택 가능</div>
+                </div>
+
+                <hr class="my-4">
+
+                <div class="d-flex justify-content-end gap-2">
+                    <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary">취소</a>
+                    <button type="submit" class="btn btn-primary px-4 fw-bold">
+                        <i class="bi bi-check-lg"></i> 저장하기
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

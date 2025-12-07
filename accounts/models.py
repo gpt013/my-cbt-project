@@ -4,6 +4,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.db.models import Avg, F, Window
+from django.db.models.functions import DenseRank
 import random
 
 # -----------------------------------------------------------
@@ -76,15 +78,16 @@ class RecordType(models.Model):
 
 
 # -----------------------------------------------------------
-# 2. 핵심 사용자 정보 (Profile) - 대거 수정됨
+# 2. 핵심 사용자 정보 (Profile) - [수정됨]
 # -----------------------------------------------------------
 
 class Profile(models.Model):
-    # [상태 정의]
+    # [상태 정의 업데이트]
     STATUS_CHOICES = [
-        ('attending', '재직 (응시가능)'),
-        ('counseling', '면담필요 (시험잠김)'), # 3차 탈락 시 자동 전환
-        ('dropout', '퇴소 (접속차단)'),
+        ('attending', '재직 (정상)'),
+        ('caution', '주의 (경고 1회)'),      # [신규] 경고 1회 상태
+        ('counseling', '면담필요 (잠금)'),  # 시험/경고 누적으로 인한 잠금
+        ('dropout', '퇴소 (차단)'),
         ('completed', '수료 (과정완료)'),
     ]
 
@@ -102,18 +105,54 @@ class Profile(models.Model):
     # [기능성 필드]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='attending', verbose_name="현재 상태")
     
+    # [신규] 누적 경고 카운터 (경고장 발부 기준)
+    warning_count = models.IntegerField(default=0, verbose_name="누적 경고 횟수")
+    
     is_manager = models.BooleanField(default=False, verbose_name="매니저 권한 여부")
-    is_pl = models.BooleanField(default=False, verbose_name="PL 권한 여부") # [신규] PL 대시보드 접근용
+    is_pl = models.BooleanField(default=False, verbose_name="PL 권한 여부") 
     
     is_profile_complete = models.BooleanField(default=False, verbose_name="프로필 작성 완료")
     must_change_password = models.BooleanField(default=False, verbose_name="비밀번호 변경 필요")
     
     badges = models.ManyToManyField(Badge, blank=True, verbose_name="획득한 뱃지")
     
-    # (참고: ai_summary는 삭제 요청에 따라 제거됨)
-
     def __str__(self):
         return f"{self.name} ({self.get_status_display()})"
+
+
+# -----------------------------------------------------------
+# [신규 대체 모델] 학생 특이사항/이벤트 로그 (Interview 대체)
+# -----------------------------------------------------------
+class StudentLog(models.Model):
+    LOG_TYPES = [
+        ('warning', '⚠️ 일반 경고'),          # 사유 필수
+        ('warning_letter', '⛔ 경고장 발부'),  # 자동/수동 발부 (사유 필수)
+        ('exam_fail', '📉 시험 불합격'),      # 시스템 자동 기록
+        ('counseling', '💬 면담 및 조치'),    # 잠금 해제용
+        ('compliment', '👍 칭찬/우수'),
+    ]
+
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='logs', verbose_name="대상 교육생")
+    recorder = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="기록자")
+    
+    log_type = models.CharField(max_length=20, choices=LOG_TYPES, verbose_name="기록 유형")
+    
+    # 경고/경고장 발부 시 사유 필수
+    reason = models.TextField(verbose_name="사유 및 내용", help_text="경고 사유, 면담 내용 등을 상세히 기록하세요.")
+    
+    # 조치 관련
+    action_taken = models.TextField(verbose_name="조치 사항", blank=True, null=True)
+    is_resolved = models.BooleanField(default=False, verbose_name="조치 완료 여부")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "학생 특이사항 로그"
+        verbose_name_plural = "학생 특이사항 로그"
+
+    def __str__(self):
+        return f"[{self.get_log_type_display()}] {self.profile.name} - {self.created_at.date()}"
 
 
 # -----------------------------------------------------------
@@ -267,14 +306,14 @@ def manage_permissions(sender, instance, created, **kwargs):
         )
         from accounts.models import (
             Profile, PartLeader,                     # 교육생 관리
-            ManagerEvaluation, EvaluationRecord, FinalAssessment # 평가 관리 (FinalAssessment 추가됨)
+            ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog # 평가 관련 (StudentLog 추가)
         )
 
         # [1] 완전 관리 권한 (추가/수정/삭제/조회) 부여할 모델들
         full_access_models = [
             Quiz, Question, Choice, ExamSheet, Tag,  # 퀴즈 관련
             PartLeader,                              # PL 관리
-            ManagerEvaluation, EvaluationRecord, FinalAssessment # 평가 관련
+            ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog # 평가 관련
         ]
         
         for model in full_access_models:
@@ -323,72 +362,8 @@ def manage_permissions(sender, instance, created, **kwargs):
             if user.groups.filter(name='매니저').exists():
                 user.groups.remove(manager_group)
 
-# quiz.views의 랭킹 계산 함수를 호출하기 위해 임시로 함수 정의 (실제 호출은 views.py가 필요)
-# 여기서는 DB 저장 시 최종 점수 계산만 먼저 수행합니다.
+
 @receiver(post_save, sender=FinalAssessment)
-def auto_calculate_and_rank(sender, instance, created, **kwargs):
-    # 1. 최종 점수 계산 및 저장 (FinalAssessment 모델에 정의된 메서드 호출)
-    instance.calculate_final_score()
-    
-    # 2. 시험 평균 점수(exam_avg_score) 자동 계산 (최신 데이터 반영)
-    # FinalAssessment가 생성될 때, 해당 Profile의 시험 평균을 자동으로 계산하여 입력합니다.
-    if created:
-        profile = instance.profile
-        from quiz.models import TestResult # 지연 import
-        
-        avg_score_result = TestResult.objects.filter(user=profile.user).aggregate(avg_score=models.Avg('score'))
-        avg_score = avg_score_result.get('avg_score', 0) or 0
-        
-        if avg_score != instance.exam_avg_score: # 변경 사항이 있다면
-            instance.exam_avg_score = avg_score
-            instance.save(update_fields=['exam_avg_score'])
-            
-    # 3. 랭킹 업데이트 (관리자 명령어 실행 필요)
-    # 매니저가 점수를 저장하면 최종 점수가 갱신되고, 관리자가 랭킹 업데이트 명령을 실행할 수 있게 됩니다.
-
-class Interview(models.Model):
-    STAGE_CHOICES = [
-        (1, '1차 면담 (교수/센터장)'),
-        (2, '2차 면담 (파트장/PL)'),
-        (3, '3차 면담 (퇴소/최종)'),
-    ]
-    
-    profile = models.ForeignKey(
-        Profile, 
-        on_delete=models.CASCADE, 
-        related_name='interviews',
-        verbose_name="대상 교육생"
-    )
-    
-    interviewer = models.ForeignKey(
-        User, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        verbose_name="면담 진행자"
-    )
-    
-    stage = models.IntegerField(choices=STAGE_CHOICES, verbose_name="면담 차수")
-    
-    content = models.TextField(verbose_name="면담 내용 (한줄평)")
-    opinion = models.TextField(verbose_name="조치 의견", blank=True, help_text="예: 경고 조치, 기회 부여, 퇴소 처리 등")
-    
-    is_passed = models.BooleanField(
-        default=False, 
-        verbose_name="통과/완료 여부",
-        help_text="체크해야 다음 단계(시험/면담)가 활성화됩니다."
-    )
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="작성일")
-
-    class Meta:
-        verbose_name = "면담 기록"
-        verbose_name_plural = "면담 기록 (단계별)"
-        ordering = ['profile', 'stage']
-        unique_together = ('profile', 'stage') # 한 사람이 같은 차수 면담을 중복해서 만들지 않도록 제한
-
-    def __str__(self):
-        return f"{self.profile.name} - {self.get_stage_display()}"
-    
 def update_score_and_rank(sender, instance, created, **kwargs):
     # 1. 무한 루프 방지 (이미 처리 중이면 건너뜀)
     if getattr(instance, '_processing', False):

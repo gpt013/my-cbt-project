@@ -4,30 +4,37 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2>📋 엑셀 복사/붙여넣기 문제 등록</h2>
-        <a href="{% url 'quiz:index' %}" class="btn btn-secondary">목록으로 돌아가기</a>
+        <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary">목록으로 돌아가기</a>
     </div>
 
-    <div class="alert alert-info">
-        <i class="bi bi-info-circle"></i> 엑셀 데이터를 복사(Ctrl+C)하여 아래 표의 첫 번째 칸을 클릭하고 붙여넣기(Ctrl+V) 하세요.<br>
-        <strong>[문제내용 | 유형 | 난이도 | 태그 | 보기1 | 보기2 | 보기3 | 보기4 | 정답]</strong> 순서입니다.
+    <div class="alert alert-info shadow-sm">
+        <h5 class="alert-heading fw-bold"><i class="bi bi-lightbulb-fill"></i> 사용 방법</h5>
+        <p class="mb-0">
+            엑셀 파일에서 데이터를 복사(Ctrl+C)하여 아래 표의 첫 번째 칸을 클릭하고 붙여넣기(Ctrl+V) 하세요.<br>
+            데이터 순서: <strong>[문제내용 | 유형 | 난이도 | 태그 | 보기1 | 보기2 | 보기3 | 보기4 | 정답]</strong>
+        </p>
     </div>
 
-    <div class="card mb-3">
-        <div class="card-body">
-            <label for="quiz-select" class="form-label fw-bold">문제를 추가할 시험 선택:</label>
-            <select id="quiz-select" class="form-select">
+    <div class="card mb-3 shadow-sm border-0">
+        <div class="card-body bg-light">
+            <label for="quiz-select" class="form-label fw-bold fs-5 text-primary">
+                <i class="bi bi-check2-circle"></i> 문제를 추가할 시험 선택:
+            </label>
+            <select id="quiz-select" class="form-select form-select-lg">
                 <option value="" selected disabled>-- 시험을 선택하세요 --</option>
                 {% for quiz in quizzes %}
-                    <option value="{{ quiz.id }}">{{ quiz.title }}</option>
+                    <option value="{{ quiz.id }}">
+                        [{{ quiz.get_category_display }}] {{ quiz.title }} ({{ quiz.associated_process.name|default:"공통" }})
+                    </option>
                 {% endfor %}
             </select>
         </div>
     </div>
 
-    <div id="excel-grid" style="width: 100%; height: 500px; overflow: hidden; border: 1px solid #ccc;"></div>
+    <div id="excel-grid" style="width: 100%; height: 500px; overflow: hidden; border: 1px solid #ced4da; border-radius: 4px;"></div>
     
-    <button id="save-btn" class="btn btn-primary mt-3 btn-lg w-100">
-        <i class="bi bi-check-circle"></i> 위 내용으로 문제 일괄 등록하기
+    <button id="save-btn" class="btn btn-primary mt-3 btn-lg w-100 fw-bold shadow">
+        <i class="bi bi-cloud-upload-fill"></i> 위 내용으로 문제 일괄 등록하기
     </button>
 </div>
 
@@ -37,15 +44,14 @@
 <script>
     const container = document.getElementById('excel-grid');
     
-    // 1. 초기 빈 데이터 생성 (20행 x 9열)
-    // 각 행마다 빈 문자열('')로 채워진 배열을 만듭니다.
+    // 1. 초기 빈 데이터 생성 (30행 x 9열) - 넉넉하게 생성
     const initialData = [];
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 30; i++) {
+        // [문제, 유형, 난이도, 태그, 보기1~4, 정답]
         initialData.push(['', '객관식', '하', '', '', '', '', '', '']); 
-        // 기본값 설정: 유형='객관식', 난이도='하' (사용자가 바꾸기 편하게)
     }
 
-    // 2. 그리드 설정
+    // 2. 그리드 설정 (Handsontable)
     const hot = new Handsontable(container, {
         data: initialData,
         rowHeaders: true,
@@ -55,11 +61,11 @@
             '난이도 (선택)', 
             '태그 (쉼표구분)', 
             '보기1', '보기2', '보기3', '보기4', 
-            '정답 (복수정답은 쉼표 ","로 구분)' // [수정] 안내 문구 변경
+            '정답 (번호 또는 텍스트)'
         ],
-        colWidths: [350, 130, 80, 120, 100, 100, 100, 100, 100],
+        colWidths: [300, 100, 80, 150, 100, 100, 100, 100, 120],
         
-        // [핵심 수정] 각 열(Column)의 속성을 명확히 정의
+        // 각 컬럼의 속성 정의
         columns: [
             { type: 'text' }, // 0: 문제 내용
             { 
@@ -78,42 +84,49 @@
             { type: 'text' }, // 8: 정답
         ],
         
-        licenseKey: 'non-commercial-and-evaluation',
-        contextMenu: true, // 우클릭 메뉴 허용
-        minSpareRows: 1,   // 맨 아래 빈 줄 하나 자동 추가
-        autoWrapRow: true,
-        autoWrapCol: true,
+        licenseKey: 'non-commercial-and-evaluation', // 무료 라이선스 키
+        contextMenu: true, // 우클릭 메뉴 허용 (행 추가/삭제 등)
+        minSpareRows: 1,   // 맨 아래 빈 줄 하나 자동 유지
+        manualColumnResize: true, // 컬럼 너비 조절 가능
+        className: 'htMiddle', // 텍스트 세로 중앙 정렬
     });
 
-    // 3. 저장 버튼 이벤트
+    // 3. 저장 버튼 이벤트 리스너
     document.getElementById('save-btn').addEventListener('click', function() {
         const quizId = document.getElementById('quiz-select').value;
         
-        // 유효성 검사: 시험 선택 확인
+        // (1) 시험 선택 여부 검사
         if (!quizId) {
             alert('⚠️ 문제를 추가할 시험(Quiz)을 먼저 선택해주세요!');
             document.getElementById('quiz-select').focus();
             return;
         }
 
+        // (2) 데이터 가져오기 및 정제
         const tableData = hot.getData();
         
-        // 유효성 검사: 빈 줄 제거 (문제 내용이 있는 줄만 추림)
+        // 문제 내용(첫 번째 열)이 비어있지 않은 행만 필터링
         const cleanData = tableData.filter(row => {
             return row[0] !== null && row[0].toString().trim() !== '';
         });
 
         if (cleanData.length === 0) {
-            alert('⚠️ 입력된 문제가 없습니다.\n표의 첫 번째 칸(문제 내용)부터 내용을 입력하거나 붙여넣어 주세요.');
+            alert('⚠️ 입력된 문제가 없습니다.\n표의 첫 번째 칸(문제 내용)부터 내용을 입력하거나 엑셀에서 복사해 붙여넣으세요.');
             return;
         }
 
-        // 전송 전 확인
-        if (!confirm(`${cleanData.length}개의 문제를 등록하시겠습니까?`)) {
+        // (3) 전송 확인
+        if (!confirm(`총 ${cleanData.length}개의 문제를 등록하시겠습니까?`)) {
             return;
         }
 
-        // 서버로 전송 (AJAX)
+        // (4) 서버로 전송 (AJAX)
+        // 버튼 비활성화 (중복 클릭 방지)
+        const btn = document.getElementById('save-btn');
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 저장 중...';
+
         fetch("{% url 'quiz:bulk_add_sheet_save' %}", {
             method: 'POST',
             headers: {
@@ -130,11 +143,14 @@
             if (data.status === 'success') {
                 alert(`✅ 성공! ${data.count}개의 문제가 등록되었습니다.`);
                 
-                if(confirm("목록으로 이동하시겠습니까?\n[취소]를 누르면 계속 입력할 수 있습니다.")) {
-                    window.location.href = "{% url 'quiz:index' %}"; 
+                // 성공 후 이동 여부 확인
+                if(confirm("등록된 문제를 확인하러 가시겠습니까?\n[취소]를 누르면 계속 입력할 수 있습니다.")) {
+                    // 매니저 문제 관리 페이지로 이동 (URL이 있다면)
+                    // 여기서는 퀴즈 목록으로 이동
+                    window.location.href = "{% url 'quiz:manager_quiz_list' %}"; 
                 } else {
-                    // 입력창 초기화 (선택적)
-                    // hot.loadData(initialData); 
+                    // 계속 입력: 그리드 초기화
+                    hot.loadData(initialData); 
                 }
             } else {
                 alert('❌ 오류 발생: ' + data.message);
@@ -143,6 +159,11 @@
         .catch(error => {
             console.error('Error:', error);
             alert('서버 통신 중 오류가 발생했습니다.');
+        })
+        .finally(() => {
+            // 버튼 복구
+            btn.disabled = false;
+            btn.innerHTML = originalText;
         });
     });
 </script>
