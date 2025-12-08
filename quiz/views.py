@@ -23,6 +23,7 @@ from django.forms import inlineformset_factory
 from django.db.models import Avg, Count, Q, Max,Min, F, Case, When, Value, CharField, Window
 from attendance.models import DailySchedule
 from django.db.models.functions import DenseRank, Coalesce
+from .utils import calculate_tag_stats
 
 # accounts 앱의 모델들
 from accounts.models import (
@@ -69,7 +70,10 @@ def my_page(request):
     profile, created = Profile.objects.get_or_create(user=user)
     
     latest_badges = profile.badges.all().order_by('-id')[:3]
-    latest_evaluations = EvaluationRecord.objects.filter(profile=profile).order_by('-created_at')[:3]
+    latest_evaluations = StudentLog.objects.filter(
+        profile=user.profile,
+        log_type__in=['warning', 'compliment', 'counseling']
+    ).order_by('-created_at')[:3]
     
     context = {
         'pending_attempts': pending_attempts,
@@ -1292,18 +1296,18 @@ def export_student_data(request):
 
     target_process_id = request.GET.get('process_id')
     
+    # 1. 대상 프로필 조회 (권한 필터링 포함)
+    profiles = Profile.objects.select_related(
+        'user', 'cohort', 'company', 'process', 'pl'
+    ).prefetch_related(
+        'user__testresult_set', 'badges', 'managerevaluation_set', 'logs', 'dailyschedule_set'
+    ).order_by('cohort__start_date', 'user__username')
+
+    # 2. 권한 필터링
     my_process = None
     if hasattr(request.user, 'profile') and request.user.profile.process:
         my_process = request.user.profile.process
 
-    # 1. 쿼리셋 준비
-    profiles = Profile.objects.select_related(
-        'user', 'cohort', 'company', 'process', 'pl'
-    ).prefetch_related(
-        'user__testresult_set', 'badges', 'managerevaluation_set'
-    ).order_by('cohort__start_date', 'user__username')
-
-    # 2. 권한 필터링
     if request.user.is_superuser:
         if target_process_id and target_process_id != 'ALL':
             profiles = profiles.filter(process_id=target_process_id)
@@ -1343,83 +1347,73 @@ def export_student_data(request):
     data_list = []
 
     for profile in profiles:
-        # 기본 정보
-        cohort_name = profile.cohort.name if profile.cohort else '-'
-        company_name = profile.company.name if profile.company else '-'
-        process_name = profile.process.name if profile.process else '-'
-        pl_name = profile.pl.name if profile.pl else '-'
-        
-        # 시험 결과 리스트
-        test_results = list(profile.user.testresult_set.all())
-        test_results.sort(key=lambda x: x.completed_at)
-        
-        # [수정] 변수 초기화를 루프 시작 지점으로 이동 (NameError 해결)
-        quiz_scores_map = {} 
-        for res in test_results:
-            if res.quiz_id not in quiz_scores_map:
-                quiz_scores_map[res.quiz_id] = []
-            quiz_scores_map[res.quiz_id].append(res.score)
-
-        # 통계 계산
-        total_tests = len(test_results)
-        if total_tests > 0:
-            scores = [r.score for r in test_results]
-            avg_score = sum(scores) / total_tests
-            max_score = max(scores)
-            pass_count = sum(1 for r in test_results if r.is_pass)
-            fail_count = total_tests - pass_count
-            last_test_date = test_results[-1].completed_at.strftime('%Y-%m-%d')
-        else:
-            avg_score = 0; max_score = 0; pass_count = 0; fail_count = 0; last_test_date = '-'
-
-        # 평가 정보
-        badge_count = profile.badges.count()
-        badge_list = ", ".join([b.name for b in profile.badges.all()])
-        
-        last_eval = profile.managerevaluation_set.order_by('-created_at').first()
-        eval_manager = last_eval.manager.username if last_eval and last_eval.manager else '-'
-        eval_comment = last_eval.overall_comment if last_eval else '평가 없음'
-        
-        # 종합 평가 점수
-        fa = getattr(profile, 'final_assessment', None)
-        
+        # (A) 기본 정보
         row_data = {
             '사용자 ID': profile.user.username,
             '이름': profile.name,
             '이메일': profile.user.email,
             '사번': profile.employee_id,
-            '기수': cohort_name,
-            '소속 회사': company_name,
-            '공정': process_name,
+            '기수': profile.cohort.name if profile.cohort else '-',
+            '소속 회사': profile.company.name if profile.company else '-',
+            '공정': profile.process.name if profile.process else '-',
             '라인': profile.line if profile.line else '-',
-            '담당 PL': pl_name,
+            '담당 PL': profile.pl.name if profile.pl else '-',
             '상태': profile.get_status_display(),
-            '총 응시': total_tests,
-            '평균 점수': round(avg_score, 1) if avg_score else 0,
-            '최고 점수': max_score,
-            '합격': pass_count,
-            '불합격': fail_count,
-            '최근 응시일': last_test_date,
-            '종합 점수': fa.final_score if fa else '-',
-            '석차': fa.rank if fa else '-',
-            '실습': fa.practice_score if fa else '-',
-            '노트': fa.note_score if fa else '-',
-            '인성': fa.attitude_score if fa else '-',
         }
 
-        # 각 퀴즈별 점수 컬럼 채우기
+        # (B) 시험 점수 (1차, 2차, 3차)
+        test_results = sorted(list(profile.user.testresult_set.all()), key=lambda x: x.completed_at)
+        quiz_map = {}
+        for res in test_results:
+            if res.quiz_id not in quiz_map: quiz_map[res.quiz_id] = []
+            quiz_map[res.quiz_id].append(res.score)
+        
         for quiz in all_quizzes:
-            attempts = quiz_scores_map.get(quiz.id, [])
+            attempts = quiz_map.get(quiz.id, [])
             row_data[f"[{quiz.title}] 1차"] = attempts[0] if len(attempts) > 0 else '-'
             row_data[f"[{quiz.title}] 2차"] = attempts[1] if len(attempts) > 1 else '-'
             row_data[f"[{quiz.title}] 3차"] = attempts[2] if len(attempts) > 2 else '-'
 
+        # (C) 종합 평가 (FinalAssessment)
+        fa = getattr(profile, 'final_assessment', None)
         row_data.update({
-            '획득 뱃지': badge_count,
-            '뱃지 목록': badge_list,
-            '평가자': eval_manager,
-            '매니저 의견': eval_comment,
+            '시험 평균': fa.exam_avg_score if fa else 0,
+            '실습 점수': fa.practice_score if fa else 0,
+            '노트 점수': fa.note_score if fa else 0,
+            '태도 점수': fa.attitude_score if fa else 0,
+            '최종 환산 점수': fa.final_score if fa else '-',
+            '석차': fa.rank if fa else '-',
+            '매니저 종합 의견': fa.manager_comment if fa else '-',
         })
+
+        # (D) 체크리스트 평가 (ManagerEvaluation)
+        last_eval = profile.managerevaluation_set.order_by('-created_at').first()
+        checklist_str = ""
+        if last_eval:
+            items = last_eval.selected_items.all()
+            checklist_str = "\n".join([f"[{'긍정' if item.is_positive else '부정'}] {item.description}" for item in items])
+        row_data['체크리스트 평가'] = checklist_str
+
+        # (E) 특이사항/경고 이력 (StudentLog)
+        logs = profile.logs.all().order_by('created_at')
+        log_str = ""
+        for log in logs:
+            log_str += f"[{log.created_at.strftime('%Y-%m-%d')}] {log.get_log_type_display()}: {log.reason}\n"
+        row_data['특이사항/경고 이력'] = log_str
+
+        # (F) 근태 요약 (DailySchedule)
+        schedules = profile.dailyschedule_set.all()
+        work_cnt = schedules.filter(work_type__deduction=0).count() # 정상출근
+        leave_cnt = schedules.filter(work_type__deduction=1.0).count() # 연차
+        half_cnt = schedules.filter(work_type__deduction=0.5).count() # 반차
+        # 휴무 등 기타는 제외하고 주요 항목만 표시
+        row_data['근태 요약'] = f"출근:{work_cnt} / 연차:{leave_cnt} / 반차:{half_cnt}"
+        
+        # 뱃지 정보
+        badge_count = profile.badges.count()
+        badge_list = ", ".join([b.name for b in profile.badges.all()])
+        row_data['획득 뱃지 수'] = badge_count
+        row_data['뱃지 목록'] = badge_list
 
         data_list.append(row_data)
 
@@ -1428,7 +1422,22 @@ def export_student_data(request):
         df = pd.DataFrame(data_list)
         excel_file = BytesIO()
         with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='교육생_데이터')
+            df.to_excel(writer, index=False, sheet_name='종합_데이터')
+            
+            # 스타일 적용 (줄바꿈 등)
+            workbook = writer.book
+            worksheet = writer.sheets['종합_데이터']
+            format_wrap = workbook.add_format({'text_wrap': True, 'valign': 'top'})
+            
+            # 컬럼 너비 조정
+            for idx, col in enumerate(df.columns):
+                if col in ['특이사항/경고 이력', '체크리스트 평가', '매니저 종합 의견']:
+                    worksheet.set_column(idx, idx, 50, format_wrap)
+                elif col in ['사용자 ID', '이름', '이메일']:
+                    worksheet.set_column(idx, idx, 20)
+                else:
+                    worksheet.set_column(idx, idx, 12)
+
         excel_file.seek(0)
 
         target_name = "전체"
@@ -1439,7 +1448,7 @@ def export_student_data(request):
             target_name = my_process.name
 
         subject = f"[보안] {request.user.profile.name}님 요청 데이터 ({target_name})"
-        body = f"요청하신 데이터입니다.\n요청자: {request.user.profile.name}\n대상: {target_name}"
+        body = f"요청하신 데이터입니다.\n요청자: {request.user.profile.name}\n대상: {target_name}\n\n* 포함 내역: 기본정보, 성적, 평가, 특이사항, 근태"
         
         email = EmailMessage(
             subject, body, settings.EMAIL_HOST_USER, [request.user.email]
@@ -1448,57 +1457,110 @@ def export_student_data(request):
         email.attach(filename, excel_file.read(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         email.send()
         
-        messages.success(request, f"✅ 데이터가 '{request.user.email}'로 발송되었습니다.")
+        messages.success(request, f"✅ 상세 데이터가 포함된 엑셀 파일이 '{request.user.email}'로 발송되었습니다.")
 
     except Exception as e:
         print(f"Mail Error: {e}")
-        messages.error(request, "메일 발송 중 오류가 발생했습니다.")
+        messages.error(request, "메일 발송 중 오류가 발생했습니다. (로그 확인 필요)")
 
-    return redirect('quiz:dashboard')
+    return redirect('quiz:manager_dashboard')
 
 
 # [수정 2] PL 대시보드 뷰 (슈퍼유저 권한 추가)
 @login_required
 def pl_dashboard(request):
-    # 관리자는 프리패스
+    # (1) 권한 체크
     if not (request.user.is_staff and (request.user.profile.is_pl or request.user.is_superuser)):
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
+    
+    # (2) 기본 대상 설정
+    if request.user.is_superuser:
+        # 관리자는 전체 보기
+        trainees = Profile.objects.select_related('user', 'cohort', 'process').all()
+    else:
+        try:
+            pl_obj = PartLeader.objects.get(email=request.user.email)
+            trainees = Profile.objects.filter(pl=pl_obj).select_related('user', 'cohort', 'process')
+        except PartLeader.DoesNotExist:
+            trainees = Profile.objects.none()
 
-    data = get_pl_dashboard_data(request.user)
-    
-    # 차트용 데이터 계산
-    total_count = len(data)
+    # (3) 검색 및 필터링 적용
+    search_query = request.GET.get('q', '')
+    filter_cohort = request.GET.get('cohort', '')
+    filter_process = request.GET.get('process', '')
+
+    if search_query:
+        trainees = trainees.filter(name__icontains=search_query)
+    if filter_cohort:
+        trainees = trainees.filter(cohort_id=filter_cohort)
+    if filter_process:
+        trainees = trainees.filter(process_id=filter_process)
+
+    # (4) 통계 데이터 계산
+    total_count = trainees.count()
     no_data = total_count == 0
-    
-    avg_final = 0
-    status_counts = [0, 0, 0, 0] # 재직, 면담, 퇴소, 수료
-    radar_data = [0, 0, 0, 0]
-    top_trainees = []
-    
-    # 데이터가 있을 때만 계산 (에러 방지)
-    if not no_data:
-        # 간단한 통계 계산 (data 리스트 기반)
-        # (상세한 통계는 get_pl_dashboard_data 내부 혹은 별도 쿼리로 하는게 좋지만, 
-        #  여기서는 뷰 렌더링 에러를 막기 위해 기본값 처리 위주로 합니다)
-        pass 
+
+    status_counts = {
+        'attending': trainees.filter(status='attending').count(),
+        'counseling': trainees.filter(status='counseling').count(),
+        'dropout': trainees.filter(status='dropout').count(),
+        'completed': trainees.filter(status='completed').count(),
+    }
+
+    assessed = trainees.filter(final_assessment__isnull=False)
+    if assessed.exists():
+        avg_final = assessed.aggregate(Avg('final_assessment__final_score'))['final_assessment__final_score__avg']
+        radar_data = assessed.aggregate(
+            avg_exam=Avg('final_assessment__exam_avg_score'),
+            avg_prac=Avg('final_assessment__practice_score'),
+            avg_note=Avg('final_assessment__note_score'),
+            avg_atti=Avg('final_assessment__attitude_score')
+        )
+        top_trainees = assessed.order_by('-final_assessment__final_score')[:3]
+    else:
+        avg_final = 0
+        radar_data = {'avg_exam':0, 'avg_prac':0, 'avg_note':0, 'avg_atti':0}
+        top_trainees = []
+
+    risk_trainees = trainees.filter(
+        Q(status='counseling') | 
+        (Q(final_assessment__final_score__lt=60) & Q(final_assessment__isnull=False))
+    )
+
+    # (5) 리스트 데이터 가공
+    trainee_list = []
+    for t in trainees:
+        fa = getattr(t, 'final_assessment', None)
+        trainee_list.append({
+            'profile': t,
+            'final_score': fa.final_score if fa else '-',
+            'rank': fa.rank if fa else '-',
+            'exam_avg': fa.exam_avg_score if fa else 0,
+        })
 
     context = {
         'no_data': no_data,
-        'dashboard_data': data,
         'total_count': total_count,
-        'status_counts': status_counts, 
-        'avg_final': avg_final,
-        'radar_data': radar_data,
+        'status_counts': list(status_counts.values()),
+        'avg_final': round(avg_final, 1) if avg_final else 0,
+        'radar_data': [
+            round(radar_data['avg_exam'] or 0, 1),
+            round(radar_data['avg_prac'] or 0, 1), 
+            round(radar_data['avg_note'] or 0, 1), 
+            round(radar_data['avg_atti'] or 0, 1)
+        ],
         'top_trainees': top_trainees,
-        'risk_trainees': [],
-        'all_quizzes': Quiz.objects.all().order_by('title'),
+        'risk_trainees': risk_trainees,
+        'trainee_list': trainee_list,
         
-        # 필터링용
         'cohorts': Cohort.objects.all(),
         'processes': Process.objects.all(),
+        'sel_q': search_query,
+        'sel_cohort': int(filter_cohort) if filter_cohort else '',
+        'sel_process': int(filter_process) if filter_process else '',
     }
-    
+
     return render(request, 'quiz/pl_dashboard.html', context)
 
 def get_pl_dashboard_data(pl_user):
@@ -1582,7 +1644,19 @@ def manager_dashboard(request):
 def manager_trainee_list(request):
     if not request.user.is_staff: return redirect('quiz:index')
 
-    form = TraineeFilterForm(request.GET)
+    # [신규 로직] 현재 날짜 기준 '진행 중인 기수' 찾기
+    today = timezone.now().date()
+    active_cohort = Cohort.objects.filter(start_date__lte=today, end_date__gte=today).first()
+    
+    # GET 파라미터가 없으면 '현재 기수'를 기본값으로 설정
+    default_cohort = active_cohort.id if active_cohort else ''
+    
+    # 폼 초기값 설정 (request.GET이 비어있으면 default 사용)
+    data = request.GET.copy()
+    if 'cohort' not in data and default_cohort:
+        data['cohort'] = default_cohort
+    
+    form = TraineeFilterForm(data)
     profiles = Profile.objects.select_related('user', 'cohort', 'process').exclude(user__is_superuser=True, is_manager=True).order_by('cohort__start_date', 'name')
 
     if form.is_valid():
@@ -1596,15 +1670,13 @@ def manager_trainee_list(request):
             q = form.cleaned_data['search']
             profiles = profiles.filter(Q(name__icontains=q) | Q(employee_id__icontains=q) | Q(user__username__icontains=q))
 
-    # 매니저 권한: 본인 공정 우선 필터링 (선택사항: 강제할지 말지)
+    # 매니저 권한: 본인 공정 우선 (필요시 강제)
     if not request.user.is_superuser and hasattr(request.user, 'profile') and request.user.profile.process:
-        # profiles = profiles.filter(process=request.user.profile.process) # 강제 필터링 하려면 주석 해제
+        # profiles = profiles.filter(process=request.user.profile.process) 
         pass
 
     paginator = Paginator(profiles, 50)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-
+    page_obj = paginator.get_page(request.GET.get('page'))
     pending_users = User.objects.filter(is_active=False).order_by('-date_joined')
 
     context = {
@@ -1745,8 +1817,6 @@ def pl_dashboard(request):
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
     
-    trainee_condition = Q(user__is_superuser=False) & Q(is_manager=False) & Q(is_pl=False)
-
     # (2) 기본 대상 설정 (관리자 vs PL)
     if request.user.is_superuser:
         trainees = Profile.objects.select_related('user', 'cohort', 'process').all()
@@ -1757,7 +1827,7 @@ def pl_dashboard(request):
         except PartLeader.DoesNotExist:
             trainees = Profile.objects.none()
 
-    # (3) [신규] 검색 및 필터링 적용
+    # (3) 검색 및 필터링 적용
     search_query = request.GET.get('q', '')
     filter_cohort = request.GET.get('cohort', '')
     filter_process = request.GET.get('process', '')
@@ -1839,20 +1909,30 @@ def pl_dashboard(request):
     return render(request, 'quiz/pl_dashboard.html', context)
 
 
-# 2. [신규] 교육생 상세 점수 가져오기 (AJAX 모달용)
+# 2. [수정됨] 교육생 상세 점수 가져오기 (AJAX 모달용 - 태그/평가 포함)
 @login_required
 def pl_trainee_detail(request, profile_id):
-    # 권한 체크 (PL 본인 담당 또는 관리자)
+    # 권한 체크 (PL 본인 담당 또는 관리자 또는 같은 공정 매니저)
     profile = get_object_or_404(Profile, pk=profile_id)
-    if not request.user.is_superuser:
-        try:
-            pl_obj = PartLeader.objects.get(email=request.user.email)
-            if profile.pl != pl_obj:
-                return JsonResponse({'error': '권한이 없습니다.'}, status=403)
-        except:
-            return JsonResponse({'error': 'PL 정보를 찾을 수 없습니다.'}, status=403)
+    
+    is_authorized = False
+    if request.user.is_superuser:
+        is_authorized = True
+    elif hasattr(request.user, 'profile'):
+        # 같은 공정 매니저 허용
+        if request.user.profile.is_manager and request.user.profile.process == profile.process:
+            is_authorized = True
+        # 담당 PL 허용
+        elif request.user.profile.is_pl:
+            try:
+                pl_obj = PartLeader.objects.get(email=request.user.email)
+                if profile.pl == pl_obj: is_authorized = True
+            except: pass
 
-    # 모든 퀴즈 결과 조회
+    if not is_authorized:
+        return JsonResponse({'error': '권한이 없습니다.'}, status=403)
+
+    # 1. 시험 점수 데이터
     all_quizzes = Quiz.objects.all().order_by('title')
     results = profile.user.testresult_set.all().order_by('completed_at')
     
@@ -1861,19 +1941,47 @@ def pl_trainee_detail(request, profile_id):
         attempts = results.filter(quiz=quiz)
         # 1~3차 점수 추출
         scores = [a.score for a in attempts]
-        # 부족한 차수는 '-'로 채움 (최대 3차까지만 표시)
         while len(scores) < 3:
             scores.append('-')
         
         score_data.append({
             'quiz_title': quiz.title,
-            'scores': scores[:3] # [1차, 2차, 3차]
+            'scores': scores[:3]
         })
+
+    # 2. [신규] 태그 기반 강/약점 분석
+    tag_stats = calculate_tag_stats(profile.user)
+
+    # 3. [신규] 매니저 평가 (체크리스트 & 코멘트)
+    eval_data = {}
+    manager_eval = ManagerEvaluation.objects.filter(trainee_profile=profile).last()
+    
+    if manager_eval:
+        eval_data['comment'] = manager_eval.overall_comment
+        # 체크된 항목들 리스트로 변환
+        eval_data['checklist'] = [
+            {'category': item.category.name, 'desc': item.description, 'is_positive': item.is_positive}
+            for item in manager_eval.selected_items.all().order_by('category__order')
+        ]
+        
+        # 종합 점수 (FinalAssessment)
+        fa = getattr(profile, 'final_assessment', None)
+        if fa:
+            eval_data['scores'] = {
+                'exam': fa.exam_avg_score,
+                'practice': fa.practice_score,
+                'note': fa.note_score,
+                'attitude': fa.attitude_score,
+                'final': fa.final_score,
+                'rank': fa.rank
+            }
 
     return JsonResponse({
         'name': profile.name,
         'status': profile.get_status_display(),
-        'exam_data': score_data
+        'exam_data': score_data,
+        'tag_stats': tag_stats,   # 추가됨
+        'evaluation': eval_data   # 추가됨
     })
 
 # --- 1. 최종 점수 및 랭킹 계산 유틸리티 ---

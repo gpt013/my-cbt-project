@@ -64,4 +64,5 @@ urlpatterns = [
     path('status/completed/', views.completed_alert, name='completed_alert'),
     path('profile/update/', views.profile_update, name='profile_update'),
     path('status/expired/', views.cohort_expired, name='cohort_expired'),
+    path('resend-code/', views.resend_code, name='resend_code'),
 ]

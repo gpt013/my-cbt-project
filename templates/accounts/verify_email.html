@@ -2,28 +2,43 @@
 
 {% block content %}
 <div class="container mt-5" style="max-width: 500px;">
-    <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white text-center">
-            <h4 class="mb-0"><i class="bi bi-envelope-check"></i> 이메일 인증</h4>
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-primary text-white text-center py-3">
+            <h4 class="mb-0 fw-bold"><i class="bi bi-envelope-check"></i> 이메일 인증</h4>
         </div>
         <div class="card-body p-4">
-            <p class="text-center mb-4">
-                <strong>{{ email }}</strong> 으로 인증 코드를 발송했습니다.<br>
-                메일함(스팸함 포함)을 확인 후 6자리 코드를 입력해주세요.
-            </p>
+            <div class="alert alert-light border text-center mb-4">
+                입력하신 이메일<br>
+                <strong class="text-primary">{{ email }}</strong> (으)로<br>
+                인증 코드를 발송했습니다.
+            </div>
 
             <form method="post">
                 {% csrf_token %}
-                <div class="mb-4">
-                    {{ form.code }}
-                </div>
-                <div class="d-grid">
-                    <button type="submit" class="btn btn-primary btn-lg">인증 완료</button>
-                </div>
+                
+                {% for field in form %}
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">{{ field.label }}</label>
+                        {{ field }} {% if field.errors %}
+                            <div class="text-danger small mt-1">{{ field.errors }}</div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+
+                <button type="submit" class="btn btn-primary w-100 btn-lg fw-bold">
+                    인증 완료
+                </button>
             </form>
-        </div>
-        <div class="card-footer text-center text-muted small">
-            메일이 오지 않나요? <a href="{% url 'accounts:signup' %}">다시 시도하기</a>
+
+            <hr class="my-4">
+
+            <div class="text-center">
+                <p class="text-muted small mb-2">메일이 도착하지 않았나요? (스팸함 확인 필요)</p>
+                <a href="{% url 'accounts:resend_code' %}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-arrow-clockwise"></i> 인증 코드 재전송
+                </a>
+            </div>
+            
         </div>
     </div>
 </div>

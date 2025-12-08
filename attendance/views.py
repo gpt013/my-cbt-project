@@ -21,6 +21,23 @@ from .models import WorkType, DailySchedule, ScheduleRequest
 from .utils import analyze_mdm_image
 
 # ------------------------------------------------------------------
+# [Helper] 권한 검증 함수
+# ------------------------------------------------------------------
+def can_manage_schedule(user, target_profile):
+    """
+    해당 유저가 타겟 프로필의 스케줄을 즉시 수정할 권한(관리자/매니저)이 있는지 확인
+    """
+    if user.is_superuser:
+        return True
+    
+    if hasattr(user, 'profile') and user.profile.is_manager:
+        if user.profile.process == target_profile.process:
+            return True
+            
+    return False
+
+
+# ------------------------------------------------------------------
 # 1. MDM 인증 (기존 유지)
 # ------------------------------------------------------------------
 @login_required
@@ -96,44 +113,39 @@ def schedule_index(request):
     
     kr_holidays = holidays.KR(years=year) if holidays else {}
     _, num_days = calendar.monthrange(year, month)
-    
     days_in_month = []
     weekday_map = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
 
     for day in range(1, num_days + 1):
         d = date(year, month, day)
         days_in_month.append({
-            'day': day, 
-            'date_str': d.strftime('%Y-%m-%d'),
-            'weekday': weekday_map[d.weekday()],
-            'is_weekend': d.weekday() >= 5,
-            'is_holiday': d in kr_holidays,
-            'holiday_name': kr_holidays.get(d, ''),
-            'is_today': d == today
+            'day': day, 'date_str': d.strftime('%Y-%m-%d'), 'weekday': weekday_map[d.weekday()],
+            'is_weekend': d.weekday() >= 5, 'is_holiday': d in kr_holidays,
+            'holiday_name': kr_holidays.get(d, ''), 'is_today': d == today
         })
 
     user = request.user
+    # 기본: 재직 중, 이름 있음
     profiles = Profile.objects.select_related('cohort', 'process').filter(status='attending').exclude(name__isnull=True).exclude(name='')
 
-    # 관리자/매니저 권한 확인
-    is_manager_or_admin = user.is_superuser or (hasattr(user, 'profile') and user.profile.is_manager)
+    is_manager_or_admin = user.is_superuser or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))
 
-    # 필터 값 가져오기
+    # 필터 값
     sel_role = request.GET.get('role', 'student')
     sel_cohort = request.GET.get('cohort', '')
     sel_process = request.GET.get('process', '')
 
     if is_manager_or_admin:
-        # 관리자/매니저: 필터 적용
         if sel_role == 'manager':
-            profiles = profiles.filter(Q(is_manager=True) | Q(is_pl=True))
+            # [수정] 관리자(Superuser)도 매니저 리스트에 포함
+            profiles = profiles.filter(Q(is_manager=True) | Q(is_pl=True) | Q(user__is_superuser=True))
         else:
-            profiles = profiles.filter(is_manager=False, is_pl=False)
+            profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False)
 
         if sel_cohort: profiles = profiles.filter(cohort_id=sel_cohort)
         if sel_process: profiles = profiles.filter(process_id=sel_process)
     else:
-        # 교육생: 강제 필터링 (본인 기수/공정만)
+        # 교육생
         sel_role = 'student'
         profiles = profiles.filter(is_manager=False, is_pl=False)
         if hasattr(user, 'profile'):
@@ -146,7 +158,6 @@ def schedule_index(request):
 
     profiles = profiles.order_by('name')
 
-    # [연차 계산 로직]
     TOTAL_ANNUAL_LEAVE = 15 
     current_year_start = date(year, 1, 1)
     current_year_end = date(year, 12, 31)
@@ -211,7 +222,6 @@ def schedule_index(request):
                     
         schedule_map[p.id] = row_data
 
-    # 다음달 계산 (페이지 이동용)
     if today.month == 12: next_month_start = date(today.year + 1, 1, 1)
     else: next_month_start = date(today.year, today.month + 1, 1)
 
@@ -252,6 +262,7 @@ def update_schedule(request):
         # 권한 기초 확인 (본인 or 관리자 or 매니저)
         is_owner = (target_profile.user == request.user)
         is_superuser = request.user.is_superuser
+        
         # is_manager_of_target: 내가 이 학생의 담당 매니저인가? (본인 제외)
         is_manager_of_target = False
         if hasattr(request.user, 'profile') and request.user.profile.is_manager:

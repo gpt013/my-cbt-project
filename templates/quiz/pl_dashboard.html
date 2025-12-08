@@ -1,5 +1,7 @@
 {% extends 'base.html' %}
-{% load static custom_tags %} {% block content %}
+{% load static custom_tags %} 
+
+{% block content %}
 <div class="container-fluid py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
@@ -131,10 +133,9 @@
         <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
             <h5 class="mb-0 fw-bold"><i class="bi bi-list-ul"></i> 교육생 상세 현황</h5>
             <a href="{% url 'quiz:pl_report_view' %}?q={{ sel_q }}&cohort={{ sel_cohort }}&process={{ sel_process }}" 
-   target="_blank" 
-   class="btn btn-sm btn-success">
-    <i class="bi bi-file-earmark-pdf-fill"></i> 상세 성적표 PDF 다운로드
-</a>
+               target="_blank" class="btn btn-sm btn-success">
+                <i class="bi bi-file-earmark-pdf-fill"></i> 상세 성적표 PDF 다운로드
+            </a>
         </div>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -171,17 +172,11 @@
                         <td class="text-center fw-bold text-primary">{{ item.final_score }}</td>
                         <td class="text-center">{% if item.rank != '-' %}{{ item.rank }}등{% else %}-{% endif %}</td>
                         <td class="text-center">
-    <button class="btn btn-sm btn-outline-primary detail-btn mb-1" 
-            data-id="{{ item.profile.id }}" 
-            data-bs-toggle="modal" data-bs-target="#detailModal">
-        <i class="bi bi-search"></i> 상세
-    </button>
-    
-    <a href="{% url 'quiz:manage_interviews' item.profile.id %}" 
-       class="btn btn-sm {% if item.profile.status == 'counseling' %}btn-danger{% else %}btn-outline-secondary{% endif %}">
-        <i class="bi bi-chat-dots-fill"></i> 면담
-    </a>
-</td>
+                            <button class="btn btn-sm btn-outline-primary detail-btn mb-1" 
+                                    onclick="showDetail({{ item.profile.id }})">
+                                <i class="bi bi-search"></i> 상세
+                            </button>
+                            </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -195,7 +190,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="bi bi-person-lines-fill"></i> 교육생 상세 성적표</h5>
+                <h5 class="modal-title"><i class="bi bi-person-lines-fill"></i> 교육생 상세 리포트</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -204,20 +199,43 @@
                     <span id="modalStatus" class="badge bg-secondary fs-6"></span>
                 </div>
                 
-                <h6 class="fw-bold mb-3"><i class="bi bi-journal-check"></i> 과목별 시험 결과 (최근 3회)</h6>
-                <div class="table-responsive">
-                    <table class="table table-bordered text-center align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th style="width: 40%;">시험 과목</th>
-                                <th style="width: 20%;">1차 점수</th>
-                                <th style="width: 20%;">2차 점수</th>
-                                <th style="width: 20%;">3차 점수</th>
-                            </tr>
-                        </thead>
-                        <tbody id="modalTableBody">
-                            </tbody>
-                    </table>
+                <ul class="nav nav-tabs mb-3" id="plTab" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active fw-bold" data-bs-target="#tab-scores" data-bs-toggle="tab">📝 시험 성적</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-bold" data-bs-target="#tab-analysis" data-bs-toggle="tab">📊 AI 분석 (강/약점)</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link fw-bold" data-bs-target="#tab-eval" data-bs-toggle="tab">✅ 종합 평가</button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="tab-scores">
+                        <div class="table-responsive">
+                            <table class="table table-bordered text-center align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 40%;">시험 과목</th>
+                                        <th style="width: 20%;">1차 점수</th>
+                                        <th style="width: 20%;">2차 점수</th>
+                                        <th style="width: 20%;">3차 점수</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="scoreTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="tab-analysis">
+                        <h6 class="fw-bold text-primary mb-3"><i class="bi bi-graph-up"></i> 주제별(Tag) 이해도 분석</h6>
+                        <div id="tagStatsBody" class="px-2"></div>
+                    </div>
+
+                    <div class="tab-pane fade" id="tab-eval">
+                        <div id="evalContent"></div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -230,8 +248,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    
-    // 1. 레이더 차트
+    // 1. 차트 초기화 (기존 코드 유지)
     const radarCtx = document.getElementById('radarChart');
     if(radarCtx) {
         new Chart(radarCtx.getContext('2d'), {
@@ -254,7 +271,6 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // 2. 도넛 차트
     const statusCtx = document.getElementById('statusChart');
     if(statusCtx) {
         new Chart(statusCtx.getContext('2d'), {
@@ -269,72 +285,105 @@ document.addEventListener("DOMContentLoaded", function() {
             options: { cutout: '70%', plugins: { legend: { position: 'bottom' } } }
         });
     }
-
-    // 3. [AJAX] 상세 버튼 클릭 시 데이터 로드
-    document.querySelectorAll('.detail-btn').forEach(btn => {
-        btn.addEventListener('click', function() {
-            const profileId = this.getAttribute('data-id');
-            const tableBody = document.getElementById('modalTableBody');
-            const modalName = document.getElementById('modalName');
-            const modalStatus = document.getElementById('modalStatus');
-            
-            // 초기화 (로딩 중 표시)
-            modalName.innerText = "로딩 중...";
-            modalStatus.innerText = "";
-            tableBody.innerHTML = '<tr><td colspan="4" class="py-4 text-muted"><div class="spinner-border spinner-border-sm text-primary" role="status"></div> 데이터를 불러오는 중입니다...</td></tr>';
-
-            // 서버 요청
-            fetch(`/quiz/pl-dashboard/detail/${profileId}/`)
-                .then(response => {
-                    if (!response.ok) throw new Error('서버 응답 오류');
-                    return response.json();
-                })
-                .then(data => {
-                    if(data.error) {
-                        alert(data.error);
-                        return;
-                    }
-                    
-                    // 데이터 채우기
-                    modalName.innerText = data.name;
-                    modalStatus.innerText = data.status;
-                    
-                    // 상태 뱃지 색상 변경
-                    modalStatus.className = 'badge fs-6';
-                    if(data.status.includes('재직')) modalStatus.classList.add('bg-success');
-                    else if(data.status.includes('면담')) modalStatus.classList.add('bg-warning', 'text-dark');
-                    else if(data.status.includes('퇴소')) modalStatus.classList.add('bg-danger');
-                    else modalStatus.classList.add('bg-info');
-
-                    let html = '';
-                    if (data.exam_data.length === 0) {
-                        html = '<tr><td colspan="4" class="text-muted py-3">아직 응시한 시험이 없습니다.</td></tr>';
-                    } else {
-                        data.exam_data.forEach(exam => {
-                            // 점수별 색상 (80점 이상 초록, 미만 빨강)
-                            const scoreColor = (score) => {
-                                if (score === '-') return 'text-muted';
-                                return score >= 80 ? 'text-success fw-bold' : 'text-danger fw-bold';
-                            };
-
-                            html += `
-                                <tr>
-                                    <td class="fw-bold text-start ps-4">${exam.quiz_title}</td>
-                                    <td class="${scoreColor(exam.scores[0])}">${exam.scores[0]}</td>
-                                    <td class="${scoreColor(exam.scores[1])}">${exam.scores[1]}</td>
-                                    <td class="${scoreColor(exam.scores[2])}">${exam.scores[2]}</td>
-                                </tr>
-                            `;
-                        });
-                    }
-                    tableBody.innerHTML = html;
-                })
-                .catch(err => {
-                    console.error(err);
-                    tableBody.innerHTML = '<tr><td colspan="4" class="text-danger py-3"><i class="bi bi-exclamation-triangle"></i> 정보를 불러오지 못했습니다.</td></tr>';
-                });
-        });
-    });
 });
+
+// 2. [AJAX] 상세 모달 데이터 로드
+function showDetail(profileId) {
+    const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+    modal.show();
+
+    // 초기화
+    document.getElementById('modalName').innerText = "로딩 중...";
+    document.getElementById('scoreTableBody').innerHTML = '<tr><td colspan="4" class="py-3 text-muted">데이터를 불러오는 중...</td></tr>';
+    document.getElementById('tagStatsBody').innerHTML = '';
+    document.getElementById('evalContent').innerHTML = '';
+
+    fetch(`/quiz/pl-dashboard/detail/${profileId}/`)
+        .then(response => response.json())
+        .then(data => {
+            if(data.error) { alert(data.error); return; }
+
+            // (1) 헤더 정보
+            document.getElementById('modalName').innerText = data.name;
+            const statusBadge = document.getElementById('modalStatus');
+            statusBadge.innerText = data.status;
+            statusBadge.className = 'badge fs-6 ' + (data.status.includes('재직') ? 'bg-success' : 'bg-secondary');
+
+            // (2) 성적 테이블
+            let scoreHtml = "";
+            if (data.exam_data.length === 0) {
+                scoreHtml = '<tr><td colspan="4" class="text-muted py-3">응시 기록이 없습니다.</td></tr>';
+            } else {
+                data.exam_data.forEach(exam => {
+                    const color = (s) => (s >= 80 ? 'text-success fw-bold' : (s === '-' ? 'text-muted' : 'text-danger fw-bold'));
+                    scoreHtml += `
+                        <tr>
+                            <td class="text-start ps-3 fw-bold">${exam.quiz_title}</td>
+                            <td class="${color(exam.scores[0])}">${exam.scores[0]}</td>
+                            <td class="${color(exam.scores[1])}">${exam.scores[1]}</td>
+                            <td class="${color(exam.scores[2])}">${exam.scores[2]}</td>
+                        </tr>`;
+                });
+            }
+            document.getElementById('scoreTableBody').innerHTML = scoreHtml;
+
+            // (3) 태그 분석 (강/약점)
+            let tagHtml = "";
+            if (data.tag_stats && data.tag_stats.length > 0) {
+                data.tag_stats.forEach(tag => {
+                    let color = tag.rate >= 80 ? 'success' : (tag.rate >= 60 ? 'warning' : 'danger');
+                    tagHtml += `
+                        <div class="mb-3">
+                            <div class="d-flex justify-content-between small mb-1">
+                                <span class="fw-bold">${tag.tag}</span>
+                                <span>${tag.rate}% (${tag.correct}/${tag.total})</span>
+                            </div>
+                            <div class="progress" style="height: 8px;">
+                                <div class="progress-bar bg-${color}" role="progressbar" style="width: ${tag.rate}%"></div>
+                            </div>
+                        </div>`;
+                });
+            } else {
+                tagHtml = "<div class='text-center text-muted py-4'>분석할 데이터가 부족합니다.</div>";
+            }
+            document.getElementById('tagStatsBody').innerHTML = tagHtml;
+
+            // (4) 종합 평가
+            let evalHtml = "";
+            if (data.evaluation && data.evaluation.comment) {
+                if (data.evaluation.scores) {
+                    evalHtml += `
+                        <div class="alert alert-light border d-flex justify-content-around py-2 mb-3 small">
+                            <span>최종점수: <strong>${data.evaluation.scores.final}점</strong></span>
+                            <span>석차: <strong>${data.evaluation.scores.rank}등</strong></span>
+                        </div>`;
+                }
+                evalHtml += `
+                    <div class="card mb-3 bg-light border-0">
+                        <div class="card-body small">
+                            <strong class="text-primary"><i class="bi bi-chat-quote-fill"></i> 매니저 의견:</strong><br>
+                            ${data.evaluation.comment.replace(/\n/g, '<br>')}
+                        </div>
+                    </div>`;
+                
+                if (data.evaluation.checklist && data.evaluation.checklist.length > 0) {
+                    evalHtml += `<h6 class="fw-bold small border-bottom pb-2 mb-2">✅ 체크리스트 평가</h6><ul class="list-unstyled small ps-2">`;
+                    data.evaluation.checklist.forEach(item => {
+                        let icon = item.is_positive ? "🟢" : "🔴";
+                        evalHtml += `<li class="mb-1">${icon} ${item.desc}</li>`;
+                    });
+                    evalHtml += `</ul>`;
+                }
+            } else {
+                evalHtml = "<div class='text-center text-muted py-4'>작성된 최종 평가서가 없습니다.</div>";
+            }
+            document.getElementById('evalContent').innerHTML = evalHtml;
+
+        })
+        .catch(err => {
+            console.error(err);
+            alert("데이터를 불러오는 중 오류가 발생했습니다.");
+        });
+}
 </script>
 {% endblock %}
