@@ -83,4 +83,7 @@ urlpatterns = [
     # (구버전 호환)
     path('quiz/dashboard/', views.dashboard, name='dashboard'),
     path('pl-dashboard/', views.pl_dashboard, name='pl_dashboard'),
+    path('my-page/log/create/', views.student_create_counseling_log, name='student_create_counseling_log'),
+    path('manager/log/create/<int:profile_id>/', views.manager_create_counseling_log, name='manager_create_counseling_log'),
+    path('export/student-data/', views.export_student_data, name='export_student_data'),
 ]

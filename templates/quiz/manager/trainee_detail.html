@@ -95,35 +95,45 @@
                             <div class="bg-white rounded border p-3">
                                 <h5 class="fw-bold mb-3">시험 응시 이력</h5>
                                 <div class="table-responsive">
-                                    <table class="table table-hover align-middle mb-0">
+                                    <table class="table table-hover align-middle">
                                         <thead class="table-light">
                                             <tr>
                                                 <th>시험명</th>
-                                                <th class="text-center">점수</th>
-                                                <th class="text-center">결과</th>
-                                                <th class="text-end">응시일</th>
+                                                <th>점수</th>
+                                                <th>결과</th>
+                                                <th>면담/조치</th> <th>응시일</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {% for r in results %}
                                             <tr>
-                                                <td class="fw-bold">{{ r.quiz.title }}</td>
-                                                <td class="text-center">
-                                                    <span class="fw-bold fs-5 {% if r.score >= 80 %}text-success{% else %}text-danger{% endif %}">
-                                                        {{ r.score }}
-                                                    </span>
+                                                <td>{{ r.quiz.title }}</td>
+                                                <td class="fw-bold {% if r.score >= 80 %}text-success{% else %}text-danger{% endif %}">
+                                                    {{ r.score }}점
                                                 </td>
-                                                <td class="text-center">
-                                                    {% if r.is_pass %}
-                                                        <span class="badge bg-success-subtle text-success border border-success">합격</span>
+                                                <td>
+                                                    {% if r.is_pass %}<span class="badge bg-success">합격</span>
+                                                    {% else %}<span class="badge bg-danger">불합격</span>{% endif %}
+                                                </td>
+                                                
+                                                <td>
+                                                    {% if not r.is_pass %}
+                                                        <button class="btn btn-sm btn-outline-danger open-manager-modal"
+                                                                data-id="{{ profile.id }}"
+                                                                data-title="{{ r.quiz.title }}"
+                                                                data-score="{{ r.score }}"
+                                                                data-bs-toggle="modal" data-bs-target="#managerCounselModal">
+                                                            <i class="bi bi-chat-text"></i> 면담 기록
+                                                        </button>
                                                     {% else %}
-                                                        <span class="badge bg-danger-subtle text-danger border border-danger">불합격</span>
+                                                        <span class="text-muted">-</span>
                                                     {% endif %}
                                                 </td>
-                                                <td class="text-end text-muted small">{{ r.completed_at|date:"Y-m-d H:i" }}</td>
+
+                                                <td class="text-muted small">{{ r.completed_at|date:"Y-m-d" }}</td>
                                             </tr>
                                             {% empty %}
-                                            <tr><td colspan="4" class="text-center py-5 text-muted">응시 기록이 없습니다.</td></tr>
+                                            <tr><td colspan="5" class="text-center text-muted">응시 기록이 없습니다.</td></tr>
                                             {% endfor %}
                                         </tbody>
                                     </table>
@@ -195,4 +205,94 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="managerCounselModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+                <h5 class="modal-title"><i class="bi bi-pencil-square"></i> 면담 기록 (간편)</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="managerCounselForm">
+                    <input type="hidden" id="targetProfileId">
+                    
+                    <div class="alert alert-light border mb-3">
+                        <strong>시험:</strong> <span id="mgrModalTitle" class="text-primary"></span> / 
+                        <strong>점수:</strong> <span id="mgrModalScore" class="text-danger fw-bold"></span>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">면담 내용</label>
+                        <textarea id="mgrContent" class="form-control" rows="3" required placeholder="면담 내용 입력"></textarea>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">조치 의견</label>
+                        <input type="text" id="mgrOpinion" class="form-control" placeholder="예: 시험문제 설명 후 교육생 이해 완료 재시험 기회 부여">
+                    </div>
+
+                    <div class="form-check p-3 bg-light border rounded mb-3">
+                        <input class="form-check-input" type="checkbox" id="mgrIsPassed" name="is_passed">
+                        <label class="form-check-label fw-bold text-danger" for="mgrIsPassed">
+                            🔓 조치 완료 및 잠금 해제 (재직 상태로 변경)
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100">저장하기</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. 모달 열릴 때 데이터 세팅
+    const btns = document.querySelectorAll('.open-manager-modal');
+    btns.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const pid = this.getAttribute('data-id');
+            const title = this.getAttribute('data-title');
+            const score = this.getAttribute('data-score');
+            
+            document.getElementById('targetProfileId').value = pid;
+            document.getElementById('mgrModalTitle').innerText = title;
+            document.getElementById('mgrModalScore').innerText = score + "점";
+            
+            // 내용 자동 완성 (편의성)
+            document.getElementById('mgrContent').value = `[시험 불합격 면담]\n- 과목: ${title}\n- 점수: ${score}점\n\n`;
+        });
+    });
+
+    // 2. 폼 제출 (AJAX)
+    document.getElementById('managerCounselForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const pid = document.getElementById('targetProfileId').value;
+        const content = document.getElementById('mgrContent').value;
+        const opinion = document.getElementById('mgrOpinion').value;
+        const isPassed = document.getElementById('mgrIsPassed').checked ? 'on' : '';
+
+        const formData = new FormData();
+        formData.append('content', content);
+        formData.append('opinion', opinion);
+        formData.append('is_passed', isPassed);
+
+        fetch(`/quiz/manager/log/create/${pid}/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === 'success') {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert("오류: " + data.message);
+            }
+        });
+    });
+});
+</script>
 {% endblock %}

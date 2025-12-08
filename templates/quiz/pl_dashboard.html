@@ -176,7 +176,7 @@
                                     onclick="showDetail({{ item.profile.id }})">
                                 <i class="bi bi-search"></i> 상세
                             </button>
-                            </td>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -248,7 +248,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function() {
-    // 1. 차트 초기화 (기존 코드 유지)
+    // 1. 차트 초기화
     const radarCtx = document.getElementById('radarChart');
     if(radarCtx) {
         new Chart(radarCtx.getContext('2d'), {
@@ -287,7 +287,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 });
 
-// 2. [AJAX] 상세 모달 데이터 로드
+// 2. [AJAX] 상세 모달 데이터 로드 (수정됨)
 function showDetail(profileId) {
     const modal = new bootstrap.Modal(document.getElementById('detailModal'));
     modal.show();
@@ -298,21 +298,21 @@ function showDetail(profileId) {
     document.getElementById('tagStatsBody').innerHTML = '';
     document.getElementById('evalContent').innerHTML = '';
 
-    fetch(`/quiz/pl-dashboard/detail/${profileId}/`)
+    // fetch URL 수정 (따옴표 제거)
+    fetch("/quiz/pl-dashboard/detail/" + profileId + "/")
         .then(response => response.json())
         .then(data => {
             if(data.error) { alert(data.error); return; }
 
-            // (1) 헤더 정보
             document.getElementById('modalName').innerText = data.name;
             const statusBadge = document.getElementById('modalStatus');
             statusBadge.innerText = data.status;
             statusBadge.className = 'badge fs-6 ' + (data.status.includes('재직') ? 'bg-success' : 'bg-secondary');
 
-            // (2) 성적 테이블
+            // 성적 테이블
             let scoreHtml = "";
             if (data.exam_data.length === 0) {
-                scoreHtml = '<tr><td colspan="4" class="text-muted py-3">응시 기록이 없습니다.</td></tr>';
+                scoreHtml = '<tr><td colspan="4" class="text-muted py-3">아직 응시한 시험이 없습니다.</td></tr>';
             } else {
                 data.exam_data.forEach(exam => {
                     const color = (s) => (s >= 80 ? 'text-success fw-bold' : (s === '-' ? 'text-muted' : 'text-danger fw-bold'));
@@ -327,7 +327,7 @@ function showDetail(profileId) {
             }
             document.getElementById('scoreTableBody').innerHTML = scoreHtml;
 
-            // (3) 태그 분석 (강/약점)
+            // 태그 분석
             let tagHtml = "";
             if (data.tag_stats && data.tag_stats.length > 0) {
                 data.tag_stats.forEach(tag => {
@@ -348,7 +348,7 @@ function showDetail(profileId) {
             }
             document.getElementById('tagStatsBody').innerHTML = tagHtml;
 
-            // (4) 종합 평가
+            // 종합 평가
             let evalHtml = "";
             if (data.evaluation && data.evaluation.comment) {
                 if (data.evaluation.scores) {
@@ -378,7 +378,6 @@ function showDetail(profileId) {
                 evalHtml = "<div class='text-center text-muted py-4'>작성된 최종 평가서가 없습니다.</div>";
             }
             document.getElementById('evalContent').innerHTML = evalHtml;
-
         })
         .catch(err => {
             console.error(err);

@@ -130,8 +130,9 @@ def schedule_index(request):
 
     user = request.user
     
-    # 1. 기본 대상: 재직 중인 사람
-    profiles = Profile.objects.select_related('cohort', 'process').filter(status='attending').exclude(name__isnull=True).exclude(name='')
+    # [핵심 수정 1] 여기서 status='attending'을 빼야 관리자가 살아남습니다.
+    # 일단 이름이 있는 모든 프로필을 가져옵니다.
+    profiles = Profile.objects.select_related('cohort', 'process').exclude(name__isnull=True).exclude(name='')
 
     # 2. 관리자/매니저 권한 확인
     is_manager_or_admin = user.is_superuser or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))
@@ -142,59 +143,70 @@ def schedule_index(request):
     sel_process = request.GET.get('process', '')
 
     if is_manager_or_admin:
-        # --- 관리자/매니저 뷰 ---
+        # --- 관리자/매니저 모드 ---
         if sel_role == 'manager':
-            # [수정됨] 매니저 OR PL OR 슈퍼유저(관리자) 모두 포함
-            profiles = profiles.filter(Q(is_manager=True) | Q(is_pl=True) | Q(user__is_superuser=True))
+            # [매니저 보기 선택 시]
+            # status와 상관없이 권한이 있는 사람들을 모두 가져옴
+            profiles = profiles.filter(
+                Q(is_manager=True) | 
+                Q(is_pl=True) | 
+                Q(user__is_superuser=True) | 
+                Q(user__is_staff=True)
+            )
         else:
-            # 교육생만 보기 (관리자 등 제외)
-            profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False)
+            # [교육생 보기 선택 시] (기본값)
+            # [핵심 수정 2] 교육생을 볼 때만 '재직 중(attending)' 필터를 겁니다.
+            profiles = profiles.filter(
+                status='attending',  # <-- 교육생은 재직 중이어야 함
+                is_manager=False, 
+                is_pl=False, 
+                user__is_superuser=False, 
+                user__is_staff=False
+            )
 
         if sel_cohort: profiles = profiles.filter(cohort_id=sel_cohort)
         if sel_process: profiles = profiles.filter(process_id=sel_process)
         
     else:
-        # --- 교육생 뷰 ---
+        # --- 일반 교육생 모드 (본인만 보기) ---
         sel_role = 'student'
-        # 관리자/매니저 제외
-        profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False)
-        
+        # 본인은 재직 상태여야 볼 수 있게 할지, 퇴소자도 볼 수 있게 할지 정책에 따름
+        # 보통 본인 건 보여주므로 status 필터는 상황에 따라 뺌 (여기선 일단 본인이면 다 보여줌)
         if hasattr(user, 'profile'):
-            if user.profile.cohort: profiles = profiles.filter(cohort=user.profile.cohort)
-            if user.profile.process: profiles = profiles.filter(process=user.profile.process)
-            if not user.profile.cohort and not user.profile.process:
-                profiles = profiles.filter(user=user)
+            profiles = profiles.filter(user=user)
         else:
             profiles = profiles.none()
 
     profiles = profiles.order_by('name')
 
-    # [연차 및 스케줄 계산 로직 - 기존과 동일]
+    # [연차 및 스케줄 계산 로직 - 이하 동일]
     TOTAL_ANNUAL_LEAVE = 15 
     current_year_start = date(year, 1, 1)
     current_year_end = date(year, 12, 31)
 
     leave_usage_map = {}
-    usage_data = DailySchedule.objects.filter(
-        profile__in=profiles,
-        date__range=(current_year_start, current_year_end)
-    ).values('profile').annotate(used_total=Sum('work_type__deduction'))
+    if profiles.exists(): # 프로필이 있을 때만 쿼리
+        usage_data = DailySchedule.objects.filter(
+            profile__in=profiles,
+            date__range=(current_year_start, current_year_end)
+        ).values('profile').annotate(used_total=Sum('work_type__deduction'))
 
-    for item in usage_data:
-        leave_usage_map[item['profile']] = item['used_total'] or 0
-
+        for item in usage_data:
+            leave_usage_map[item['profile']] = item['used_total'] or 0
+    
     schedule_map = {}
     start_date = date(year, month, 1)
     end_date = date(year, month, num_days)
     
-    schedules = DailySchedule.objects.filter(
-        profile__in=profiles, date__range=(start_date, end_date)
-    ).select_related('work_type')
-
     db_data = {}
-    for s in schedules:
-        if s.profile_id not in db_data: db_data[s.profile_id] = {}
-        db_data[s.profile_id][s.date.strftime('%Y-%m-%d')] = s.work_type
+    if profiles.exists():
+        schedules = DailySchedule.objects.filter(
+            profile__in=profiles, date__range=(start_date, end_date)
+        ).select_related('work_type')
+
+        for s in schedules:
+            if s.profile_id not in db_data: db_data[s.profile_id] = {}
+            db_data[s.profile_id][s.date.strftime('%Y-%m-%d')] = s.work_type
 
     for p in profiles:
         used = leave_usage_map.get(p.id, 0)

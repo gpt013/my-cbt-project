@@ -60,63 +60,88 @@ def is_process_manager(user, target_profile):
 @login_required
 def my_page(request):
     user = request.user
-    
-    # 1. 프로필 가져오기
-    # (Signal이 있어서 보통 user.profile로 접근 가능하지만, 안전하게 get_or_create 사용)
     profile, created = Profile.objects.get_or_create(user=user)
 
-    # 2. 진행 중인 시험 (대기/승인)
+    # 1. 진행 중인 시험
     pending_attempts = QuizAttempt.objects.filter(
         user=user, 
         status__in=['대기중', '승인됨']
     )
 
-    # 3. [핵심 수정] 최근 시험 결과 + 면담 상태 확인 로직
-    # (최신순 3개만 가져와서 가공합니다)
-    raw_results = TestResult.objects.filter(user=user).select_related('quiz').order_by('-completed_at')[:3]
+    # 2. [핵심] 시험 결과 + 면담 상태 데이터 가공
+    # (단순 test_results가 아니라, 상태를 포함한 enhanced_results를 만듭니다)
+    raw_results = TestResult.objects.filter(user=user).select_related('quiz').order_by('-completed_at')[:5] # 최근 5개
     enhanced_results = []
 
     for result in raw_results:
         counseling_status = None
         
-        # 불합격(80점 미만)인 경우 면담 상태 체크
+        # 80점 미만(불합격)인 경우에만 면담 로직 체크
         if not result.is_pass:
-            # StudentLog에서 해당 시험 제목이 포함된 '면담' 기록이 있는지 확인
-            # (예: "[반도체 공정] 시험 불합격..." 같은 내용이 있는지)
-            has_counseling_log = StudentLog.objects.filter(
+            # 이미 면담/특이사항 기록이 있는지 확인 (로그 내용에 시험 제목이 있는지로 판단)
+            exists_log = StudentLog.objects.filter(
                 profile=profile,
                 log_type='counseling',
                 reason__contains=result.quiz.title 
             ).exists()
 
-            if has_counseling_log:
+            if exists_log:
                 counseling_status = '완료'
             else:
-                counseling_status = '예정'
+                counseling_status = '예정' # 버튼이 떠야 함
         
-        # 결과 객체와 상태를 묶어서 리스트에 추가
         enhanced_results.append({
             'result': result,
             'counseling_status': counseling_status
         })
 
-    # 4. 뱃지 및 평가 피드백
+    # 3. 배지 & 최근 피드백
     latest_badges = profile.badges.all().order_by('-id')[:3]
-    
-    # 평가 피드백 (경고, 칭찬, 면담 기록만 표시)
     latest_evaluations = StudentLog.objects.filter(
-        profile=profile,
-        log_type__in=['warning', 'compliment', 'counseling']
+        profile=profile
     ).order_by('-created_at')[:3]
     
     context = {
         'profile': profile,
         'pending_attempts': pending_attempts,
-        'enhanced_results': enhanced_results, # [중요] 템플릿에서 이 이름으로 씁니다
+        'enhanced_results': enhanced_results, # [중요] 템플릿에서 이걸 씁니다!
         'latest_badges': latest_badges,
         'latest_evaluations': latest_evaluations,
     }
     return render(request, 'quiz/my_page.html', context)
+
+
+# [신규] 학생이 모달에서 면담 요청/사유를 작성하면 저장하는 함수
+@login_required
+@require_POST
+def student_create_counseling_log(request):
+    """
+    교육생이 버튼을 눌렀을 때, 자동으로 면담 요청 로그를 생성하는 함수
+    """
+    try:
+        # 폼에서 hidden으로 넘어온 시험 제목과 점수
+        quiz_title = request.POST.get('quiz_title', '알 수 없는 시험')
+        score = request.POST.get('score', '0')
+
+        # [자동 완성된 사유]
+        auto_reason = f"[면담 요청] '{quiz_title}' 시험 불합격 ({score}점)\n- 교육생이 재시험을 위한 면담을 요청했습니다."
+
+        # 중복 요청 방지 (선택사항: 오늘 이미 같은 요청을 했으면 막기)
+        # 여기서는 쿨하게 그냥 저장
+
+        StudentLog.objects.create(
+            profile=request.user.profile,
+            recorder=request.user,
+            log_type='counseling',
+            reason=auto_reason,
+            is_resolved=False # 미해결 상태로 시작
+        )
+        messages.success(request, f"'{quiz_title}' 관련 면담 요청이 매니저에게 전송되었습니다.")
+        
+    except Exception as e:
+        messages.error(request, f"요청 처리 중 오류가 발생했습니다: {e}")
+    
+    return redirect('quiz:my_page')
 
 @login_required
 def index(request):
@@ -2717,3 +2742,47 @@ def award_badges(user, test_result):
          if all_badges.get(badge_name):
             user_profile.badges.add(all_badges[badge_name])
             user_badge_names.add(badge_name)
+
+
+@login_required
+@require_POST
+def manager_create_counseling_log(request, profile_id):
+    """
+    매니저가 시험 결과표에서 [면담] 버튼을 눌러 바로 기록을 남길 때 사용하는 함수
+    """
+    if not request.user.is_staff:
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+
+    try:
+        profile = get_object_or_404(Profile, pk=profile_id)
+        
+        # 폼 데이터 받기
+        content = request.POST.get('content')
+        opinion = request.POST.get('opinion')
+        is_passed = request.POST.get('is_passed') == 'on' # 체크박스 (잠금 해제용)
+
+        if not content:
+            return JsonResponse({'status': 'error', 'message': '면담 내용을 입력해주세요.'}, status=400)
+
+        # 로그 저장 (StudentLog 사용)
+        log = StudentLog.objects.create(
+            profile=profile,
+            recorder=request.user,
+            log_type='counseling',
+            reason=content, # 면담 내용
+            action_taken=opinion, # 조치 의견
+            is_resolved=is_passed # 조치 완료 여부
+        )
+
+        # 잠금 해제 로직 (체크 시)
+        if is_passed and profile.status == 'counseling':
+            profile.status = 'attending'
+            profile.save()
+            msg = "면담 기록 저장 및 잠금 해제 완료"
+        else:
+            msg = "면담 기록이 저장되었습니다."
+
+        return JsonResponse({'status': 'success', 'message': msg})
+
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

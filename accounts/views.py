@@ -17,6 +17,9 @@ from django.db.models import Sum, Count, Q
 # [Helper] 이메일 발송 내부 함수
 # ---------------------------------------------------
 def _send_verification_email(request, user):
+    """
+    이메일 발송 성공 시 True, 실패 시 False를 반환하도록 수정됨
+    """
     verification_code = str(random.randint(100000, 999999))
     
     # 기존 코드 삭제 후 생성
@@ -31,9 +34,11 @@ def _send_verification_email(request, user):
         # 세션에 정보 저장
         request.session['signup_email'] = user.email
         request.session['signup_user_id'] = user.id
+        return True # [수정] 성공 시 True 반환
     except Exception as e:
         print(f"이메일 발송 실패: {e}")
         messages.error(request, "메일 발송 중 오류가 발생했습니다. 이메일 주소를 확인해주세요.")
+        return False # [수정] 실패 시 False 반환
 
 # ---------------------------------------------------
 # 1. 회원가입 (OTP 발송)
@@ -43,22 +48,43 @@ def signup(request):
         return redirect('quiz:my_page')
 
     if request.method == 'POST':
+        # [핵심] 폼 검증 전에 먼저 이메일 상태를 확인합니다.
+        email = request.POST.get('email')
+        existing_user = User.objects.filter(email=email).first()
+
+        if existing_user:
+            # 1. 이미 가입했고, 인증까지 마친 활동 중인 유저라면 -> 에러 표시
+            if existing_user.is_active:
+                messages.error(request, "이미 가입이 완료된 이메일입니다. 로그인해주세요.")
+                return redirect('accounts:login')
+            
+            # 2. 가입은 시도했으나(DB에 있음), 아직 인증을 안 한(is_active=False) 유저라면 -> 재전송 & 인증페이지 이동
+            else:
+                # 인증 코드를 다시 보내주는 것이 UX상 좋습니다.
+                if _send_verification_email(request, existing_user):
+                    messages.info(request, "이전에 인증을 완료하지 않은 계정입니다. 인증 코드를 재발송했습니다.")
+                    return redirect('accounts:verify_email')
+                else:
+                    # 재전송 실패 시
+                    return redirect('accounts:signup')
+
+        # 3. 아예 새로운 유저라면 -> 신규 가입 절차 진행
         form = CustomUserCreationForm(request.POST)
         if form.is_valid():
-            # 이메일 중복 체크 (이미 가입된 유저인지)
-            email = form.cleaned_data.get('email')
-            if User.objects.filter(email=email).exists():
-                messages.error(request, "이미 가입된 이메일입니다.")
-                return render(request, 'accounts/signup.html', {'form': form})
-
             user = form.save(commit=False)
-            user.is_active = False # 인증 전 비활성화
+            user.is_active = False # 인증 전까지 비활성화
             user.save()
 
-            # 인증 코드 발송 로직
-            _send_verification_email(request, user)
+            # [수정] 인증 코드 발송 및 실패 시 롤백 로직 추가
+            if _send_verification_email(request, user):
+                # 성공 시 인증 페이지로 이동
+                return redirect('accounts:verify_email')
+            else:
+                # 실패 시 방금 생성한 유저 삭제 (롤백)
+                user.delete()
+                messages.error(request, "이메일 전송에 실패하여 가입이 취소되었습니다. 다시 시도해주세요.")
+                return redirect('accounts:signup')
             
-            return redirect('accounts:verify_email')
     else:
         form = CustomUserCreationForm()
     
@@ -129,8 +155,11 @@ def resend_code(request):
         
     try:
         user = User.objects.get(pk=user_id)
-        _send_verification_email(request, user)
-        messages.success(request, "인증 코드가 재발송되었습니다. 메일함을 확인해주세요.")
+        if _send_verification_email(request, user):
+            messages.success(request, "인증 코드가 재발송되었습니다. 메일함을 확인해주세요.")
+        else:
+            # send 함수 내부에서 이미 에러 메시지를 띄우므로 여기서는 리다이렉트만
+            pass
     except User.DoesNotExist:
         messages.error(request, "사용자를 찾을 수 없습니다.")
         

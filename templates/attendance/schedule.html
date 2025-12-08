@@ -13,6 +13,7 @@
         transition: border-color 0.3s;
         background: #fff;
     }
+    
     .schedule-table-container.edit-mode-active {
         border: 2px solid #0d6efd;
         box-shadow: 0 0 15px rgba(13, 110, 253, 0.15);
@@ -29,11 +30,13 @@
         font-size: 0.85em; 
     }
 
-    /* 3. Sticky Header */
+    /* 3. Sticky Header (상단 고정) */
     .schedule-table thead th { 
         position: sticky; top: 0; background-color: #f8f9fa; z-index: 10; 
         border-bottom: 2px solid #dee2e6;
     }
+
+    /* 4. Sticky Column (왼쪽 이름 고정) */
     .schedule-table tbody th { 
         position: sticky; left: 0; background-color: #fff; z-index: 5; 
         border-right: 2px solid #dee2e6; min-width: 100px;
@@ -42,14 +45,14 @@
         left: 0; z-index: 20; background-color: #e9ecef; border-right: 2px solid #dee2e6;
     }
 
-    /* 4. 날짜 스타일 */
+    /* 5. 날짜 스타일 */
     .today-col { background-color: #fff3cd !important; border-left: 2px solid #ffc107 !important; border-right: 2px solid #ffc107 !important; font-weight: bold; }
     .holiday-col { color: #dc3545; background-color: #fff0f0; } 
     .sat-col { color: #0d6efd; background-color: #f0f8ff; }
 
-    /* 5. 근무 버튼 스타일 (2줄 정렬) */
+    /* 6. 근무 버튼 스타일 */
     .type-btn { 
-        width: 44px; height: 44px; 
+        width: 42px; height: 42px; 
         border-radius: 6px; 
         border: 1px solid #ced4da; 
         cursor: not-allowed; opacity: 0.6;
@@ -74,7 +77,7 @@
     .edit-mode-active .type-btn:hover { transform: translateY(-2px); border-color: #0d6efd; }
     .edit-mode-active .type-btn.active { border: 2px solid #212529; transform: scale(1.1); box-shadow: 0 4px 8px rgba(0,0,0,0.2); z-index: 2; }
 
-    /* 6. 셀 편집 스타일 */
+    /* 7. 셀 편집 스타일 */
     .cell-editable { cursor: default; }
     .schedule-table-container.edit-mode-active .cell-editable { cursor: pointer; }
     .schedule-table-container.edit-mode-active .cell-editable:hover { opacity: 0.8; outline: 2px solid #0d6efd; outline-offset: -2px; }
@@ -86,7 +89,7 @@
         font-size: 0.8em;
     }
 
-    /* 7. 컨트롤 박스 */
+    /* 8. 컨트롤 박스 */
     .control-box { background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 10px 15px; margin-bottom: 20px; }
 </style>
 
@@ -126,15 +129,8 @@
             {% endif %}
             
             <div class="btn-group shadow-sm">
-                <a href="?year={{ prev_month|slice:':4' }}&month={{ prev_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}" 
-                   class="btn btn-light border fw-bold btn-sm">
-                   ◀
-                </a>
-                
-                <a href="?year={{ next_month|slice:':4' }}&month={{ next_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}" 
-                   class="btn btn-light border fw-bold btn-sm">
-                   ▶
-                </a>
+                <a href="?year={{ prev_month|slice:':4' }}&month={{ prev_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}" class="btn btn-light border fw-bold btn-sm">◀</a>
+                <a href="?year={{ next_month|slice:':4' }}&month={{ next_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}" class="btn btn-light border fw-bold btn-sm">▶</a>
             </div>
         </div>
     </div>
@@ -297,7 +293,6 @@
         location.reload();
     }
 
-    // [핵심 로직] 사유 입력 로직 포함
     async function finishEditMode() {
         if (pendingChanges.length === 0) { cancelEditMode(); return; }
         if(!confirm(`총 ${pendingChanges.length}건을 저장하시겠습니까?`)) return;
@@ -305,8 +300,11 @@
         try {
             for (let i = 0; i < pendingChanges.length; i++) {
                 let change = pendingChanges[i];
+                
                 let response = await fetch("{% url 'attendance:update_schedule' %}", {
-                    method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'}, body: JSON.stringify(change)
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+                    body: JSON.stringify(change)
                 });
                 let data = await response.json();
                 
@@ -315,22 +313,21 @@
                     if (userReason) {
                         change.reason = userReason;
                         await fetch("{% url 'attendance:update_schedule' %}", {
-                            method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'}, body: JSON.stringify(change)
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+                            body: JSON.stringify(change)
                         });
                     }
                 } else if (data.status === 'error') {
-                    // 에러 발생 시 즉시 중단하고 알림
                     alert(`저장 실패: ${data.message}`);
                     return; 
                 }
             }
-            // [중요] 모든 처리가 끝난 후 알림창을 띄우고, 확인 누르면 새로고침
-            alert("저장이 완료되었습니다."); 
+            alert("저장 작업이 완료되었습니다.");
             location.reload();
-
-        } catch (error) { 
+        } catch (error) {
             console.error(error);
-            alert("저장 중 통신 오류가 발생했습니다."); 
+            alert("저장 중 통신 오류가 발생했습니다.");
         }
     }
 
