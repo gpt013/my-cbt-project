@@ -8,22 +8,31 @@
 {% endblock %}
 
 {% block userlinks %}
-    <a href="/quiz/mypage/">{% trans 'View site' %}</a> /
+    <a href="{% url 'quiz:my_page' %}">{% trans 'View site' %}</a> /
 
     {% if user.has_usable_password %}
         <a href="{% url 'admin:password_change' %}">{% trans 'Change password' %}</a> /
     {% endif %}
-    
     <a href="{% url 'admin:logout' %}">{% trans 'Log out' %}</a>
 
-    | <a href="{% url 'quiz:dashboard' %}">통계 대시보드</a>
+    {% if user.is_staff %}
+        | <a href="{% url 'quiz:manager_dashboard' %}" style="color: #ffc107; font-weight: bold; text-decoration: none;">
+            🔙 매니저 센터
+          </a>
+    {% endif %}
+
+    | <a href="{% url 'quiz:dashboard' %}">전체 통계</a>
+
     | <a href="{% url 'quiz:upload_quiz' %}">문제 대량 업로드</a>
 
     {% if user.is_superuser %}
-        | <a href="{% url 'quiz:export_student_data' %}">교육생 데이터 다운로드</a>
+        | <a href="{% url 'quiz:export_student_data' %}?process_id=ALL" style="font-weight: bold;">
+            📥 전체 데이터 다운로드
+          </a>
     {% endif %}
 
     {% if user.is_authenticated and user.is_staff %}
-        | <a href="{% url 'quiz:pl_dashboard' %}" style="font-weight: bold; color: #f5dd5d;">PL 대시보드</a>
+        | <a href="{% url 'quiz:pl_dashboard' %}" style="color: #adff2f;">PL 대시보드</a>
     {% endif %}
-    {% endblock %}
+
+{% endblock %}

@@ -119,35 +119,46 @@ def schedule_index(request):
     for day in range(1, num_days + 1):
         d = date(year, month, day)
         days_in_month.append({
-            'day': day, 'date_str': d.strftime('%Y-%m-%d'), 'weekday': weekday_map[d.weekday()],
-            'is_weekend': d.weekday() >= 5, 'is_holiday': d in kr_holidays,
-            'holiday_name': kr_holidays.get(d, ''), 'is_today': d == today
+            'day': day, 
+            'date_str': d.strftime('%Y-%m-%d'),
+            'weekday': weekday_map[d.weekday()],
+            'is_weekend': d.weekday() >= 5,
+            'is_holiday': d in kr_holidays,
+            'holiday_name': kr_holidays.get(d, ''),
+            'is_today': d == today
         })
 
     user = request.user
-    # 기본: 재직 중, 이름 있음
+    
+    # 1. 기본 대상: 재직 중인 사람
     profiles = Profile.objects.select_related('cohort', 'process').filter(status='attending').exclude(name__isnull=True).exclude(name='')
 
+    # 2. 관리자/매니저 권한 확인
     is_manager_or_admin = user.is_superuser or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))
 
-    # 필터 값
+    # 필터 값 가져오기
     sel_role = request.GET.get('role', 'student')
     sel_cohort = request.GET.get('cohort', '')
     sel_process = request.GET.get('process', '')
 
     if is_manager_or_admin:
+        # --- 관리자/매니저 뷰 ---
         if sel_role == 'manager':
-            # [수정] 관리자(Superuser)도 매니저 리스트에 포함
+            # [수정됨] 매니저 OR PL OR 슈퍼유저(관리자) 모두 포함
             profiles = profiles.filter(Q(is_manager=True) | Q(is_pl=True) | Q(user__is_superuser=True))
         else:
+            # 교육생만 보기 (관리자 등 제외)
             profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False)
 
         if sel_cohort: profiles = profiles.filter(cohort_id=sel_cohort)
         if sel_process: profiles = profiles.filter(process_id=sel_process)
+        
     else:
-        # 교육생
+        # --- 교육생 뷰 ---
         sel_role = 'student'
-        profiles = profiles.filter(is_manager=False, is_pl=False)
+        # 관리자/매니저 제외
+        profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False)
+        
         if hasattr(user, 'profile'):
             if user.profile.cohort: profiles = profiles.filter(cohort=user.profile.cohort)
             if user.profile.process: profiles = profiles.filter(process=user.profile.process)
@@ -158,6 +169,7 @@ def schedule_index(request):
 
     profiles = profiles.order_by('name')
 
+    # [연차 및 스케줄 계산 로직 - 기존과 동일]
     TOTAL_ANNUAL_LEAVE = 15 
     current_year_start = date(year, 1, 1)
     current_year_end = date(year, 12, 31)
@@ -201,11 +213,9 @@ def schedule_index(request):
         
         for day_info in days_in_month:
             d_str = day_info['date_str']
-            
             if d_str in user_schedules:
                 wt = user_schedules[d_str]
                 row_data['daily_data'][d_str] = wt
-                
                 if wt.deduction == 1.0: row_data['stats']['leave'] += 1
                 elif 0 < wt.deduction < 1.0: row_data['stats']['half'] += 1
                 elif wt.is_working_day and wt.deduction == 0: row_data['stats']['work'] += 1

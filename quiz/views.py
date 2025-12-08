@@ -28,7 +28,7 @@ from .utils import calculate_tag_stats
 # accounts 앱의 모델들
 from accounts.models import (
     Profile, Badge, EvaluationRecord, EvaluationCategory, 
-    ManagerEvaluation, Cohort, Company, Process, ProcessAccessRequest, FinalAssessment, PartLeader, StudentLog
+    ManagerEvaluation, Cohort, Company, Process, ProcessAccessRequest, FinalAssessment, PartLeader,Profile, StudentLog
 )
 
 # quiz 앱의 모델들
@@ -61,23 +61,58 @@ def is_process_manager(user, target_profile):
 def my_page(request):
     user = request.user
     
+    # 1. 프로필 가져오기
+    # (Signal이 있어서 보통 user.profile로 접근 가능하지만, 안전하게 get_or_create 사용)
+    profile, created = Profile.objects.get_or_create(user=user)
+
+    # 2. 진행 중인 시험 (대기/승인)
     pending_attempts = QuizAttempt.objects.filter(
         user=user, 
         status__in=['대기중', '승인됨']
     )
-    latest_results = TestResult.objects.filter(user=user).order_by('-completed_at')[:3]
-    
-    profile, created = Profile.objects.get_or_create(user=user)
-    
+
+    # 3. [핵심 수정] 최근 시험 결과 + 면담 상태 확인 로직
+    # (최신순 3개만 가져와서 가공합니다)
+    raw_results = TestResult.objects.filter(user=user).select_related('quiz').order_by('-completed_at')[:3]
+    enhanced_results = []
+
+    for result in raw_results:
+        counseling_status = None
+        
+        # 불합격(80점 미만)인 경우 면담 상태 체크
+        if not result.is_pass:
+            # StudentLog에서 해당 시험 제목이 포함된 '면담' 기록이 있는지 확인
+            # (예: "[반도체 공정] 시험 불합격..." 같은 내용이 있는지)
+            has_counseling_log = StudentLog.objects.filter(
+                profile=profile,
+                log_type='counseling',
+                reason__contains=result.quiz.title 
+            ).exists()
+
+            if has_counseling_log:
+                counseling_status = '완료'
+            else:
+                counseling_status = '예정'
+        
+        # 결과 객체와 상태를 묶어서 리스트에 추가
+        enhanced_results.append({
+            'result': result,
+            'counseling_status': counseling_status
+        })
+
+    # 4. 뱃지 및 평가 피드백
     latest_badges = profile.badges.all().order_by('-id')[:3]
+    
+    # 평가 피드백 (경고, 칭찬, 면담 기록만 표시)
     latest_evaluations = StudentLog.objects.filter(
-        profile=user.profile,
+        profile=profile,
         log_type__in=['warning', 'compliment', 'counseling']
     ).order_by('-created_at')[:3]
     
     context = {
+        'profile': profile,
         'pending_attempts': pending_attempts,
-        'latest_results': latest_results,
+        'enhanced_results': enhanced_results, # [중요] 템플릿에서 이 이름으로 씁니다
         'latest_badges': latest_badges,
         'latest_evaluations': latest_evaluations,
     }
