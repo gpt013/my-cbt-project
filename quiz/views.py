@@ -21,10 +21,10 @@ from accounts.models import StudentLog # 상단 import 확인 필수!
 from django.forms import inlineformset_factory
 # [핵심] 데이터 분석 및 집계를 위한 필수 모듈 (누락된 부분 추가됨)
 from django.db.models import Avg, Count, Q, Max,Min, F, Case, When, Value, CharField, Window
-from attendance.models import DailySchedule
+from attendance.models import DailySchedule, ScheduleRequest
 from django.db.models.functions import DenseRank, Coalesce
 from .utils import calculate_tag_stats
-
+from django.conf import settings
 # accounts 앱의 모델들
 from accounts.models import (
     Profile, Badge, EvaluationRecord, EvaluationCategory, 
@@ -1012,10 +1012,12 @@ def approve_attempt(request, attempt_id):
         return redirect('quiz:dashboard')
 
     attempt = get_object_or_404(QuizAttempt, pk=attempt_id)
-    trainee_process = attempt.user.profile.process
+    
+    # [수정] 여기서 target_profile을 정의해줘야 에러가 안 납니다!
+    target_profile = attempt.user.profile 
     
     # 2. [핵심] 매니저의 공정과 교육생의 공정 비교 (최고 관리자는 제외)
-    # request.user가 최고 관리자(superuser)라면 통과, 아니라면 공정 체크
+    # 이제 target_profile 변수가 정의되었으므로 에러가 나지 않습니다.
     if not is_process_manager(request.user, target_profile):
         # 교수의 공정과 학생의 공정이 다르면 거절
         messages.error(request, f"🚫 본인 담당 공정({target_profile.process})의 교육생만 승인할 수 있습니다.")
@@ -1024,7 +1026,7 @@ def approve_attempt(request, attempt_id):
     # 3. 승인 처리
     attempt.status = '승인됨'
     attempt.save()
-    messages.success(request, f"{attempt.user.profile.name}님의 시험 요청을 승인했습니다.")
+    messages.success(request, f"{target_profile.name}님의 시험 요청을 승인했습니다.")
     
     return redirect('quiz:dashboard')
 
@@ -1351,32 +1353,43 @@ def start_group_quiz(request, quiz_id):
 
 @login_required
 def export_student_data(request):
+    """
+    교육생의 종합 데이터(성적, 평가, 특이사항, 근태)를 엑셀로 생성하여 이메일로 발송하는 뷰
+    """
     if not request.user.is_staff:
         return redirect('quiz:index')
 
     target_process_id = request.GET.get('process_id')
     
-    # 1. 대상 프로필 조회 (권한 필터링 포함)
+    # 1. 대상 프로필 조회 (성능 최적화를 위해 prefetch_related 사용)
+    # logs(특이사항), dailyschedule_set(근태), managerevaluation_set(체크리스트), final_assessment(종합점수) 모두 로드
     profiles = Profile.objects.select_related(
-        'user', 'cohort', 'company', 'process', 'pl'
+        'user', 'cohort', 'company', 'process', 'pl', 'final_assessment'
     ).prefetch_related(
-        'user__testresult_set', 'badges', 'managerevaluation_set', 'logs', 'dailyschedule_set'
+        'user__testresult_set', 
+        'badges', 
+        'managerevaluation_set__selected_items', # 체크리스트 항목까지 미리 로드
+        'logs', 
+        'dailyschedule_set__work_type'
     ).order_by('cohort__start_date', 'user__username')
 
-    # 2. 권한 필터링
+    # 2. 권한 필터링 (관리자 vs 매니저)
     my_process = None
     if hasattr(request.user, 'profile') and request.user.profile.process:
         my_process = request.user.profile.process
 
     if request.user.is_superuser:
+        # 관리자는 선택한 공정 또는 전체 다운로드 가능
         if target_process_id and target_process_id != 'ALL':
             profiles = profiles.filter(process_id=target_process_id)
     else:
+        # 매니저는 본인 공정만 가능 (또는 티켓 보유 시)
         if not my_process:
             messages.error(request, "본인 공정 정보가 없어 작업을 수행할 수 없습니다.")
             return redirect('quiz:dashboard')
 
         if target_process_id == 'ALL':
+            # 전체 다운로드 권한 확인
             global_ticket = ProcessAccessRequest.objects.filter(
                 requester=request.user, target_process__isnull=True, status='approved'
             ).first()
@@ -1388,9 +1401,11 @@ def export_student_data(request):
                 return redirect('quiz:dashboard')
 
         elif not target_process_id or str(target_process_id) == str(my_process.id):
+            # 본인 공정 다운로드
             profiles = profiles.filter(process=my_process)
             
         else:
+            # 타 공정 티켓 확인
             access_ticket = ProcessAccessRequest.objects.filter(
                 requester=request.user, target_process_id=target_process_id, status='approved'
             ).first()
@@ -1402,7 +1417,7 @@ def export_student_data(request):
                 messages.error(request, "⛔ 해당 공정 접근 권한이 없습니다.")
                 return redirect('quiz:dashboard')
 
-    # 3. 엑셀 데이터 생성
+    # 3. 엑셀 데이터 생성 시작
     all_quizzes = Quiz.objects.all().order_by('title')
     data_list = []
 
@@ -1434,7 +1449,7 @@ def export_student_data(request):
             row_data[f"[{quiz.title}] 2차"] = attempts[1] if len(attempts) > 1 else '-'
             row_data[f"[{quiz.title}] 3차"] = attempts[2] if len(attempts) > 2 else '-'
 
-        # (C) 종합 평가 (FinalAssessment)
+        # (C) 종합 평가 데이터 (FinalAssessment)
         fa = getattr(profile, 'final_assessment', None)
         row_data.update({
             '시험 평균': fa.exam_avg_score if fa else 0,
@@ -1447,10 +1462,12 @@ def export_student_data(request):
         })
 
         # (D) 체크리스트 평가 (ManagerEvaluation)
+        # 가장 최근 평가서 1개를 가져옴
         last_eval = profile.managerevaluation_set.order_by('-created_at').first()
         checklist_str = ""
         if last_eval:
             items = last_eval.selected_items.all()
+            # 엑셀 셀 하나에 줄바꿈으로 넣기 위해 join 사용
             checklist_str = "\n".join([f"[{'긍정' if item.is_positive else '부정'}] {item.description}" for item in items])
         row_data['체크리스트 평가'] = checklist_str
 
@@ -1462,14 +1479,16 @@ def export_student_data(request):
         row_data['특이사항/경고 이력'] = log_str
 
         # (F) 근태 요약 (DailySchedule)
+        # WorkType의 deduction(차감) 값을 기준으로 카운트
         schedules = profile.dailyschedule_set.all()
+        
         work_cnt = schedules.filter(work_type__deduction=0).count() # 정상출근
         leave_cnt = schedules.filter(work_type__deduction=1.0).count() # 연차
         half_cnt = schedules.filter(work_type__deduction=0.5).count() # 반차
-        # 휴무 등 기타는 제외하고 주요 항목만 표시
+        
         row_data['근태 요약'] = f"출근:{work_cnt} / 연차:{leave_cnt} / 반차:{half_cnt}"
         
-        # 뱃지 정보
+        # (G) 뱃지 정보
         badge_count = profile.badges.count()
         badge_list = ", ".join([b.name for b in profile.badges.all()])
         row_data['획득 뱃지 수'] = badge_count
@@ -1477,22 +1496,29 @@ def export_student_data(request):
 
         data_list.append(row_data)
 
-    # 엑셀 파일 생성 및 이메일 발송
+    # 4. 엑셀 파일 생성 및 발송
     try:
+        if not data_list:
+            messages.warning(request, "다운로드할 데이터가 없습니다.")
+            return redirect('quiz:manager_dashboard')
+
         df = pd.DataFrame(data_list)
         excel_file = BytesIO()
+        
+        # XlsxWriter 엔진 사용 (서식 적용을 위해)
         with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='종합_데이터')
             
-            # 스타일 적용 (줄바꿈 등)
             workbook = writer.book
             worksheet = writer.sheets['종합_데이터']
+            
+            # 셀 줄바꿈 포맷 (특이사항 등이 길어질 수 있으므로)
             format_wrap = workbook.add_format({'text_wrap': True, 'valign': 'top'})
             
-            # 컬럼 너비 조정
+            # 컬럼 너비 자동 조정 (대략적으로 설정)
             for idx, col in enumerate(df.columns):
                 if col in ['특이사항/경고 이력', '체크리스트 평가', '매니저 종합 의견']:
-                    worksheet.set_column(idx, idx, 50, format_wrap)
+                    worksheet.set_column(idx, idx, 50, format_wrap) # 너비 50 & 줄바꿈
                 elif col in ['사용자 ID', '이름', '이메일']:
                     worksheet.set_column(idx, idx, 20)
                 else:
@@ -1500,6 +1526,7 @@ def export_student_data(request):
 
         excel_file.seek(0)
 
+        # 파일명 설정
         target_name = "전체"
         if target_process_id and target_process_id != 'ALL':
             try: target_name = Process.objects.get(pk=target_process_id).name
@@ -1508,12 +1535,17 @@ def export_student_data(request):
             target_name = my_process.name
 
         subject = f"[보안] {request.user.profile.name}님 요청 데이터 ({target_name})"
-        body = f"요청하신 데이터입니다.\n요청자: {request.user.profile.name}\n대상: {target_name}\n\n* 포함 내역: 기본정보, 성적, 평가, 특이사항, 근태"
+        body = (
+            f"요청하신 교육생 데이터입니다.\n"
+            f"요청자: {request.user.profile.name}\n"
+            f"대상 공정: {target_name}\n\n"
+            f"* 포함 내역: 기본정보, 시험성적(1~3차), 종합평가(점수/석차), 체크리스트, 특이사항/경고 이력, 근태 요약, 뱃지 현황"
+        )
         
         email = EmailMessage(
             subject, body, settings.EMAIL_HOST_USER, [request.user.email]
         )
-        filename = f"{target_name}_Data_{timezone.now().strftime('%Y%m%d')}.xlsx"
+        filename = f"{target_name}_FullData_{timezone.now().strftime('%Y%m%d')}.xlsx"
         email.attach(filename, excel_file.read(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         email.send()
         
@@ -1521,7 +1553,7 @@ def export_student_data(request):
 
     except Exception as e:
         print(f"Mail Error: {e}")
-        messages.error(request, "메일 발송 중 오류가 발생했습니다. (로그 확인 필요)")
+        messages.error(request, f"메일 발송 중 오류가 발생했습니다: {str(e)}")
 
     return redirect('quiz:manager_dashboard')
 
@@ -1669,34 +1701,59 @@ def get_pl_dashboard_data(pl_user):
 
 @login_required
 def manager_dashboard(request):
+    """
+    매니저가 로그인하면 가장 먼저 보는 화면.
+    모든 요청(가입, 시험, 근무, 권한)을 한눈에 파악합니다.
+    """
     user = request.user
     if not (user.is_staff or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))):
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
 
+    # 1. 가입 승인 대기
     signup_pending_count = User.objects.filter(is_active=False).count()
     
-    if user.is_superuser:
-        exam_pending_count = QuizAttempt.objects.filter(status='대기중').count()
-    elif hasattr(user, 'profile') and user.profile.process:
-        exam_pending_count = QuizAttempt.objects.filter(
-            status='대기중', 
-            user__profile__process=user.profile.process
-        ).count()
-    else:
-        exam_pending_count = 0
-
-    risk_qs = Profile.objects.filter(status='counseling')
+    # 2. 시험 응시 요청 대기
+    exam_q = Q(status='대기중')
     if not user.is_superuser and hasattr(user, 'profile') and user.profile.process:
-        risk_qs = risk_qs.filter(process=user.profile.process)
-    risk_count = risk_qs.count()
+        exam_q &= Q(user__profile__process=user.profile.process)
+    exam_pending_count = QuizAttempt.objects.filter(exam_q).count()
 
-    context = {
+    # 3. 위험군 (잠금 상태)
+    risk_q = Q(status='counseling')
+    if not user.is_superuser and hasattr(user, 'profile') and user.profile.process:
+        risk_q &= Q(process=user.profile.process)
+    risk_count = Profile.objects.filter(risk_q).count()
+
+    # 4. 권한 요청 대기 (타 매니저 -> 나)
+    access_req_count = 0
+    try:
+        if user.is_superuser:
+            access_req_count = ProcessAccessRequest.objects.filter(status='pending').count()
+        elif hasattr(user, 'profile') and user.profile.process:
+            access_req_count = ProcessAccessRequest.objects.filter(
+                target_process=user.profile.process, status='pending'
+            ).count()
+    except NameError: pass
+
+    # 5. [신규 추가] 근무표 변경 요청 대기
+    schedule_pending_count = 0
+    if user.is_superuser:
+        schedule_pending_count = ScheduleRequest.objects.filter(status='pending').count()
+    elif hasattr(user, 'profile') and user.profile.is_manager:
+        # 내 공정 학생들의 요청이면서 + 내(매니저)가 보낸 요청은 제외
+        my_process = user.profile.process
+        schedule_pending_count = ScheduleRequest.objects.filter(
+            requester__process=my_process, status='pending'
+        ).exclude(requester=user.profile).count()
+
+    return render(request, 'quiz/manager/dashboard_main.html', {
         'signup_pending_count': signup_pending_count,
         'exam_pending_count': exam_pending_count,
         'risk_count': risk_count,
-    }
-    return render(request, 'quiz/manager/dashboard_main.html', context)
+        'access_req_count': access_req_count,
+        'schedule_pending_count': schedule_pending_count, # [추가됨]
+    })
 
 
 # 2. 교육생 목록 (드릴다운 진입점)
@@ -1704,20 +1761,22 @@ def manager_dashboard(request):
 def manager_trainee_list(request):
     if not request.user.is_staff: return redirect('quiz:index')
 
-    # [신규 로직] 현재 날짜 기준 '진행 중인 기수' 찾기
+    # [수정] 현재 날짜 기준 '진행 중인 기수' 자동 선택
     today = timezone.now().date()
     active_cohort = Cohort.objects.filter(start_date__lte=today, end_date__gte=today).first()
-    
+    default_cohort_id = active_cohort.id if active_cohort else ''
+
     # GET 파라미터가 없으면 '현재 기수'를 기본값으로 설정
-    default_cohort = active_cohort.id if active_cohort else ''
-    
-    # 폼 초기값 설정 (request.GET이 비어있으면 default 사용)
     data = request.GET.copy()
-    if 'cohort' not in data and default_cohort:
-        data['cohort'] = default_cohort
+    if 'cohort' not in data and default_cohort_id:
+        data['cohort'] = default_cohort_id
     
     form = TraineeFilterForm(data)
-    profiles = Profile.objects.select_related('user', 'cohort', 'process').exclude(user__is_superuser=True, is_manager=True).order_by('cohort__start_date', 'name')
+    
+    # 기본 쿼리셋: 관리자는 제외하고 일반 학생만
+    profiles = Profile.objects.select_related('user', 'cohort', 'process').exclude(
+        user__is_superuser=True, is_manager=True
+    ).order_by('cohort__start_date', 'name')
 
     if form.is_valid():
         if form.cleaned_data['cohort']:
@@ -1728,15 +1787,21 @@ def manager_trainee_list(request):
             profiles = profiles.filter(status=form.cleaned_data['status'])
         if form.cleaned_data['search']:
             q = form.cleaned_data['search']
-            profiles = profiles.filter(Q(name__icontains=q) | Q(employee_id__icontains=q) | Q(user__username__icontains=q))
+            profiles = profiles.filter(
+                Q(name__icontains=q) | 
+                Q(employee_id__icontains=q) | 
+                Q(user__username__icontains=q)
+            )
 
-    # 매니저 권한: 본인 공정 우선 (필요시 강제)
+    # 매니저 권한: 본인 공정 우선 (필요시 강제할 수 있음)
     if not request.user.is_superuser and hasattr(request.user, 'profile') and request.user.profile.process:
-        # profiles = profiles.filter(process=request.user.profile.process) 
+        # profiles = profiles.filter(process=request.user.profile.process) # 강제 필터링 옵션
         pass
 
     paginator = Paginator(profiles, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
+    
+    # 가입 대기자 별도 조회
     pending_users = User.objects.filter(is_active=False).order_by('-date_joined')
 
     context = {
@@ -1758,9 +1823,8 @@ def manager_trainee_detail(request, profile_id):
     # 1. 시험 결과 (최신순)
     results = TestResult.objects.filter(user=profile.user).order_by('-completed_at')
     
-    # 2. [수정됨] 면담 기록 (Interview -> StudentLog)
-    # profile.interviews 가 아니라 profile.logs 를 가져와야 합니다.
-    logs = profile.logs.all().order_by('-created_at')
+    # 2. [수정됨] 특이사항/면담 로그 (Interview -> StudentLog)
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
     
     # 3. 획득 뱃지
     badges = profile.badges.all()
@@ -1855,18 +1919,39 @@ def unlock_account(request, profile_id):
 # 7. 응시 요청 관리 페이지
 @login_required
 def manager_exam_requests(request):
+    """
+    시험 응시 요청 및 공정 조회 권한 요청을 한 곳에서 관리하는 뷰
+    """
     if not request.user.is_staff: return redirect('quiz:index')
 
-    # 매니저의 경우 자기 공정 요청만 보기
+    # 1. 시험 응시 요청 (QuizAttempt)
     if not request.user.is_superuser and hasattr(request.user, 'profile') and request.user.profile.process:
-        requests = QuizAttempt.objects.filter(
-            status='대기중',
+        exam_reqs = QuizAttempt.objects.filter(
+            status='대기중', 
             user__profile__process=request.user.profile.process
         ).order_by('requested_at')
     else:
-        requests = QuizAttempt.objects.filter(status='대기중').order_by('requested_at')
+        exam_reqs = QuizAttempt.objects.filter(status='대기중').order_by('requested_at')
 
-    return render(request, 'quiz/manager/exam_requests.html', {'requests': requests})
+    # 2. [신규 추가] 권한 조회 요청 (ProcessAccessRequest)
+    access_reqs = []
+    try:
+        # 관리자: 모든 요청 확인
+        if request.user.is_superuser:
+            access_reqs = ProcessAccessRequest.objects.filter(status='pending').order_by('created_at')
+        # 매니저: 내 공정에 대한 요청만 확인
+        elif hasattr(request.user, 'profile') and request.user.profile.process:
+            access_reqs = ProcessAccessRequest.objects.filter(
+                target_process=request.user.profile.process,
+                status='pending'
+            ).order_by('created_at')
+    except NameError:
+        pass
+
+    return render(request, 'quiz/manager/exam_requests.html', {
+        'requests': exam_reqs,       # 시험 요청
+        'access_requests': access_reqs # 권한 요청 (추가됨)
+    })
 
 # --- PL 전용 대시보드 뷰 ---
 # 1. PL 대시보드 (필터링 기능 강화)
@@ -2446,10 +2531,7 @@ def pl_report_view(request):
 
 @login_required
 def manage_student_logs(request, profile_id):
-    # 1. 권한 체크
-    if not request.user.is_staff:
-        return redirect('quiz:index')
-
+    if not request.user.is_staff: return redirect('quiz:index')
     profile = get_object_or_404(Profile, pk=profile_id)
     logs = profile.logs.all()
 
@@ -2460,82 +2542,92 @@ def manage_student_logs(request, profile_id):
             log.profile = profile
             log.recorder = request.user
             
-            # --- [핵심 비즈니스 로직] ---
-            
-            # A. 일반 경고 등록
+            # [A] 일반 경고 (누적 로직)
             if log.log_type == 'warning':
                 profile.warning_count += 1
-                log.save() # 경고 로그 저장
+                log.save()
                 
-                # 누적 2회 -> 1차 경고장 자동 발부 (매니저 면담 필요)
+                # 2회: 1차 경고장 (자동) -> 잠금
                 if profile.warning_count == 2:
                     StudentLog.objects.create(
-                        profile=profile, recorder=request.user,
-                        log_type='warning_letter',
-                        reason="[시스템 자동] 일반 경고 2회 누적으로 인한 1차 경고장 발부"
+                        profile=profile, recorder=request.user, log_type='warning_letter', 
+                        reason="[시스템 자동] 일반 경고 2회 누적 -> 1차 경고장 발부",
+                        action_taken="계정 잠금 (매니저 면담 필요)"
                     )
-                    profile.status = 'counseling' # 잠금
+                    profile.status = 'counseling'
                     messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 발부되고 계정이 잠겼습니다.")
 
-                # 누적 3회 -> 2차 경고장 자동 발부 (PL 면담 필요)
+                # 3회: 2차 경고장 (자동) -> 잠금 (PL 면담 필수)
                 elif profile.warning_count == 3:
                     StudentLog.objects.create(
-                        profile=profile, recorder=request.user,
-                        log_type='warning_letter',
-                        reason="[시스템 자동] 일반 경고 3회 누적으로 인한 2차 경고장 발부"
+                        profile=profile, recorder=request.user, log_type='warning_letter', 
+                        reason="[시스템 자동] 일반 경고 3회 누적 -> 2차 경고장 발부",
+                        action_taken="계정 잠금 (PL 면담 필수)"
                     )
                     profile.status = 'counseling'
                     messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다. (PL 면담 필수)")
 
-                # 누적 4회 -> 퇴소
+                # 4회 이상: 퇴소
                 elif profile.warning_count >= 4:
                     profile.status = 'dropout'
                     messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
                 
+                # 1회: 주의
                 else:
-                    profile.status = 'caution' # 1회는 주의 상태
-                    messages.info(request, "일반 경고가 등록되었습니다.")
-            
-            # B. 경고장 즉시 발부 (중대 과실)
+                    profile.status = 'caution'
+                    messages.info(request, "일반 경고가 등록되었습니다. (상태: 주의)")
+
+            # [B] 경고장 즉시 발부 (중대 과실)
             elif log.log_type == 'warning_letter':
-                # 즉시 발부 시 경고 카운트를 강제로 2회(또는 상황에 맞춰)로 조정하거나 유지
-                # 여기서는 중대 과실이므로 바로 잠금 처리
+                # 기존 0회였다면 2회(1차)로 점프, 이미 2회면 3회로 점프
+                if profile.warning_count < 2: profile.warning_count = 2
+                else: profile.warning_count += 1
+                
                 profile.status = 'counseling'
+                if profile.warning_count >= 4: profile.status = 'dropout'
+                
                 log.save()
-                messages.warning(request, "⛔ 경고장이 즉시 발부되었습니다. 계정이 잠깁니다.")
+                messages.warning(request, f"⛔ 경고장이 즉시 발부되었습니다. (현재 누적: {profile.warning_count}회)")
 
-            # C. 면담 및 조치 (잠금 해제)
+            # [C] 면담 및 조치 (잠금 해제)
             elif log.log_type == 'counseling':
-                # 화면에서 '조치 완료(잠금해제)' 체크박스를 받음 (폼에는 없으므로 request.POST 확인)
                 is_resolve = request.POST.get('resolve_lock') == 'on'
-                log.is_resolved = is_resolve
-                log.save()
-
+                
+                # 3회차(2차 경고장) 해제 시 PL 면담 확인 여부 (HTML에서 체크박스로 받을 예정)
+                pl_check = request.POST.get('pl_check') == 'on'
+                
                 if is_resolve:
-                    if profile.warning_count >= 4: # 4회 이상이면 퇴소 유지
+                    # 3회차인데 PL 면담 체크 안했으면 거부
+                    if profile.warning_count == 3 and not pl_check:
+                         messages.error(request, "🚫 3회 누적자는 'PL 면담 확인'을 체크해야 잠금이 해제됩니다.")
+                         log.is_resolved = False
+                         log.save()
+                         return redirect('quiz:manage_student_logs', profile_id=profile.id)
+
+                    log.is_resolved = True
+                    # 퇴소 상태는 해제 불가
+                    if profile.warning_count >= 4:
                         profile.status = 'dropout'
+                        messages.warning(request, "퇴소 대상자는 잠금을 해제할 수 없습니다.")
                     else:
-                        profile.status = 'attending' # 정상 복귀
-                        messages.success(request, "✅ 면담 후 조치가 완료되어 계정이 정상화되었습니다.")
-                else:
-                    messages.info(request, "면담 내용이 기록되었습니다.")
+                        profile.status = 'attending'
+                        messages.success(request, "✅ 조치가 완료되어 계정이 정상화되었습니다.")
+                
+                log.save()
 
             else:
+                # 칭찬 등 기타
                 log.save()
-                messages.success(request, "기록이 저장되었습니다.")
+                messages.success(request, "기록되었습니다.")
 
             profile.save()
             return redirect('quiz:manage_student_logs', profile_id=profile.id)
-
     else:
         form = StudentLogForm()
 
-    context = {
-        'profile': profile,
-        'logs': logs,
-        'form': form,
-    }
-    return render(request, 'quiz/manager/manage_student_logs.html', context)
+    return render(request, 'quiz/manager/manage_student_logs.html', {
+        'profile': profile, 'logs': logs, 'form': form
+    })
 
 
 def award_badges(user, test_result):

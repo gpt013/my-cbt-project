@@ -9,50 +9,83 @@
             <span class="badge bg-secondary fs-6">{{ user.profile.process.name|default:"전체" }} 공정 관리 중</span>
         </div>
         
-        <a href="{% url 'quiz:dashboard' %}" class="btn btn-dark shadow-sm">
-            <i class="bi bi-bar-chart-fill me-1"></i> 전체 통계 대시보드 보기
-        </a>
+        <div class="d-flex gap-2">
+            {% if access_req_count > 0 %}
+                <a href="{% url 'quiz:manager_exam_requests' %}" class="btn btn-danger shadow-sm position-relative animate__pulse">
+                    <i class="bi bi-shield-lock-fill me-1"></i> 권한 요청
+                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-dark">
+                        {{ access_req_count }}
+                    </span>
+                </a>
+            {% endif %}
+
+            <a href="{% url 'quiz:pl_dashboard' %}" class="btn btn-success shadow-sm">
+                <i class="bi bi-bar-chart-steps me-1"></i> PL 대시보드
+            </a>
+            
+            <a href="{% url 'quiz:dashboard' %}" class="btn btn-dark shadow-sm">
+                <i class="bi bi-bar-chart-fill me-1"></i> 전체 통계
+            </a>
+        </div>
     </div>
 
     <div class="row g-4 mb-5">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card shadow-sm border-0 h-100 border-start border-4 border-primary">
-                <div class="card-body d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted text-uppercase mb-1">신규 가입 대기</h6>
-                        <h2 class="fw-bold text-primary mb-0">{{ signup_pending_count }}명</h2>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted text-uppercase mb-0">신규 가입</h6>
+                        <span class="fs-4 text-primary"><i class="bi bi-person-plus-fill"></i></span>
                     </div>
-                    <a href="{% url 'quiz:manager_trainee_list' %}?status=inactive" class="btn btn-sm btn-outline-primary rounded-pill">
-                        관리 <i class="bi bi-arrow-right"></i>
-                    </a>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <h2 class="fw-bold text-dark mb-0">{{ signup_pending_count }}<span class="fs-6 fw-normal text-muted">명</span></h2>
+                        <a href="{% url 'quiz:manager_trainee_list' %}?status=inactive" class="btn btn-sm btn-outline-primary rounded-pill">확인</a>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="card shadow-sm border-0 h-100 border-start border-4 border-warning">
-                <div class="card-body d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted text-uppercase mb-1">시험 응시 요청</h6>
-                        <h2 class="fw-bold text-warning mb-0">{{ exam_pending_count }}건</h2>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted text-uppercase mb-0">시험 요청</h6>
+                        <span class="fs-4 text-warning"><i class="bi bi-pencil-square"></i></span>
                     </div>
-                    <a href="{% url 'quiz:manager_exam_requests' %}" class="btn btn-sm btn-outline-warning text-dark rounded-pill">
-                        관리 <i class="bi bi-arrow-right"></i>
-                    </a>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <h2 class="fw-bold text-dark mb-0">{{ exam_pending_count }}<span class="fs-6 fw-normal text-muted">건</span></h2>
+                        <a href="{% url 'quiz:manager_exam_requests' %}" class="btn btn-sm btn-outline-warning text-dark rounded-pill">확인</a>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-4">
-            <div class="card shadow-sm border-0 h-100 border-start border-4 border-danger">
-                <div class="card-body d-flex justify-content-between align-items-center">
-                    <div>
-                        <h6 class="text-muted text-uppercase mb-1">면담 필요 (계정 잠금)</h6>
-                        <h2 class="fw-bold text-danger mb-0">{{ risk_count }}명</h2>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 h-100 border-start border-4 border-success">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted text-uppercase mb-0">근무 변경</h6>
+                        <span class="fs-4 text-success"><i class="bi bi-calendar-check-fill"></i></span>
                     </div>
-                    <a href="{% url 'quiz:manager_trainee_list' %}?status=counseling" class="btn btn-sm btn-outline-danger rounded-pill">
-                        관리 <i class="bi bi-arrow-right"></i>
-                    </a>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <h2 class="fw-bold text-dark mb-0">{{ schedule_pending_count }}<span class="fs-6 fw-normal text-muted">건</span></h2>
+                        <a href="{% url 'attendance:schedule_index' %}?role=manager" class="btn btn-sm btn-outline-success rounded-pill">확인</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 h-100 border-start border-4 border-danger">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted text-uppercase mb-0">면담 필요</h6>
+                        <span class="fs-4 text-danger"><i class="bi bi-exclamation-triangle-fill"></i></span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <h2 class="fw-bold text-dark mb-0">{{ risk_count }}<span class="fs-6 fw-normal text-muted">명</span></h2>
+                        <a href="{% url 'quiz:manager_trainee_list' %}?status=counseling" class="btn btn-sm btn-outline-danger rounded-pill">확인</a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -67,7 +100,7 @@
                         <i class="bi bi-people fs-3"></i>
                     </div>
                     <h5 class="text-dark fw-bold">교육생 전체 관리</h5>
-                    <p class="text-muted small mb-0">학생 명부, 비번 초기화, 상세 조회</p>
+                    <p class="text-muted small mb-0">명부, 비번 초기화, 상세 조회</p>
                 </div>
             </a>
         </div>
@@ -75,10 +108,10 @@
             <a href="{% url 'attendance:schedule_index' %}?role=manager" class="card shadow-sm text-decoration-none hover-card h-100">
                 <div class="card-body text-center py-4">
                     <div class="icon-box bg-light text-success mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
-                        <i class="bi bi-calendar-check fs-3"></i>
+                        <i class="bi bi-calendar3 fs-3"></i>
                     </div>
                     <h5 class="text-dark fw-bold">근무표 관리</h5>
-                    <p class="text-muted small mb-0">출석 체크, 근태 변경, 휴무 관리</p>
+                    <p class="text-muted small mb-0">출석, 근무 수정, 결재</p>
                 </div>
             </a>
         </div>
@@ -89,7 +122,7 @@
                         <i class="bi bi-file-earmark-spreadsheet fs-3"></i>
                     </div>
                     <h5 class="text-dark fw-bold">시험 엑셀 등록</h5>
-                    <p class="text-muted small mb-0">대량 문제 업로드 (초기 세팅용)</p>
+                    <p class="text-muted small mb-0">대량 문제 업로드</p>
                 </div>
             </a>
         </div>
@@ -100,7 +133,7 @@
                         <i class="bi bi-gear-wide-connected fs-3"></i>
                     </div>
                     <h5 class="text-dark fw-bold">시험/문제 관리</h5>
-                    <p class="text-muted small mb-0">시험 설정 수정, 오타 수정, 삭제</p>
+                    <p class="text-muted small mb-0">설정 수정, 오타 수정, 삭제</p>
                 </div>
             </a>
         </div>
@@ -109,5 +142,11 @@
 
 <style>
     .hover-card:hover { transform: translateY(-5px); transition: 0.3s; border-color: #0d6efd; }
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+    .animate__pulse { animation: pulse 2s infinite; }
 </style>
 {% endblock %}

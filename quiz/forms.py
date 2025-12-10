@@ -91,12 +91,17 @@ class QuestionForm(forms.ModelForm):
 class StudentLogForm(forms.ModelForm):
     class Meta:
         model = StudentLog
-        fields = ['log_type', 'reason']
+        fields = ['log_type', 'reason', 'action_taken'] # action_taken 추가
         widgets = {
             'log_type': forms.Select(attrs={'class': 'form-select', 'id': 'id_log_type'}),
             'reason': forms.Textarea(attrs={
                 'class': 'form-control', 
                 'rows': 4, 
-                'placeholder': '내용을 입력하세요. (경고 발부 시 사유 필수)'
+                'placeholder': '발생 내용 및 사유를 입력하세요. (육하원칙)'
+            }),
+            'action_taken': forms.Textarea(attrs={
+                'class': 'form-control', 
+                'rows': 2, 
+                'placeholder': '조치 내용이나 합의 사항을 입력하세요. (선택)'
             }),
         }

@@ -1,28 +1,32 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import logout, login, authenticate
 from django.contrib.auth.models import User
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils import timezone
-import random, holidays
-from django.db import transaction
-from .forms import CustomUserCreationForm, ProfileForm, EmailVerificationForm
 from django.http import JsonResponse
-from .models import PartLeader, Profile, EmailVerification
-from django.contrib.auth.decorators import login_required
 from django.db.models import Sum, Count, Q
+import random
+
+# forms.py에서 정의한 폼들 import
+from .forms import CustomUserCreationForm, ProfileForm, EmailVerificationForm, ProfileUpdateForm
+# models.py에서 정의한 모델들 import
+from .models import PartLeader, Profile, EmailVerification
+
 
 # ---------------------------------------------------
-# [Helper] 이메일 발송 내부 함수
+# [Helper] 이메일 발송 내부 함수 (성공 여부 반환)
 # ---------------------------------------------------
 def _send_verification_email(request, user):
     """
-    이메일 발송 성공 시 True, 실패 시 False를 반환하도록 수정됨
+    인증 코드를 생성하고 이메일로 발송합니다.
+    성공 시 True, 실패 시 False를 반환합니다.
     """
     verification_code = str(random.randint(100000, 999999))
     
-    # 기존 코드 삭제 후 생성
+    # 기존 코드 삭제 후 생성 (최신 코드만 유지)
     EmailVerification.objects.filter(email=user.email).delete()
     EmailVerification.objects.create(email=user.email, code=verification_code)
 
@@ -31,64 +35,63 @@ def _send_verification_email(request, user):
     
     try:
         send_mail(subject, message, settings.EMAIL_HOST_USER, [user.email], fail_silently=False)
-        # 세션에 정보 저장
+        
+        # 세션에 중요 정보 저장 (인증 페이지에서 사용)
         request.session['signup_email'] = user.email
         request.session['signup_user_id'] = user.id
-        return True # [수정] 성공 시 True 반환
+        return True
+        
     except Exception as e:
-        print(f"이메일 발송 실패: {e}")
-        messages.error(request, "메일 발송 중 오류가 발생했습니다. 이메일 주소를 확인해주세요.")
-        return False # [수정] 실패 시 False 반환
+        print(f"❌ 이메일 발송 실패: {e}")
+        messages.error(request, "메일 서버 오류로 인증 코드를 보낼 수 없습니다. 이메일 주소를 확인해주세요.")
+        return False
+
 
 # ---------------------------------------------------
-# 1. 회원가입 (OTP 발송)
+# 1. 회원가입 (OTP 발송 및 중복 처리 개선)
 # ---------------------------------------------------
 def signup(request):
     if request.user.is_authenticated:
         return redirect('quiz:my_page')
 
     if request.method == 'POST':
-        # [핵심] 폼 검증 전에 먼저 이메일 상태를 확인합니다.
+        # [핵심] 이메일 중복 및 상태 먼저 확인
         email = request.POST.get('email')
         existing_user = User.objects.filter(email=email).first()
 
         if existing_user:
-            # 1. 이미 가입했고, 인증까지 마친 활동 중인 유저라면 -> 에러 표시
+            # (A) 이미 활동 중인 유저 -> 로그인 유도
             if existing_user.is_active:
-                messages.error(request, "이미 가입이 완료된 이메일입니다. 로그인해주세요.")
+                messages.error(request, "이미 가입 완료된 계정입니다. 로그인해주세요.")
                 return redirect('accounts:login')
             
-            # 2. 가입은 시도했으나(DB에 있음), 아직 인증을 안 한(is_active=False) 유저라면 -> 재전송 & 인증페이지 이동
+            # (B) 가입 시도했으나 미인증 상태 -> 재발송 후 인증 페이지로
             else:
-                # 인증 코드를 다시 보내주는 것이 UX상 좋습니다.
                 if _send_verification_email(request, existing_user):
-                    messages.info(request, "이전에 인증을 완료하지 않은 계정입니다. 인증 코드를 재발송했습니다.")
+                    messages.info(request, "인증이 완료되지 않은 계정입니다. 인증 코드를 다시 발송했습니다.")
                     return redirect('accounts:verify_email')
                 else:
-                    # 재전송 실패 시
-                    return redirect('accounts:signup')
+                    return redirect('accounts:signup') # 발송 실패 시 다시 가입 화면
 
-        # 3. 아예 새로운 유저라면 -> 신규 가입 절차 진행
+        # (C) 신규 가입
         form = CustomUserCreationForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
             user.is_active = False # 인증 전까지 비활성화
             user.save()
 
-            # [수정] 인증 코드 발송 및 실패 시 롤백 로직 추가
+            # 인증 코드 발송
             if _send_verification_email(request, user):
-                # 성공 시 인증 페이지로 이동
                 return redirect('accounts:verify_email')
             else:
-                # 실패 시 방금 생성한 유저 삭제 (롤백)
+                # 발송 실패 시 유저 삭제 (롤백)
                 user.delete()
-                messages.error(request, "이메일 전송에 실패하여 가입이 취소되었습니다. 다시 시도해주세요.")
                 return redirect('accounts:signup')
-            
     else:
         form = CustomUserCreationForm()
     
     return render(request, 'accounts/signup.html', {'form': form})
+
 
 # ---------------------------------------------------
 # 2. 이메일 인증 및 PL 자동 감지
@@ -111,18 +114,34 @@ def verify_email(request):
                 if verification.is_expired():
                     messages.error(request, "인증 시간이 만료되었습니다. [코드 재전송]을 눌러주세요.")
                 else:
-                    # 인증 성공
+                    # [인증 성공]
                     try:
                         user = User.objects.get(pk=user_id)
                         user.is_active = True
                         user.save()
                         
-                        # PL 자동 등업
-                        if PartLeader.objects.filter(email=email).exists():
+                        # PL(파트장) 자동 등업 로직
+                        try:
+                            pl_obj = PartLeader.objects.get(email=email)
                             user.profile.is_pl = True
+                            user.profile.is_profile_complete = True # PL은 프로필 설정 패스
+                            user.profile.name = pl_obj.name
                             user.profile.save()
-                            messages.success(request, "파트장(PL) 계정으로 확인되어 권한이 부여되었습니다! 🎉")
-                        else:
+                            
+                            user.is_staff = True # 대시보드 접근 권한
+                            user.save()
+                            
+                            messages.success(request, f"{pl_obj.name} 파트장님, 환영합니다! (PL 권한 부여됨)")
+                            
+                            # 인증 기록 사용 처리
+                            verification.is_verified = True
+                            verification.save()
+                            
+                            login(request, user)
+                            return redirect('quiz:pl_dashboard') # PL 대시보드로 직행
+
+                        except PartLeader.DoesNotExist:
+                            # 일반 교육생
                             messages.success(request, "이메일 인증이 완료되었습니다. 이제 프로필을 완성해주세요.")
                         
                         # 인증 기록 사용 처리
@@ -130,7 +149,7 @@ def verify_email(request):
                         verification.save()
                         
                         login(request, user)
-                        return redirect('accounts:complete_profile')
+                        return redirect('accounts:complete_profile') # 일반 유저는 프로필 설정으로
 
                     except User.DoesNotExist:
                         messages.error(request, "사용자 정보를 찾을 수 없습니다. 다시 가입해주세요.")
@@ -141,6 +160,7 @@ def verify_email(request):
         form = EmailVerificationForm()
 
     return render(request, 'accounts/verify_email.html', {'form': form, 'email': email})
+
 
 # ---------------------------------------------------
 # [신규] 인증 코드 재발송
@@ -158,12 +178,13 @@ def resend_code(request):
         if _send_verification_email(request, user):
             messages.success(request, "인증 코드가 재발송되었습니다. 메일함을 확인해주세요.")
         else:
-            # send 함수 내부에서 이미 에러 메시지를 띄우므로 여기서는 리다이렉트만
+            # _send_verification_email 내부에서 이미 에러 메시지를 띄움
             pass
     except User.DoesNotExist:
         messages.error(request, "사용자를 찾을 수 없습니다.")
         
     return redirect('accounts:verify_email')
+
 
 # ---------------------------------------------------
 # 3. 프로필 완성 (강제)
@@ -171,10 +192,15 @@ def resend_code(request):
 @login_required
 def complete_profile(request):
     profile = request.user.profile
+    
+    # 이미 완료된 경우 리다이렉트
     if profile.is_profile_complete:
+        if profile.is_pl: return redirect('quiz:pl_dashboard')
+        if profile.is_manager: return redirect('quiz:manager_dashboard')
         return redirect('quiz:my_page')
 
     if request.method == 'POST':
+        # [수정] ProfileForm 사용 (가입 초기에는 모든 정보 입력 가능)
         form = ProfileForm(request.POST, instance=profile)
         if form.is_valid():
             form.save()
@@ -190,6 +216,7 @@ def complete_profile(request):
         'is_completing_profile': True
     })
 
+
 # ---------------------------------------------------
 # 4. 기타 유틸리티 및 뷰
 # ---------------------------------------------------
@@ -201,20 +228,28 @@ def custom_logout(request):
 @login_required
 def profile_update(request):
     profile = request.user.profile
+    
     if request.method == 'POST':
-        form = ProfileForm(request.POST, instance=profile)
+        # [수정] ProfileUpdateForm 사용 (수정 시에는 민감 정보 변경 불가)
+        form = ProfileUpdateForm(request.POST, instance=profile)
         if form.is_valid():
             form.save()
-            messages.success(request, "프로필 정보가 성공적으로 수정되었습니다.")
+            messages.success(request, "프로필 정보가 수정되었습니다.")
             return redirect('quiz:my_page')
     else:
-        form = ProfileForm(instance=profile)
-    return render(request, 'accounts/profile_update.html', {'form': form})
+        form = ProfileUpdateForm(instance=profile)
+        
+    return render(request, 'accounts/profile_update.html', {
+        'form': form,
+        'info_msg': '※ 기수, 공정, 담당 PL 정보는 관리자만 수정 가능합니다.'
+    })
 
 def load_part_leaders(request):
     company_id = request.GET.get('company_id')
     process_id = request.GET.get('process_id')
-    if not company_id or not process_id: return JsonResponse({'pls': []})
+    
+    if not company_id or not process_id: 
+        return JsonResponse({'pls': []})
     
     try:
         pls = PartLeader.objects.filter(company_id=company_id, process_id=process_id).order_by('name')

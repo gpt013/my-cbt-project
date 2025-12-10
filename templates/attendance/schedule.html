@@ -3,6 +3,7 @@
 
 {% block content %}
 <style>
+    /* (스타일 부분은 네 코드 그대로, 생략 없이 유지) */
     /* 1. 테이블 컨테이너 */
     .schedule-table-container { 
         overflow: auto; 
@@ -101,6 +102,7 @@
         
         <div class="d-flex gap-2 align-items-center">
             {% if is_manager %}
+            <!-- 관리자/매니저용 버튼 + 필터 폼 (기존 그대로 유지) -->
             <button class="btn btn-warning shadow-sm fw-bold position-relative btn-sm text-nowrap" onclick="openApprovalModal()">
                 <i class="bi bi-bell-fill"></i> 결재
                 <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="badge-count" style="display:none;">0</span>
@@ -114,26 +116,42 @@
                 <div class="vr"></div>
                 <select name="cohort" class="form-select form-select-sm border-0" style="width:auto;" onchange="this.form.submit()">
                     <option value="">전체 기수</option>
-                    {% for c in cohorts %}<option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+                    {% for c in cohorts %}
+                        <option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
                 </select>
                 <div class="vr"></div>
                 <select name="process" class="form-select form-select-sm border-0" style="width:auto;" onchange="this.form.submit()">
                     <option value="">전체 공정</option>
-                    {% for p in processes %}<option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+                    {% for p in processes %}
+                        <option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>
+                    {% endfor %}
                 </select>
             </form>
             {% else %}
-            <div class="bg-white px-3 py-1 rounded border text-muted shadow-sm small text-nowrap">
-                <i class="bi bi-person-circle"></i> 내 과정 조회
-            </div>
+            <!-- 교육생용: 팀 보기 / 내 것만 보기 (새로 추가) -->
+            <form class="d-flex gap-2 align-items-center bg-white p-1 rounded border shadow-sm">
+                <div class="bg-white px-2 py-1 rounded text-muted shadow-none small text-nowrap">
+                    <i class="bi bi-person-circle"></i> 내 근무표
+                </div>
+                <select name="view" class="form-select form-select-sm border-0" style="width:auto;" onchange="this.form.submit()">
+                    <option value="team" {% if view_scope == 'team' %}selected{% endif %}>팀 전체 보기</option>
+                    <option value="self" {% if view_scope == 'self' %}selected{% endif %}>내 것만 보기</option>
+                </select>
+            </form>
             {% endif %}
             
+            <!-- 이전/다음 월 이동 (view 파라미터 유지 추가) -->
             <div class="btn-group shadow-sm">
-                <a href="?year={{ prev_month|slice:':4' }}&month={{ prev_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}" class="btn btn-light border fw-bold btn-sm">◀</a>
-                <a href="?year={{ next_month|slice:':4' }}&month={{ next_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}" class="btn btn-light border fw-bold btn-sm">▶</a>
+                <a href="?year={{ prev_month|slice:':4' }}&month={{ prev_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}&view={{ view_scope|default:'' }}" class="btn btn-light border fw-bold btn-sm">◀</a>
+                <a href="?year={{ next_month|slice:':4' }}&month={{ next_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}&view={{ view_scope|default:'' }}" class="btn btn-light border fw-bold btn-sm">▶</a>
             </div>
         </div>
     </div>
+
+    <!-- 이하 control-box / table / modal / script 부분은 네 코드 그대로 유지 -->
+    <!-- ... (네가 준 코드와 동일, 변경 없음) ... -->
+    <!-- 아래부터는 그대로 복사해 사용하면 됨 -->
 
     <div class="control-box d-flex flex-wrap align-items-center justify-content-between shadow-sm" id="palette-toolbar">
         <div class="d-flex align-items-center gap-3">

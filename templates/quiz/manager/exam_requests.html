@@ -4,51 +4,126 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h3 class="fw-bold"><i class="bi bi-clock-history"></i> 시험 응시 요청 관리</h3>
+        <h3 class="fw-bold"><i class="bi bi-inbox-fill text-primary"></i> 요청 통합 관리함</h3>
         <a href="{% url 'quiz:manager_dashboard' %}" class="btn btn-secondary">대시보드로</a>
     </div>
 
-    <div class="card shadow-sm border-0">
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th class="ps-4">요청일시</th>
-                            <th>교육생 (사번)</th>
-                            <th>시험명</th>
-                            <th>공정</th>
-                            <th>상태</th>
-                            <th class="text-end pe-4">관리</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for req in requests %}
-                        <tr>
-                            <td class="ps-4 text-muted small">{{ req.requested_at|date:"Y-m-d H:i" }}</td>
-                            <td class="fw-bold">
-                                {{ req.user.profile.name }} 
-                                <small class="text-muted fw-normal">({{ req.user.profile.employee_id }})</small>
-                            </td>
-                            <td>{{ req.quiz.title }}</td>
-                            <td><span class="badge bg-info text-dark">{{ req.user.profile.process.name }}</span></td>
-                            <td><span class="badge bg-warning text-dark">대기중</span></td>
-                            <td class="text-end pe-4">
-                                <a href="{% url 'quiz:approve_attempt' req.id %}" class="btn btn-sm btn-success" onclick="return confirm('승인하시겠습니까?');">
-                                    <i class="bi bi-check-lg"></i> 승인
-                                </a>
-                            </td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="6" class="text-center py-5 text-muted">
-                                <i class="bi bi-inbox fs-1 d-block mb-3 opacity-25"></i>
-                                대기 중인 요청이 없습니다.
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    <ul class="nav nav-tabs mb-4" id="requestTab" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active fw-bold" id="exam-tab" data-bs-toggle="tab" data-bs-target="#exam-content">
+                📝 시험 응시 요청 <span class="badge bg-warning text-dark">{{ requests.count }}</span>
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link fw-bold" id="access-tab" data-bs-toggle="tab" data-bs-target="#access-content">
+                🔐 타 공정 조회 요청 <span class="badge bg-danger">{{ access_requests.count }}</span>
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+        <div class="tab-pane fade show active" id="exam-content">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-4">요청일시</th>
+                                    <th>교육생 (사번)</th>
+                                    <th>시험명</th>
+                                    <th>공정</th>
+                                    <th>상태</th>
+                                    <th class="text-end pe-4">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for req in requests %}
+                                <tr>
+                                    <td class="ps-4 text-muted small">{{ req.requested_at|date:"Y-m-d H:i" }}</td>
+                                    <td class="fw-bold">
+                                        {{ req.user.profile.name }} 
+                                        <small class="text-muted fw-normal">({{ req.user.profile.employee_id }})</small>
+                                    </td>
+                                    <td>{{ req.quiz.title }}</td>
+                                    <td><span class="badge bg-info text-dark">{{ req.user.profile.process.name }}</span></td>
+                                    <td><span class="badge bg-warning text-dark">대기중</span></td>
+                                    <td class="text-end pe-4">
+                                        <a href="{% url 'quiz:approve_attempt' req.id %}" class="btn btn-sm btn-success fw-bold" onclick="return confirm('승인하시겠습니까?');">
+                                            <i class="bi bi-check-lg"></i> 승인
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-5 text-muted">
+                                        <i class="bi bi-check2-circle fs-1 d-block mb-3 opacity-25"></i>
+                                        대기 중인 시험 요청이 없습니다.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="access-content">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-4">요청일시</th>
+                                    <th>요청자 (매니저)</th>
+                                    <th>요청 대상</th>
+                                    <th>상태</th>
+                                    <th class="text-end pe-4">관리</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for acc in access_requests %}
+                                <tr>
+                                    <td class="ps-4 text-muted small">{{ acc.created_at|date:"Y-m-d H:i" }}</td>
+                                    <td class="fw-bold">
+                                        {{ acc.requester.profile.name }} 
+                                        <small class="text-muted">({{ acc.requester.profile.process.name }})</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-primary">
+                                            {% if acc.target_process %}
+                                                {{ acc.target_process.name }} 공정 전체
+                                            {% else %}
+                                                🌍 전체 공정 (관리자급)
+                                            {% endif %}
+                                        </span>
+                                    </td>
+                                    <td><span class="badge bg-warning text-dark">승인 대기</span></td>
+                                    <td class="text-end pe-4">
+                                        <div class="btn-group">
+                                            <a href="{% url 'quiz:approve_access_request' acc.id 'approve' %}" class="btn btn-sm btn-success fw-bold" onclick="return confirm('이 매니저에게 조회 권한을 부여하시겠습니까?');">
+                                                승인
+                                            </a>
+                                            <a href="{% url 'quiz:approve_access_request' acc.id 'reject' %}" class="btn btn-sm btn-outline-danger fw-bold" onclick="return confirm('거절하시겠습니까?');">
+                                                거절
+                                            </a>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-5 text-muted">
+                                        <i class="bi bi-shield-check fs-1 d-block mb-3 opacity-25"></i>
+                                        대기 중인 권한 요청이 없습니다.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

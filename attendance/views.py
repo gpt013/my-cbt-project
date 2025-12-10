@@ -93,6 +93,7 @@ def upload_mdm(request):
 
     return render(request, 'attendance/upload_mdm.html', {'record': schedule})
 
+
 @login_required
 def mdm_status(request):
     logs = DailySchedule.objects.filter(profile=request.user.profile).order_by('-date')
@@ -100,7 +101,7 @@ def mdm_status(request):
 
 
 # ------------------------------------------------------------------
-# 2. 캘린더 스케줄 조회
+# 2. 캘린더 스케줄 조회 (관리자/매니저: 2번 방식 + 교육생: 팀/본인 옵션)
 # ------------------------------------------------------------------
 @login_required
 def schedule_index(request):
@@ -113,13 +114,14 @@ def schedule_index(request):
     
     kr_holidays = holidays.KR(years=year) if holidays else {}
     _, num_days = calendar.monthrange(year, month)
+
     days_in_month = []
-    weekday_map = {0:'월', 1:'화', 2:'수', 3:'목', 4:'금', 5:'토', 6:'일'}
+    weekday_map = {0: '월', 1: '화', 2: '수', 3: '목', 4: '금', 5: '토', 6: '일'}
 
     for day in range(1, num_days + 1):
         d = date(year, month, day)
         days_in_month.append({
-            'day': day, 
+            'day': day,
             'date_str': d.strftime('%Y-%m-%d'),
             'weekday': weekday_map[d.weekday()],
             'is_weekend': d.weekday() >= 5,
@@ -129,63 +131,93 @@ def schedule_index(request):
         })
 
     user = request.user
-    
-    # [핵심 수정 1] 여기서 status='attending'을 빼야 관리자가 살아남습니다.
-    # 일단 이름이 있는 모든 프로필을 가져옵니다.
-    profiles = Profile.objects.select_related('cohort', 'process').exclude(name__isnull=True).exclude(name='')
 
-    # 2. 관리자/매니저 권한 확인
-    is_manager_or_admin = user.is_superuser or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))
+    # [공통] 이름이 있는 모든 프로필을 기본 베이스로
+    profiles = Profile.objects.select_related('cohort', 'process') \
+                              .exclude(name__isnull=True) \
+                              .exclude(name='')
 
-    # 필터 값 가져오기
+    # 관리자/매니저 여부
+    is_manager_or_admin = user.is_superuser or (
+        hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl)
+    )
+
+    # 공통 GET 파라미터
     sel_role = request.GET.get('role', 'student')
     sel_cohort = request.GET.get('cohort', '')
     sel_process = request.GET.get('process', '')
 
+    # 교육생 전용: 팀/본인 보기 옵션
+    # - 관리자/매니저가 아니면 기본 'team'
+    view_scope = request.GET.get('view', 'team' if not is_manager_or_admin else '')
+
     if is_manager_or_admin:
-        # --- 관리자/매니저 모드 ---
+        # -------------------------------
+        # 관리자/매니저 화면 (2번 방식 유지)
+        # -------------------------------
         if sel_role == 'manager':
-            # [매니저 보기 선택 시]
-            # status와 상관없이 권한이 있는 사람들을 모두 가져옴
+            # 매니저 / PL / superuser / staff 모두 포함
             profiles = profiles.filter(
-                Q(is_manager=True) | 
-                Q(is_pl=True) | 
-                Q(user__is_superuser=True) | 
+                Q(is_manager=True) |
+                Q(is_pl=True) |
+                Q(user__is_superuser=True) |
                 Q(user__is_staff=True)
             )
         else:
-            # [교육생 보기 선택 시] (기본값)
-            # [핵심 수정 2] 교육생을 볼 때만 '재직 중(attending)' 필터를 겁니다.
+            # 교육생 보기 선택 시: 재직 중(attending) + 순수 교육생
             profiles = profiles.filter(
-                status='attending',  # <-- 교육생은 재직 중이어야 함
-                is_manager=False, 
-                is_pl=False, 
-                user__is_superuser=False, 
+                status='attending',
+                is_manager=False,
+                is_pl=False,
+                user__is_superuser=False,
                 user__is_staff=False
             )
 
-        if sel_cohort: profiles = profiles.filter(cohort_id=sel_cohort)
-        if sel_process: profiles = profiles.filter(process_id=sel_process)
-        
+        if sel_cohort:
+            profiles = profiles.filter(cohort_id=sel_cohort)
+        if sel_process:
+            profiles = profiles.filter(process_id=sel_process)
+
     else:
-        # --- 일반 교육생 모드 (본인만 보기) ---
-        sel_role = 'student'
-        # 본인은 재직 상태여야 볼 수 있게 할지, 퇴소자도 볼 수 있게 할지 정책에 따름
-        # 보통 본인 건 보여주므로 status 필터는 상황에 따라 뺌 (여기선 일단 본인이면 다 보여줌)
+        # -------------------------------
+        # 일반 교육생 화면
+        #   - view=team  : 같은 공정 재직 중 교육생 전체
+        #   - view=self  : 본인만
+        # -------------------------------
+        sel_role = 'student'  # 교육생은 role 고정
+
         if hasattr(user, 'profile'):
-            profiles = profiles.filter(user=user)
+            base_qs = profiles.filter(
+                status='attending',
+                is_manager=False,
+                is_pl=False,
+                user__is_superuser=False,
+                user__is_staff=False
+            )
+
+            if view_scope == 'self':
+                # 내 것만
+                profiles = base_qs.filter(user=user)
+            else:
+                # 팀 전체 보기(같은 공정) - 공정 없으면 자기만
+                if user.profile.process:
+                    profiles = base_qs.filter(process=user.profile.process)
+                else:
+                    profiles = base_qs.filter(user=user)
         else:
             profiles = profiles.none()
 
     profiles = profiles.order_by('name')
 
-    # [연차 및 스케줄 계산 로직 - 이하 동일]
-    TOTAL_ANNUAL_LEAVE = 15 
+    # -------------------------------
+    # 연차/스케줄 계산 (기존 로직 유지)
+    # -------------------------------
+    TOTAL_ANNUAL_LEAVE = 15
     current_year_start = date(year, 1, 1)
     current_year_end = date(year, 12, 31)
 
     leave_usage_map = {}
-    if profiles.exists(): # 프로필이 있을 때만 쿼리
+    if profiles.exists():
         usage_data = DailySchedule.objects.filter(
             profile__in=profiles,
             date__range=(current_year_start, current_year_end)
@@ -193,11 +225,11 @@ def schedule_index(request):
 
         for item in usage_data:
             leave_usage_map[item['profile']] = item['used_total'] or 0
-    
+
     schedule_map = {}
     start_date = date(year, month, 1)
     end_date = date(year, month, num_days)
-    
+
     db_data = {}
     if profiles.exists():
         schedules = DailySchedule.objects.filter(
@@ -205,47 +237,55 @@ def schedule_index(request):
         ).select_related('work_type')
 
         for s in schedules:
-            if s.profile_id not in db_data: db_data[s.profile_id] = {}
+            if s.profile_id not in db_data:
+                db_data[s.profile_id] = {}
             db_data[s.profile_id][s.date.strftime('%Y-%m-%d')] = s.work_type
 
     for p in profiles:
         used = leave_usage_map.get(p.id, 0)
         remain = TOTAL_ANNUAL_LEAVE - used
-        
+
         row_data = {
-            'profile': p, 
-            'daily_data': {}, 
+            'profile': p,
+            'daily_data': {},
             'stats': {
-                'work':0, 'rest':0, 'leave':0, 'half':0, 'etc':0,
+                'work': 0, 'rest': 0, 'leave': 0, 'half': 0, 'etc': 0,
                 'annual_remain': remain,
                 'annual_total': TOTAL_ANNUAL_LEAVE
             }
         }
         user_schedules = db_data.get(p.id, {})
-        
+
         for day_info in days_in_month:
             d_str = day_info['date_str']
             if d_str in user_schedules:
                 wt = user_schedules[d_str]
                 row_data['daily_data'][d_str] = wt
-                if wt.deduction == 1.0: row_data['stats']['leave'] += 1
-                elif 0 < wt.deduction < 1.0: row_data['stats']['half'] += 1
-                elif wt.is_working_day and wt.deduction == 0: row_data['stats']['work'] += 1
+                if wt.deduction == 1.0:
+                    row_data['stats']['leave'] += 1
+                elif 0 < wt.deduction < 1.0:
+                    row_data['stats']['half'] += 1
+                elif wt.is_working_day and wt.deduction == 0:
+                    row_data['stats']['work'] += 1
                 else:
-                    if not wt.is_working_day: row_data['stats']['rest'] += 1
-                    else: row_data['stats']['etc'] += 1
+                    if not wt.is_working_day:
+                        row_data['stats']['rest'] += 1
+                    else:
+                        row_data['stats']['etc'] += 1
             else:
                 if day_info['is_weekend'] or day_info['is_holiday']:
                     row_data['daily_data'][d_str] = None
-                    row_data['stats']['rest'] += 1 
+                    row_data['stats']['rest'] += 1
                 else:
-                    row_data['daily_data'][d_str] = 'DEFAULT_F' 
+                    row_data['daily_data'][d_str] = 'DEFAULT_F'
                     row_data['stats']['work'] += 1
-                    
+
         schedule_map[p.id] = row_data
 
-    if today.month == 12: next_month_start = date(today.year + 1, 1, 1)
-    else: next_month_start = date(today.year, today.month + 1, 1)
+    if today.month == 12:
+        next_month_start = date(today.year + 1, 1, 1)
+    else:
+        next_month_start = date(today.year, today.month + 1, 1)
 
     context = {
         'year': year, 'month': month,
@@ -257,6 +297,7 @@ def schedule_index(request):
         'sel_cohort': int(sel_cohort) if sel_cohort else '',
         'sel_process': int(sel_process) if sel_process else '',
         'sel_role': sel_role,
+        'view_scope': view_scope,  # ★ 교육생 팀/본인 보기용
         'prev_month': (start_date - timedelta(days=1)).strftime('%Y-%m'),
         'next_month': (end_date + timedelta(days=1)).strftime('%Y-%m'),
         'is_manager': is_manager_or_admin,
@@ -292,14 +333,16 @@ def update_schedule(request):
                 is_manager_of_target = True
 
         if not (is_owner or is_superuser or is_manager_of_target):
-             return JsonResponse({'status': 'error', 'message': '수정 권한이 없습니다.'}, status=403)
+            return JsonResponse({'status': 'error', 'message': '수정 권한이 없습니다.'}, status=403)
         
         today = timezone.now().date()
-        if today.month == 12: next_month_start = date(today.year + 1, 1, 1)
-        else: next_month_start = date(today.year, today.month + 1, 1)
+        if today.month == 12:
+            next_month_start = date(today.year + 1, 1, 1)
+        else:
+            next_month_start = date(today.year, today.month + 1, 1)
 
         # ----------------------------------------------
-        # [권한별 분기 로직 - 수정됨]
+        # [권한별 분기 로직]
         # ----------------------------------------------
         
         # Case A: 과거 (~ 어제)
@@ -310,7 +353,7 @@ def update_schedule(request):
                 )
                 return JsonResponse({'status': 'success', 'message': '관리자 권한으로 과거 수정됨'})
             else:
-                 return JsonResponse({'status': 'error', 'message': '지난 날짜는 관리자만 수정 가능합니다.'})
+                return JsonResponse({'status': 'error', 'message': '지난 날짜는 관리자만 수정 가능합니다.'})
 
         # Case B: 미래 (다음 달 ~ )
         elif target_date >= next_month_start:
@@ -336,7 +379,6 @@ def update_schedule(request):
                 return JsonResponse({'status': 'success', 'message': '매니저 권한 수정'})
 
             # 3. 그 외 (교육생 본인 수정 OR 매니저 본인 수정) -> 승인 요청
-            # (매니저라도 본인 거 고칠 땐 사유 쓰고 결재 받아야 함)
             if not reason:
                 return JsonResponse({'status': 'reason_required'})
             
@@ -363,7 +405,7 @@ def get_pending_requests(request):
         requests = ScheduleRequest.objects.filter(
             requester__process=my_process, 
             status='pending'
-        ).exclude(requester=request.user.profile) # [중요] 내 요청은 내가 결재 못함
+        ).exclude(requester=request.user.profile)  # 내 요청은 내가 결재 못함
         
     else:
         # 권한 없으면 빈 리스트
@@ -372,9 +414,11 @@ def get_pending_requests(request):
     requests = requests.select_related('requester', 'target_work_type').order_by('date')
     
     data = [{
-        'id': r.id, 'name': r.requester.name, 
+        'id': r.id,
+        'name': r.requester.name,
         'date': r.date.strftime('%Y-%m-%d'),
-        'type': r.target_work_type.short_name, 'reason': r.reason
+        'type': r.target_work_type.short_name,
+        'reason': r.reason
     } for r in requests]
     
     return JsonResponse({'requests': data})
@@ -397,7 +441,7 @@ def process_request(request):
                 can_approve = True
         
         if not can_approve:
-             return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+            return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
 
         if data.get('action') == 'approve':
             DailySchedule.objects.update_or_create(
@@ -427,10 +471,11 @@ def apply_all_normal(request):
         
         # 관리자/매니저만 가능
         if not (request.user.is_superuser or (hasattr(request.user, 'profile') and request.user.profile.is_manager)):
-             return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+            return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
 
         normal_type = WorkType.objects.filter(name__contains="정상").first()
-        if not normal_type: normal_type = WorkType.objects.first()
+        if not normal_type:
+            normal_type = WorkType.objects.first()
         
         kr_holidays = holidays.KR(years=year) if holidays else {}
         _, num_days = calendar.monthrange(year, month)
@@ -445,7 +490,7 @@ def apply_all_normal(request):
             # 권한 체크: 슈퍼유저는 통과, 매니저는 공정 일치해야 통과
             if not request.user.is_superuser:
                 if target_profile.process != my_process:
-                    continue 
+                    continue
 
             for day in range(1, num_days + 1):
                 curr_date = date(year, month, day)

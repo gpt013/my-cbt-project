@@ -101,6 +101,9 @@ class Profile(models.Model):
     process = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="공정")
     line = models.CharField(max_length=100, verbose_name='라인', blank=True, null=True)
     pl = models.ForeignKey(PartLeader, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="담당 PL")
+    
+    # [신규] 입사일 (연차 계산용)
+    joined_at = models.DateField(null=True, blank=True, verbose_name="입사일(교육시작일)", help_text="연차 계산 기준일입니다.")
 
     # [기능성 필드]
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='attending', verbose_name="현재 상태")
@@ -140,10 +143,10 @@ class StudentLog(models.Model):
     # 경고/경고장 발부 시 사유 필수
     reason = models.TextField(verbose_name="사유 및 내용", help_text="경고 사유, 면담 내용 등을 상세히 기록하세요.")
     
-    # 조치 관련
-    action_taken = models.TextField(verbose_name="조치 사항", blank=True, null=True)
-    is_resolved = models.BooleanField(default=False, verbose_name="조치 완료 여부")
+    # [신규] 조치 사항 (요청 반영)
+    action_taken = models.TextField(verbose_name="조치 사항", blank=True, null=True, help_text="경고 후 조치된 내용이나 합의 사항")
     
+    is_resolved = models.BooleanField(default=False, verbose_name="조치 완료 여부")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
