@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="fw-bold"><i class="bi bi-collection-fill"></i> '{{ quiz.title }}' 문제 구성</h3>
+        <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary">완료 (목록으로)</a>
+    </div>
+
+    <div class="row">
+        <div class="col-md-5">
+            <div class="card h-100 border-primary shadow-sm">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">내 시험지 ({{ added_questions.count }}문제)</h5>
+                    <button class="btn btn-sm btn-light text-primary fw-bold" onclick="removeQuestions()">
+                        선택 제외 <i class="bi bi-arrow-right"></i>
+                    </button>
+                </div>
+                <div class="card-body p-0" style="height: 650px; overflow-y: auto;">
+                    <ul class="list-group list-group-flush" id="addedList">
+                        {% for q in added_questions %}
+                        <li class="list-group-item d-flex align-items-start">
+                            <input type="checkbox" class="form-check-input me-2 remove-check" value="{{ q.id }}">
+                            <div>
+                                <div class="d-flex align-items-center gap-1 mb-1">
+                                    <span class="badge bg-secondary">{{ q.get_question_type_display }}</span>
+                                    <span class="badge {% if q.difficulty == '상' %}bg-danger{% elif q.difficulty == '중' %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                                        {{ q.get_difficulty_display }}
+                                    </span>
+                                    {% for t in q.tags.all %}
+                                        <span class="badge bg-light text-dark border">#{{ t.name }}</span>
+                                    {% endfor %}
+                                </div>
+                                <p class="mb-0 text-truncate small" style="max-width: 350px;">{{ q.question_text }}</p>
+                            </div>
+                        </li>
+                        {% empty %}
+                        <li class="list-group-item text-center py-5 text-muted">아직 담긴 문제가 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card h-100 shadow-sm">
+                <div class="card-header bg-light p-3">
+                    <form class="row g-2" method="get">
+                        <div class="col-md-3">
+                            <select name="tag" class="form-select form-select-sm">
+                                <option value="">전체 태그/공정</option>
+                                {% for tag in all_tags %}
+                                    <option value="{{ tag.id }}" {% if filter_tag == tag.id %}selected{% endif %}>
+                                        {{ tag.name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-2">
+                            <select name="difficulty" class="form-select form-select-sm">
+                                <option value="">전체 난이도</option>
+                                {% for code, label in difficulty_choices %}
+                                    <option value="{{ code }}" {% if filter_difficulty == code %}selected{% endif %}>
+                                        {{ label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-3">
+                            <select name="quiz_filter" class="form-select form-select-sm">
+                                <option value="">전체 시험(출처)</option>
+                                {% for qz in all_quizzes_for_filter %}
+                                    <option value="{{ qz.id }}" {% if filter_quiz == qz.id %}selected{% endif %}>
+                                        {{ qz.title }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-md-2">
+                            <input type="text" name="q" class="form-control form-control-sm" 
+                                   placeholder="내용 검색..." value="{{ search_query }}">
+                        </div>
+
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-sm btn-dark w-100">
+                                <i class="bi bi-search"></i> 조회
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="card-body p-0" style="height: 600px; overflow-y: auto;">
+                    <ul class="list-group list-group-flush">
+                        {% for q in bank_questions %}
+                        <li class="list-group-item d-flex align-items-start">
+                            <input type="checkbox" class="form-check-input me-2 bank-check" value="{{ q.id }}">
+                            <div class="w-100">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <div>
+                                        {% for t in q.tags.all %}
+                                            <span class="badge bg-info text-dark">#{{ t.name }}</span>
+                                        {% endfor %}
+                                        <span class="badge {% if q.difficulty == '상' %}bg-danger{% elif q.difficulty == '중' %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                                            {{ q.get_difficulty_display }}
+                                        </span>
+                                    </div>
+                                    <small class="text-muted">{{ q.created_at|date:"Y-m-d" }}</small>
+                                </div>
+                                <p class="mb-1 fw-bold text-dark">{{ q.question_text|truncatechars:80 }}</p>
+                                <small class="text-muted">
+                                    {{ q.get_question_type_display }}
+                                    {% if q.quizzes.count > 0 %}
+                                        <span class="ms-1 text-primary" style="font-size: 0.8em;">
+                                            (사용중: {{ q.quizzes.count }}개 시험)
+                                        </span>
+                                    {% endif %}
+                                </small>
+                            </div>
+                        </li>
+                        {% empty %}
+                        <li class="list-group-item text-center py-5">
+                            <i class="bi bi-search fs-1 opacity-25"></i>
+                            <p class="mt-3 text-muted">검색 조건에 맞는 문제가 없습니다.</p>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                
+                <div class="card-footer bg-white">
+                    <button class="btn btn-success w-100 fw-bold" onclick="addQuestions()">
+                        <i class="bi bi-arrow-left"></i> 선택한 문제 담기
+                    </button>
+                    
+                    {% if bank_questions.has_other_pages %}
+                    <div class="d-flex justify-content-center mt-2">
+                        <nav>
+                            <ul class="pagination pagination-sm mb-0">
+                                {% if bank_questions.has_previous %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ bank_questions.previous_page_number }}&q={{ search_query }}&tag={{ filter_tag }}&difficulty={{ filter_difficulty }}&quiz_filter={{ filter_quiz }}">이전</a>
+                                    </li>
+                                {% endif %}
+                                <li class="page-item disabled"><span class="page-link">{{ bank_questions.number }} / {{ bank_questions.paginator.num_pages }}</span></li>
+                                {% if bank_questions.has_next %}
+                                    <li class="page-item">
+                                        <a class="page-link" href="?page={{ bank_questions.next_page_number }}&q={{ search_query }}&tag={{ filter_tag }}&difficulty={{ filter_difficulty }}&quiz_filter={{ filter_quiz }}">다음</a>
+                                    </li>
+                                {% endif %}
+                            </ul>
+                        </nav>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const quizId = {{ quiz.id }};
+
+    function addQuestions() {
+        const selected = Array.from(document.querySelectorAll('.bank-check:checked')).map(cb => cb.value);
+        if (selected.length === 0) return alert("추가할 문제를 선택하세요.");
+
+        fetch("{% url 'quiz:add_question_to_quiz' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({ quiz_id: quizId, question_ids: selected })
+        }).then(res => res.json()).then(data => {
+            if(data.status === 'success') location.reload();
+            else alert("오류: " + data.message);
+        });
+    }
+
+    function removeQuestions() {
+        const selected = Array.from(document.querySelectorAll('.remove-check:checked')).map(cb => cb.value);
+        if (selected.length === 0) return alert("제외할 문제를 선택하세요.");
+
+        fetch("{% url 'quiz:remove_question_from_quiz' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({ quiz_id: quizId, question_ids: selected })
+        }).then(res => res.json()).then(data => {
+            if(data.status === 'success') location.reload();
+            else alert("오류: " + data.message);
+        });
+    }
+</script>
+{% endblock %}

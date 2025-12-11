@@ -101,8 +101,8 @@ class Profile(models.Model):
     process = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="공정")
     line = models.CharField(max_length=100, verbose_name='라인', blank=True, null=True)
     pl = models.ForeignKey(PartLeader, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="담당 PL")
-    
-    # [신규] 입사일 (연차 계산용)
+
+    ## [신규] 입사일 (연차 계산용)
     joined_at = models.DateField(null=True, blank=True, verbose_name="입사일(교육시작일)", help_text="연차 계산 기준일입니다.")
 
     # [기능성 필드]
@@ -156,7 +156,6 @@ class StudentLog(models.Model):
 
     def __str__(self):
         return f"[{self.get_log_type_display()}] {self.profile.name} - {self.created_at.date()}"
-
 
 # -----------------------------------------------------------
 # 3. 평가 및 데이터 관리 모델 (종합 평가, 요청 등)
@@ -274,7 +273,6 @@ class ProcessAccessRequest(models.Model):
         target_name = self.target_process.name if self.target_process else "🌍 전체 공정"
         return f"{self.requester.profile.name} -> {target_name} ({self.status})"
 
-
 # -----------------------------------------------------------
 # 4. Signals (자동화 로직)
 # -----------------------------------------------------------
@@ -286,80 +284,54 @@ def create_user_profile(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=User)
 def save_user_profile(sender, instance, **kwargs):
+    # [핵심 수정] 무한 루프 방지: 여기서 profile.save()를 호출하면 안 됩니다!
+    # Profile이 없는 경우에만 생성하고, 저장은 하지 않습니다.
     if not hasattr(instance, 'profile'):
         Profile.objects.create(user=instance)
-    instance.profile.save()
+    # instance.profile.save()  <-- 이 줄을 삭제하여 덮어쓰기 방지
 
 @receiver(post_save, sender=Profile)
 def manage_permissions(sender, instance, created, **kwargs):
     user = instance.user
     
-    # 1. '매니저' 그룹 가져오기 (없으면 생성)
     manager_group, group_created = Group.objects.get_or_create(name='매니저')
 
-    # ---------------------------------------------------------------
-    # [핵심 수정] 매니저 그룹에 '안전한 실무 권한'만 부여하기
-    # (관리자 권한, 그룹 권한 등 위험한 건 제외)
-    # ---------------------------------------------------------------
+    # (그룹 권한 부여 로직은 위와 동일 - 생략 없이 포함됨)
     if group_created:
-        # 모델들을 불러옵니다 (순환 참조 방지)
-        from quiz.models import (
-            Quiz, Question, Choice, ExamSheet, Tag,  # 문제 관리
-            QuizAttempt, TestResult                  # 응시 및 결과 관리
-        )
-        from accounts.models import (
-            Profile, PartLeader,                     # 교육생 관리
-            ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog # 평가 관련 (StudentLog 추가)
-        )
+        from quiz.models import Quiz, Question, Choice, ExamSheet, Tag, QuizAttempt, TestResult
+        from accounts.models import Profile, PartLeader, ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog
 
-        # [1] 완전 관리 권한 (추가/수정/삭제/조회) 부여할 모델들
-        full_access_models = [
-            Quiz, Question, Choice, ExamSheet, Tag,  # 퀴즈 관련
-            PartLeader,                              # PL 관리
-            ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog # 평가 관련
-        ]
-        
+        full_access_models = [Quiz, Question, Choice, ExamSheet, Tag, PartLeader, ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog]
         for model in full_access_models:
             ct = ContentType.objects.get_for_model(model)
-            perms = Permission.objects.filter(content_type=ct) # CRUD 전체 부여
+            perms = Permission.objects.filter(content_type=ct)
             manager_group.permissions.add(*perms)
 
-        # [2] 결과 및 요청 관리 (수정/조회/삭제)
         result_models = [TestResult, QuizAttempt]
         for model in result_models:
             ct = ContentType.objects.get_for_model(model)
             perms = Permission.objects.filter(content_type=ct)
             manager_group.permissions.add(*perms)
 
-        # [3] 프로필 관리 (수정/조회만 가능) - 삭제 불가
         ct_profile = ContentType.objects.get_for_model(Profile)
-        perms_profile = Permission.objects.filter(
-            content_type=ct_profile, 
-            codename__in=['change_profile', 'view_profile']
-        )
+        perms_profile = Permission.objects.filter(content_type=ct_profile, codename__in=['change_profile', 'view_profile'])
         manager_group.permissions.add(*perms_profile)
 
-        # [4] 사용자(User) 정보 (조회만 가능)
         ct_user = ContentType.objects.get_for_model(User)
         perms_user = Permission.objects.filter(content_type=ct_user, codename='view_user')
         manager_group.permissions.add(*perms_user)
-
         manager_group.save()
-        print("✅ 매니저 그룹에 '안전한 실무 권한'이 자동 부여되었습니다.")
 
-    # ---------------------------------------------------------------
-    # [기존 로직] 사용자에게 그룹 및 스태프 권한 부여
-    # ---------------------------------------------------------------
+    # [권한 부여/해제]
     if instance.is_manager:
         if not user.is_staff:
             user.is_staff = True
-            user.save()
+            user.save() # 여기서 User save -> save_user_profile 호출되지만, 거기서 profile.save()를 뺐으므로 루프 안 생김
         if not user.groups.filter(name='매니저').exists():
             user.groups.add(manager_group)
     else:
-        # 매니저 해제 (슈퍼유저 제외)
         if not user.is_superuser:
-            if user.is_staff:
+            if not instance.is_pl and user.is_staff:
                 user.is_staff = False
                 user.save()
             if user.groups.filter(name='매니저').exists():

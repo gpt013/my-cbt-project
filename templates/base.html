@@ -14,7 +14,7 @@
         .nav-link { font-weight: 500; }
         .nav-link.active { color: #0d6efd !important; font-weight: 700; }
         
-        /* 매니저 전용 스타일 */
+        /* 매니저 전용 스타일 (검은색) */
         .manager-nav { background-color: #343a40 !important; }
         .manager-nav .navbar-brand, .manager-nav .nav-link { color: #e9ecef !important; }
         .manager-nav .nav-link:hover { color: #ffc107 !important; }
@@ -28,7 +28,7 @@
     
     {% if user.is_staff %}
     <header>
-        <nav class="navbar navbar-expand-lg manager-nav navbar-dark">
+        <nav class="navbar navbar-expand-xl manager-nav navbar-dark shadow-sm">
             <div class="container-fluid">
                 <a class="navbar-brand fw-bold" href="{% url 'quiz:manager_dashboard' %}">
                     <i class="bi bi-shield-lock-fill text-warning"></i> PMTC 매니저 센터
@@ -38,7 +38,7 @@
                 </button>
                 
                 <div class="collapse navbar-collapse" id="managerNav">
-                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                    <ul class="navbar-nav me-auto mb-2 mb-xl-0">
                         <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_dashboard' %}"><i class="bi bi-speedometer2"></i> 대시보드</a></li>
                         <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_trainee_list' %}"><i class="bi bi-people"></i> 교육생 관리</a></li>
                         <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}?role=manager"><i class="bi bi-calendar-check"></i> 근무표</a></li>
@@ -57,29 +57,34 @@
                             <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-bar-chart"></i> 통계/분석</a>
                             <ul class="dropdown-menu shadow">
                                 {% if user.is_superuser or user.profile.is_pl %}
-                                    <li><a class="dropdown-item" href="{% url 'quiz:pl_dashboard' %}">PL 대시보드 (상세)</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:pl_dashboard' %}">PL 대시보드</a></li>
                                 {% endif %}
-                                
-                                <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}">전체 통계 대시보드</a></li>
-                                
+                                <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}">전체 통계</a></li>
                                 {% if user.is_superuser %}
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item fw-bold text-primary" href="{% url 'quiz:export_student_data' %}?process_id=ALL">📥 전체 데이터 다운로드</a></li>
-                                    <li><a class="dropdown-item text-danger" href="{% url 'admin:index' %}" target="_blank">⚙️ 시스템 Admin</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item fw-bold text-primary" href="{% url 'quiz:export_student_data' %}?process_id=ALL">📥 전체 데이터 다운로드</a></li>
+                                <li><a class="dropdown-item text-danger" href="{% url 'admin:index' %}" target="_blank">⚙️ 시스템 Admin</a></li>
                                 {% endif %}
+                            </ul>
+                        </li>
+
+                        <li class="nav-item dropdown border-start ms-2 ps-2">
+                            <a class="nav-link dropdown-toggle text-info fw-bold" href="#" data-bs-toggle="dropdown">
+                                🎓 교육생 센터
+                            </a>
+                            <ul class="dropdown-menu shadow">
+                                <li><h6 class="dropdown-header">학생 모드 기능</h6></li>
+                                <li><a class="dropdown-item" href="{% url 'quiz:my_page' %}">마이페이지 (홈)</a></li>
+                                <li><a class="dropdown-item" href="{% url 'quiz:index' %}">시험 응시 목록</a></li>
+                                <li><a class="dropdown-item" href="{% url 'quiz:my_results_index' %}">내 성적 확인</a></li>
+                                <li><a class="dropdown-item" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a></li>
                             </ul>
                         </li>
                     </ul>
 
                     <div class="d-flex align-items-center text-white">
-                        <a href="{% url 'quiz:my_page' %}" class="btn btn-sm btn-outline-light me-3 text-nowrap">
-                            <i class="bi bi-mortarboard"></i> 학생 모드
-                        </a>
-
                         <span class="me-3 d-none d-lg-inline">
-                            <span class="badge bg-warning text-dark me-1">
-                                {% if user.is_superuser %}Admin{% else %}Manager{% endif %}
-                            </span>
+                            <span class="badge bg-warning text-dark me-1">Manager</span>
                             <strong>{{ user.profile.name|default:user.username }}</strong>
                         </span>
                         <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
@@ -106,32 +111,35 @@
                 <div class="collapse navbar-collapse" id="studentNav">
                     <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         {% if user.is_authenticated %}
-                            <li class="nav-item dropdown ms-2">
-                                <a class="nav-link dropdown-toggle fw-bold text-dark" href="#" id="studentCenterDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    🎓 교육생 센터
-                                </a>
-                                <ul class="dropdown-menu shadow border-0" aria-labelledby="studentCenterDropdown">
-                                    <li><h6 class="dropdown-header">나의 학습</h6></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:my_page' %}"><i class="bi bi-house-door me-2"></i> 마이페이지 (홈)</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:index' %}"><i class="bi bi-list-task me-2"></i> 시험 목록</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:my_results_index' %}"><i class="bi bi-card-checklist me-2"></i> 시험 결과</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up me-2"></i> 나의 대시보드</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:my_incorrect_answers_index' %}"><i class="bi bi-x-circle me-2"></i> 오답 노트</a></li>
-                                    
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><h6 class="dropdown-header">근태 및 인증</h6></li>
-                                    <li><a class="dropdown-item" href="{% url 'attendance:upload_mdm' %}"><i class="bi bi-camera me-2"></i> MDM 인증</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3 me-2"></i> 나의 근무표</a></li>
-                                </ul>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'quiz:my_page' %}"><i class="bi bi-house-door"></i> 마이페이지</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'quiz:index' %}"><i class="bi bi-list-task"></i> 시험 목록</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'quiz:my_results_index' %}"><i class="bi bi-check2-square"></i> 성적 확인</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up"></i> 대시보드</a>
+                            </li>
+                            
+                            <li class="nav-item border-start ms-lg-2 ps-lg-2">
+                                <a class="nav-link" href="{% url 'attendance:upload_mdm' %}"><i class="bi bi-camera"></i> MDM</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3"></i> 근무표</a>
                             </li>
                         {% endif %}
                     </ul>
 
                     <div class="d-flex align-items-center">
                         {% if user.is_authenticated %}
-                            <div class="me-3 text-end lh-1 d-none d-sm-block">
+                            <div class="me-3 text-end lh-1 d-none d-lg-block">
                                 <span class="d-block fw-bold text-dark">{{ user.profile.name|default:user.username }}</span>
-                                <small class="text-muted" style="font-size: 0.75rem;">{{ user.profile.cohort.name|default:"-" }} / {{ user.profile.process.name|default:"-" }}</small>
+                                <small class="text-muted" style="font-size: 0.75rem;">
+                                    {{ user.profile.cohort.name|default:"-" }} / {{ user.profile.process.name|default:"-" }}
+                                </small>
                             </div>
                             <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
                                 {% csrf_token %}
@@ -167,5 +175,24 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
+    {% if user.is_authenticated and not is_in_test_mode and not is_completing_profile %} 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+            const wsPath = wsScheme + '://' + window.location.host + '/ws/notifications/';
+            
+            try {
+                const notificationSocket = new WebSocket(wsPath);
+                notificationSocket.onmessage = function(e) {
+                    const data = JSON.parse(e.data);
+                    alert(data.message);
+                    window.location.reload();
+                };
+            } catch (e) {
+                console.log('WebSocket skipped.');
+            }
+        });
+    </script>
+    {% endif %}
 </body>
 </html>

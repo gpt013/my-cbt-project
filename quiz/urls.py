@@ -10,6 +10,10 @@ urlpatterns = [
     path('mypage/', views.my_page, name='my_page'),
     path('', views.index, name='index'),
     
+    # [신규] 교육생 기능 (면담 요청, 알림 상세)
+    path('my-page/log/create/', views.student_create_counseling_log, name='student_create_counseling_log'),
+    path('my-page/log/<int:log_id>/', views.student_log_detail, name='student_log_detail'),
+    
     # 시험 응시 프로세스
     path('quiz/<int:quiz_id>/request/', views.request_quiz, name='request_quiz'),
     path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'),
@@ -43,6 +47,7 @@ urlpatterns = [
     # 3. 면담 및 평가
     path('manager/interview/<int:profile_id>/', views.manage_interviews, name='manage_interviews'),
     path('manager/log/<int:profile_id>/', views.manage_student_logs, name='manage_student_logs'),
+    path('manager/log/create/<int:profile_id>/', views.manager_create_counseling_log, name='manager_create_counseling_log'),
     path('manager/evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
 
     # 4. 액션 (AJAX)
@@ -60,16 +65,22 @@ urlpatterns = [
     path('manager/quiz/<int:quiz_id>/update/', views.quiz_update, name='quiz_update'),
     path('manager/quiz/<int:quiz_id>/delete/', views.quiz_delete, name='quiz_delete'),
     
-    # 7. 문제(Question) 관리
+    # 7. 문제(Question) 관리 [하이브리드 방식 적용]
     path('manager/quiz/<int:quiz_id>/questions/', views.question_list, name='question_list'),
+    path('manager/quiz/action/add-question/', views.add_question_to_quiz, name='add_question_to_quiz'),      # [신규]
+    path('manager/quiz/action/remove-question/', views.remove_question_from_quiz, name='remove_question_from_quiz'), # [신규]
+
     path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
     path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
     path('manager/question/<int:question_id>/delete/', views.question_delete, name='question_delete'),
 
-    # 8. 엑셀 업로드
+    # 8. 엑셀 업로드 및 다운로드
     path('manager/quiz/upload-excel/', views.upload_quiz, name='upload_quiz'),
     path('manager/quiz/bulk-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
     path('manager/quiz/bulk-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
+    
+    # [중요] 엑셀 다운로드 (Admin 템플릿과 이름 일치)
+    path('export/student-data/', views.export_student_data, name='export_student_data'),
 
     # 9. 리포트 및 기타
     path('manager/report/pl/', views.pl_report_view, name='pl_report_view'),
@@ -83,7 +94,5 @@ urlpatterns = [
     # (구버전 호환)
     path('quiz/dashboard/', views.dashboard, name='dashboard'),
     path('pl-dashboard/', views.pl_dashboard, name='pl_dashboard'),
-    path('my-page/log/create/', views.student_create_counseling_log, name='student_create_counseling_log'),
-    path('manager/log/create/<int:profile_id>/', views.manager_create_counseling_log, name='manager_create_counseling_log'),
-    path('export/student-data/', views.export_student_data, name='export_student_data'),
+    path('manager/quiz/<int:quiz_id>/manage-questions/', views.quiz_question_manager, name='quiz_question_manager'),
 ]

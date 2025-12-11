@@ -92,28 +92,41 @@ class ProfileForm(forms.ModelForm):
 class ProfileUpdateForm(forms.ModelForm):
     class Meta:
         model = Profile
-        # 수정 가능한 필드만 포함 (기수, 공정, PL 제외)
-        fields = ['name', 'employee_id', 'company', 'line']
+        # 1. 수정 가능한 필드에 'joined_at'(입사일) 추가
+        fields = ['name', 'employee_id', 'company', 'line', 'joined_at']
         
         labels = {
             'name': '이름',
             'employee_id': '사번',
             'company': '소속 회사',
             'line': '라인',
+            'joined_at': '입사일 (교육 시작일)',
         }
         
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
-            'employee_id': forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}), # 사번도 수정 불가 (읽기 전용)
+            'employee_id': forms.TextInput(attrs={'class': 'form-control'}), # readonly 제거 (수정 가능)
             'company': forms.Select(attrs={'class': 'form-select'}),
             'line': forms.TextInput(attrs={'class': 'form-control'}),
+            
+            # [핵심] 연도 점프가 가능한 브라우저 기본 날짜 선택기 사용
+            'joined_at': forms.DateInput(attrs={
+                'class': 'form-control', 
+                'type': 'date'  # 달력 아이콘 생성
+            }),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # 사번 필드에 안내 메시지 추가
-        if 'employee_id' in self.fields:
-            self.fields['employee_id'].help_text = "사번은 수정할 수 없습니다. 관리자에게 문의하세요."
+        
+        # 2. 소속 회사는 수정 불가능하게 설정 (보이기만 하고 비활성)
+        if 'company' in self.fields:
+            self.fields['company'].disabled = True
+            self.fields['company'].help_text = "소속 회사는 수정할 수 없습니다. 관리자에게 문의하세요."
+            
+        # 3. 입사일 안내 문구
+        if 'joined_at' in self.fields:
+            self.fields['joined_at'].help_text = "입사일을 기준으로 연차가 자동 계산됩니다. (정확히 입력해주세요)"
 
 
 class EmailVerificationForm(forms.Form):

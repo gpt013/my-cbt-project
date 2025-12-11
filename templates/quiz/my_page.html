@@ -217,4 +217,40 @@
         </div>
     </div>
 </div>
+<div class="col-md-6">
+    <div class="card h-100 shadow-sm border-0">
+        <div class="card-header bg-white fw-bold py-3">
+            <i class="bi bi-chat-quote-fill text-info me-2"></i> 최근 알림 / 피드백
+        </div>
+        <div class="card-body p-0">
+            {% if latest_evaluations %}
+                <div class="list-group list-group-flush">
+                    {% for log in latest_evaluations %}
+                        <a href="{% url 'quiz:student_log_detail' log.id %}" class="list-group-item list-group-item-action py-3">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="badge rounded-pill 
+                                    {% if log.log_type == 'warning' %}bg-warning text-dark
+                                    {% elif log.log_type == 'warning_letter' %}bg-danger
+                                    {% elif log.log_type == 'counseling' %}bg-success
+                                    {% else %}bg-secondary{% endif %}">
+                                    {{ log.get_log_type_display }}
+                                </span>
+                                <small class="text-muted">{{ log.created_at|date:"m.d H:i" }}</small>
+                            </div>
+                            <p class="mb-0 text-dark small text-truncate">
+                                {{ log.reason }}
+                            </p>
+                            <small class="text-primary mt-1 d-block text-end">자세히 보기 <i class="bi bi-chevron-right"></i></small>
+                        </a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-chat-square-text fs-1 opacity-25"></i>
+                    <p class="mt-2 mb-0">등록된 알림이 없습니다.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
 {% endblock %}

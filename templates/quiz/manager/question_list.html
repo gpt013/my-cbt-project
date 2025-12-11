@@ -6,10 +6,15 @@
             <span class="badge bg-primary mb-2">{{ quiz.get_category_display }}</span>
             <h3 class="fw-bold mb-0">📝 '{{ quiz.title }}' 문제 목록</h3>
         </div>
-        <div>
-            <a href="{% url 'quiz:question_create' quiz.id %}" class="btn btn-success shadow-sm">
+        <div class="d-flex gap-2">
+            <a href="{% url 'quiz:quiz_question_manager' quiz.id %}" class="btn btn-outline-primary shadow-sm fw-bold">
+                <i class="bi bi-bank"></i> 문제 은행에서 가져오기
+            </a>
+
+            <a href="{% url 'quiz:question_create' quiz.id %}" class="btn btn-success shadow-sm fw-bold">
                 <i class="bi bi-plus-lg"></i> 문제 1개 추가
             </a>
+            
             <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary shadow-sm">
                 목록으로
             </a>

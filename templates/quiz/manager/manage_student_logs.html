@@ -60,13 +60,14 @@
                         
                         <div class="mb-3">
                             <label class="form-label fw-bold">기록 유형</label>
-                            {{ form.log_type }} </div>
+                            {{ form.log_type }}
+                        </div>
 
                         <div class="mb-3">
                             <label class="form-label fw-bold">사유 및 내용 <span class="text-danger">*</span></label>
                             {{ form.reason }}
                             <div class="form-text small">
-                                * 육하원칙에 의거하여 구체적인 사유를 작성해주세요.
+                                * 경고 발부 시 <strong>육하원칙</strong>에 의거하여 구체적인 사유를 작성해주세요.
                             </div>
                         </div>
 
@@ -184,15 +185,18 @@
         } else {
             unlockOptions.style.display = 'none';
             // 숨길 때 체크박스 해제 (실수 방지)
-            document.getElementById('resolveCheck').checked = false;
+            const resolveCheck = document.getElementById('resolveCheck');
+            if(resolveCheck) resolveCheck.checked = false;
+            
             const plCheck = document.getElementById('plCheck');
             if(plCheck) plCheck.checked = false;
         }
     }
 
-    logTypeSelect.addEventListener('change', toggleUnlockOptions);
-    
-    // 초기 로드 시 상태 확인
-    toggleUnlockOptions();
+    if(logTypeSelect) {
+        logTypeSelect.addEventListener('change', toggleUnlockOptions);
+        // 초기 로드 시 상태 확인
+        toggleUnlockOptions();
+    }
 </script>
 {% endblock %}

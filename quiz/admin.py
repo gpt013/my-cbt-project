@@ -17,46 +17,32 @@ class ChoiceInline(admin.TabularInline):
         질문 객체(obj)의 유형에 따라 최대 보기/정답 개수를 동적으로 조절합니다.
         """
         if obj:
-            # '주관식 (단일정답)' 유형일 때만
             if obj.question_type == '주관식 (단일정답)':
                 return 1
         return None
 
-class QuestionInline(admin.StackedInline):
-    model = Question
-    extra = 0
-    show_change_link = True
-    inlines = [ChoiceInline]
+# (QuestionInline은 Question이 Quiz에 종속되지 않게 바뀌었으므로 삭제되었습니다. 
+#  대신 QuizAdmin에서 questions M2M 필드로 관리합니다.)
+
 
 # --- 2. 모델별 관리자 화면 클래스 정의 ---
 
 class ExamSheetAdmin(admin.ModelAdmin):
     list_display = ('name', 'quiz', 'question_count')
-    filter_horizontal = ('questions',)
+    # [수정] ExamSheet도 독립적인 문제 구성을 가질 수 있도록 수정
+    filter_horizontal = ('questions',) 
     
-    def get_fieldsets(self, request, obj=None):
-        if obj:
-            return [(None, {'fields': ('quiz', 'name')}), ('문제 선택', {'fields': ('questions',)})]
-        return [(None, {'fields': ('quiz', 'name')})]
-
-    def formfield_for_manytomany(self, db_field, request, **kwargs):
-        if db_field.name == "questions":
-            obj_id = request.resolver_match.kwargs.get('object_id')
-            if obj_id:
-                exam_sheet = self.get_object(request, obj_id)
-                kwargs["queryset"] = Question.objects.filter(quiz=exam_sheet.quiz)
-            else:
-                kwargs["queryset"] = Question.objects.none()
-        return super().formfield_for_manytomany(db_field, request, **kwargs)
-
     def question_count(self, obj):
         return obj.questions.count()
     question_count.short_description = '문제 개수'
 
+
 class QuizAdmin(admin.ModelAdmin):
-    list_display = ('title', 'category', 'generation_method', 'question_count')
-    list_filter = ('generation_method', 'category') 
-    filter_horizontal = ('allowed_groups', 'allowed_users', 'required_tags')
+    list_display = ('title', 'category', 'generation_method', 'associated_process', 'question_count')
+    list_filter = ('generation_method', 'category', 'associated_process') 
+    
+    # [핵심] questions(문제은행), required_tags, allowed_xxx 등 M2M 필드 관리
+    filter_horizontal = ('questions', 'required_tags', 'allowed_groups', 'allowed_users')
     
     fieldsets = (
         ('기본 정보', {
@@ -67,60 +53,57 @@ class QuizAdmin(admin.ModelAdmin):
             'description': '그룹에 속해있거나, 개별 인원으로 지정된 사람은 시험을 볼 수 있습니다.'
         }),
         ('문제 출제 설정', {
-            'fields': ('generation_method', 'exam_sheet', 'required_tags'),
-            'description': "출제 방식에 따라 '문제 세트' 또는 '출제 포함 태그'를 선택해주세요."
+            'fields': ('generation_method', 'required_tags', 'questions'),
+            'description': "랜덤 출제 시 '태그', 지정 출제 시 '포함된 문제들(Questions)'을 선택하세요."
         }),
     )
     
-    class Media:
-        js = (
-            'admin/js/quiz_admin.js', # (이건 기존에 있던 파일이면 유지)
-            'admin/js/quiz_form.js',  # [추가] 방금 만든 동적 화면 제어 스크립트
-        )
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "exam_sheet":
-            obj_id = request.resolver_match.kwargs.get('object_id')
-            if obj_id:
-                kwargs["queryset"] = ExamSheet.objects.filter(quiz_id=obj_id)
-            else:
-                kwargs["queryset"] = ExamSheet.objects.none()
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    # 구버전 ExamSheet 호환 (필요 시 주석 해제)
+    # def formfield_for_foreignkey ... (생략: 새 구조에서는 questions M2M 직접 사용 권장)
 
     def question_count(self, obj):
-        return obj.question_set.count()
-    question_count.short_description = '문제 개수'
+        # M2M 필드 카운트
+        return obj.questions.count()
+    question_count.short_description = '지정 문제 수'
+
 
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ('question_text', 'quiz', 'question_type', 'difficulty')
-    list_filter = ('quiz', 'question_type', 'difficulty', 'tags')
+    # [수정] 'quiz' 필드가 삭제되었으므로 list_display 및 list_filter에서 제거
+    list_display = ('question_text', 'question_type', 'difficulty', 'created_at')
+    list_filter = ('question_type', 'difficulty', 'tags')
     inlines = [ChoiceInline]
     filter_horizontal = ('tags',)
     search_fields = ('question_text',)
 
+
 class TagAdmin(admin.ModelAdmin):
-    list_display = ('view_questions_link', 'question_count')
+    list_display = ('name', 'view_questions_link', 'question_count')
     
     def view_questions_link(self, obj):
+        # 태그 클릭 시 해당 태그를 가진 문제 목록으로 이동
         url = reverse('admin:quiz_question_changelist') + f'?tags__id__exact={obj.id}'
         return format_html('<a href="{}">{}</a>', url, obj.name)
-    view_questions_link.short_description = '태그 이름 (클릭하여 문제 보기)'
+    view_questions_link.short_description = '태그 이름 (필터링)'
 
     def question_count(self, obj):
         return obj.question_set.count()
     question_count.short_description = '연결된 문제 개수'
 
-@admin.action(description='선택된 요청을 승인함')
+
+# --- 3. 커스텀 액션 ---
+
+@admin.action(description='✅ 선택된 요청 승인 및 알림 발송')
 def approve_attempts(modeladmin, request, queryset):
     queryset_to_approve = queryset.filter(status='대기중')
+    count = queryset_to_approve.count()
     queryset_to_approve.update(status='승인됨')
     
+    # 채널스(Websocket) 알림 발송
     channel_layer = get_channel_layer()
     if channel_layer:
         for attempt in queryset_to_approve:
             user_id = attempt.user.id
             quiz_title = attempt.quiz.title
-            
             async_to_sync(channel_layer.group_send)(
                 f'user_{user_id}',
                 {
@@ -128,13 +111,14 @@ def approve_attempts(modeladmin, request, queryset):
                     'message': f"'{quiz_title}' 시험 응시가 승인되었습니다! 지금 바로 시작할 수 있습니다."
                 }
             )
+    modeladmin.message_user(request, f"{count}건의 요청을 승인했습니다.")
+
 
 class QuizAttemptAdmin(admin.ModelAdmin):
     list_display = ('get_user', 'get_quiz', 'attempt_number', 'status', 'get_requested_at')
     
-    # --- [핵심 수정] class_number -> cohort ---
+    # [핵심] 필터링 (기수, 공정, 상태 등)
     list_filter = ('status', 'quiz', 'user', 'user__profile__cohort', 'user__profile__process')
-    # -----------------------------------------
     
     list_editable = ('status',)
     actions = [approve_attempts]
@@ -142,7 +126,7 @@ class QuizAttemptAdmin(admin.ModelAdmin):
 
     @admin.display(description='교육생', ordering='user__username')
     def get_user(self, obj):
-        return obj.user.username
+        return f"{obj.user.profile.name} ({obj.user.username})"
 
     @admin.display(description='퀴즈 제목', ordering='quiz__title')
     def get_quiz(self, obj):
@@ -157,40 +141,30 @@ class QuizAttemptAdmin(admin.ModelAdmin):
             return [field.name for field in obj._meta.fields]
         return []
 
+
 class TestResultAdmin(admin.ModelAdmin):
-    # 1. [수정] 목록에 '이름', '기수', '공정'이 바로 보이도록 칼럼 추가
     list_display = ('get_user_name', 'get_cohort', 'get_process', 'get_quiz', 'score', 'is_pass', 'get_completed_at')
-    
-    # 2. [수정] 필터 기능 (오른쪽 사이드바에서 클릭해서 모아보기)
     list_filter = ('is_pass', 'quiz', 'user__profile__cohort', 'user__profile__process')
     
-    # 3. [수정] 검색 기능 강화 (이름, 사번, 기수명, 공정명으로 검색 가능)
     search_fields = (
-        'user__username',               # 아이디
-        'user__profile__name',          # 실명
-        'user__profile__employee_id',   # 사번
-        'user__profile__cohort__name',  # 기수 이름 (예: 1기)
-        'user__profile__process__name'  # 공정 이름 (예: 용접)
+        'user__username',             # 아이디
+        'user__profile__name',        # 실명
+        'user__profile__employee_id', # 사번
+        'user__profile__cohort__name',
+        'user__profile__process__name'
     )
-
-    # --- 아래는 화면 표시를 위한 함수들입니다 ---
 
     @admin.display(description='이름', ordering='user__profile__name')
     def get_user_name(self, obj):
-        # 프로필이 있으면 실명을, 없으면 아이디를 표시
         return obj.user.profile.name if hasattr(obj.user, 'profile') else obj.user.username
 
     @admin.display(description='기수', ordering='user__profile__cohort__name')
     def get_cohort(self, obj):
-        if hasattr(obj.user, 'profile') and obj.user.profile.cohort:
-            return obj.user.profile.cohort.name
-        return '-'
+        return obj.user.profile.cohort.name if hasattr(obj.user, 'profile') and obj.user.profile.cohort else '-'
 
     @admin.display(description='공정', ordering='user__profile__process__name')
     def get_process(self, obj):
-        if hasattr(obj.user, 'profile') and obj.user.profile.process:
-            return obj.user.profile.process.name
-        return '-'
+        return obj.user.profile.process.name if hasattr(obj.user, 'profile') and obj.user.profile.process else '-'
 
     @admin.display(description='퀴즈 제목', ordering='quiz__title')
     def get_quiz(self, obj):
@@ -200,23 +174,22 @@ class TestResultAdmin(admin.ModelAdmin):
     def get_completed_at(self, obj):
         return obj.completed_at.strftime('%Y-%m-%d %H:%M')
 
+
 class UserAnswerAdmin(admin.ModelAdmin):
     list_display = ('get_question_text', 'get_user', 'is_correct')
-    
-    # --- [핵심 수정] class_number -> cohort ---
-    list_filter = ('is_correct', 'test_result__quiz', 'test_result__user', 'test_result__user__profile__cohort', 'test_result__user__profile__process')
-    # -----------------------------------------
-    
+    list_filter = ('is_correct', 'test_result__quiz', 'test_result__user__profile__cohort', 'test_result__user__profile__process')
     search_fields = ('test_result__user__username', 'test_result__user__profile__name', 'question__question_text')
 
     @admin.display(description='문제', ordering='question__question_text')
     def get_question_text(self, obj):
-        return obj.question.question_text
+        return obj.question.question_text[:50]
+    
     @admin.display(description='교육생', ordering='test_result__user__username')
     def get_user(self, obj):
         return obj.test_result.user.username
 
-# --- 3. 최종 등록 ---
+
+# --- 4. 최종 등록 ---
 admin.site.register(Quiz, QuizAdmin)
 admin.site.register(Question, QuestionAdmin)
 admin.site.register(Tag, TagAdmin)

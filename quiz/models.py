@@ -2,7 +2,9 @@ from django.db import models
 from django.contrib.auth.models import User, Group
 from accounts.models import Process
 
-# Tag 모델 (Question보다 먼저 정의)
+# ------------------------------------------------------------------
+# 1. 태그 모델 (문제 분류용)
+# ------------------------------------------------------------------
 class Tag(models.Model):
     name = models.CharField(max_length=50, unique=True, verbose_name='태그 이름')
 
@@ -13,75 +15,10 @@ class Tag(models.Model):
     def __str__(self):
         return self.name
 
-# Quiz(시험지) 모델
-class Quiz(models.Model):
-    class Category(models.TextChoices):
-        COMMON = '공통', '공통 (모든 교육생에게 표시)'
-        PROCESS = '공정', '공정 (해당 공정 교육생에게 우선 표시)'
 
-    # --- [수정] 출제 방식에 '태그 랜덤' 추가 ---
-    class GenerationMethod(models.TextChoices):
-        RANDOM = '랜덤', '난이도별 랜덤 출제 (기본)'
-        FIXED = '지정', '지정 문제 세트 출제'
-        TAG_RANDOM = '태그', '태그 조합 랜덤 출제' # [신규]
-
-    title = models.CharField(max_length=200, verbose_name="퀴즈 제목")
-    
-    # 1. [기존] 그룹별 권한
-    allowed_groups = models.ManyToManyField(Group, blank=True, verbose_name='응시 가능 그룹')
-    
-    # 2. [신규] 개인별 권한 (특정 인원만 시험 지정 가능)
-    allowed_users = models.ManyToManyField(
-        User, 
-        blank=True, 
-        verbose_name="개별 응시 허용 인원",
-        help_text="특정 인원에게만 이 시험을 지정하고 싶을 때 선택하세요."
-    )
-
-    # 3. [신규] 태그 기반 출제용 태그 선택
-    required_tags = models.ManyToManyField(
-        Tag, 
-        blank=True, 
-        verbose_name="출제 포함 태그",
-        help_text="출제 방식이 '태그 조합'일 때, 선택한 태그가 포함된 문제들 중에서만 출제됩니다."
-    )
-    
-    category = models.CharField(
-        max_length=10,
-        choices=Category.choices,
-        default=Category.COMMON,
-        verbose_name="퀴즈 분류"
-    )
-    associated_process = models.ForeignKey(
-        Process,
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        verbose_name="관련 공정",
-        help_text="퀴즈 분류가 '공정'인 경우에만 선택해주세요."
-    )
-
-    generation_method = models.CharField(
-        max_length=10, 
-        choices=GenerationMethod.choices, 
-        default=GenerationMethod.RANDOM,
-        verbose_name="문제 출제 방식"
-    )
-    exam_sheet = models.ForeignKey(
-        'ExamSheet',
-        on_delete=models.SET_NULL, 
-        null=True, blank=True, 
-        verbose_name="선택된 문제 세트",
-        related_name='+' 
-    )
-
-    class Meta:
-        verbose_name = '퀴즈'
-        verbose_name_plural = '퀴즈'
-
-    def __str__(self):
-        return self.title
-
-# Question(문제) 모델
+# ------------------------------------------------------------------
+# 2. 문제(Question) 모델 - [핵심 수정: 독립된 문제 은행]
+# ------------------------------------------------------------------
 class Question(models.Model):
     class QuestionType(models.TextChoices):
         SINGLE_CHOICE = '객관식'
@@ -94,14 +31,15 @@ class Question(models.Model):
         MEDIUM = '중'
         HARD = '상'
 
+    # [삭제됨] quiz = models.ForeignKey(...) <- 이제 문제는 특정 시험에 종속되지 않음!
+    
+    question_text = models.TextField(verbose_name="문제 내용")
     question_type = models.CharField(
         max_length=20,
         choices=QuestionType.choices,
         default=QuestionType.SINGLE_CHOICE,
         verbose_name="문제 유형"
     )
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
-    question_text = models.TextField(verbose_name="문제 내용")
     difficulty = models.CharField(
         max_length=2,
         choices=Difficulty.choices,
@@ -114,31 +52,24 @@ class Question(models.Model):
         verbose_name="이미지"
     )
     tags = models.ManyToManyField(Tag, blank=True, verbose_name='태그')
+    
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = '문제'
-        verbose_name_plural = '문제'
+        verbose_name = '문제 (Question Bank)'
+        verbose_name_plural = '문제 (Question Bank)'
 
     def __str__(self):
         if len(self.question_text) > 50:
             return self.question_text[:50] + "..."
         return self.question_text
 
-class ExamSheet(models.Model):
-    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, verbose_name="관련 퀴즈")
-    name = models.CharField(max_length=100, verbose_name="문제 세트 이름")
-    questions = models.ManyToManyField('Question', verbose_name="포함된 문제들")
 
-    class Meta:
-        verbose_name = '문제 세트'
-        verbose_name_plural = '퀴즈 관리 / 5. 문제 세트'
-
-    def __str__(self):
-        return f"{self.quiz.title} - {self.name}"
-
-# Choice(보기) 모델
+# ------------------------------------------------------------------
+# 3. 보기(Choice) 모델
+# ------------------------------------------------------------------
 class Choice(models.Model):
-    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choice_set')
     choice_text = models.CharField(max_length=200, blank=True)
     is_correct = models.BooleanField(default=False)
     image = models.ImageField(upload_to='choice_images/', blank=True, null=True)
@@ -150,7 +81,85 @@ class Choice(models.Model):
     def __str__(self):
         return self.choice_text
 
-# 시험 응시 요청을 기록하는 모델
+
+# ------------------------------------------------------------------
+# 4. 시험지 세트 (ExamSheet) - [하위 호환성 유지]
+# ------------------------------------------------------------------
+class ExamSheet(models.Model):
+    # Quiz가 아직 정의되지 않았으므로 문자열 참조 'Quiz' 사용
+    quiz = models.ForeignKey('Quiz', on_delete=models.CASCADE, verbose_name="관련 퀴즈")
+    name = models.CharField(max_length=100, verbose_name="문제 세트 이름")
+    questions = models.ManyToManyField(Question, verbose_name="포함된 문제들")
+
+    class Meta:
+        verbose_name = '문제 세트'
+        verbose_name_plural = '퀴즈 관리 / 5. 문제 세트'
+
+    def __str__(self):
+        return f"{self.quiz.title} - {self.name}"
+
+
+# ------------------------------------------------------------------
+# 5. 퀴즈(Quiz) 모델 - [핵심 수정: M2M 필드 추가]
+# ------------------------------------------------------------------
+class Quiz(models.Model):
+    class Category(models.TextChoices):
+        COMMON = '공통', '공통 (모든 교육생에게 표시)'
+        PROCESS = '공정', '공정 (해당 공정 교육생에게 우선 표시)'
+
+    class GenerationMethod(models.TextChoices):
+        RANDOM = '랜덤', '난이도별 랜덤 출제 (기본)'
+        FIXED = '지정', '지정 문제 세트 출제' # [수정] ExamSheet 대신 questions M2M 사용
+        TAG_RANDOM = '태그', '태그 조합 랜덤 출제'
+
+    title = models.CharField(max_length=200, verbose_name="퀴즈 제목")
+    
+    # 1. 권한 설정
+    allowed_groups = models.ManyToManyField(Group, blank=True, verbose_name='응시 가능 그룹')
+    allowed_users = models.ManyToManyField(
+        User, blank=True, verbose_name="개별 응시 허용 인원", related_name='allowed_quizzes'
+    )
+
+    # 2. 분류 및 방식
+    category = models.CharField(
+        max_length=10, choices=Category.choices, default=Category.COMMON, verbose_name="퀴즈 분류"
+    )
+    associated_process = models.ForeignKey(
+        Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="관련 공정"
+    )
+    generation_method = models.CharField(
+        max_length=10, choices=GenerationMethod.choices, default=GenerationMethod.RANDOM, verbose_name="문제 출제 방식"
+    )
+
+    # [핵심 추가] 문제 은행 연결 (다대다 관계) -> 하이브리드 방식 구현의 핵심
+    questions = models.ManyToManyField(
+        Question, blank=True, related_name='quizzes', verbose_name="포함된 문제들 (지정 방식용)"
+    )
+
+    # 태그 방식용
+    required_tags = models.ManyToManyField(
+        Tag, blank=True, verbose_name="출제 포함 태그"
+    )
+    
+    # (구버전 호환용) ExamSheet 연결 - 필요 없다면 나중에 삭제 가능
+    exam_sheet = models.ForeignKey(
+        ExamSheet, on_delete=models.SET_NULL, null=True, blank=True, 
+        verbose_name="선택된 문제 세트 (구버전)", related_name='+' 
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = '퀴즈'
+        verbose_name_plural = '퀴즈'
+
+    def __str__(self):
+        return self.title
+
+
+# ------------------------------------------------------------------
+# 6. 응시 기록 (QuizAttempt)
+# ------------------------------------------------------------------
 class QuizAttempt(models.Model):
     class Status(models.TextChoices):
         PENDING = '대기중'
@@ -170,10 +179,7 @@ class QuizAttempt(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk is None:
-            previous_attempts = QuizAttempt.objects.filter(
-                user=self.user, 
-                quiz=self.quiz
-            ).count()
+            previous_attempts = QuizAttempt.objects.filter(user=self.user, quiz=self.quiz).count()
             self.attempt_number = previous_attempts + 1
         super().save(*args, **kwargs)
 
@@ -184,7 +190,10 @@ class QuizAttempt(models.Model):
     def __str__(self):
         return f"{self.user.username}의 '{self.quiz.title}' {self.attempt_number}차 요청 ({self.status})"
 
-# 전체 시험 결과 한 건을 저장하는 모델
+
+# ------------------------------------------------------------------
+# 7. 시험 결과 (TestResult)
+# ------------------------------------------------------------------
 class TestResult(models.Model):
     attempt = models.ForeignKey(QuizAttempt, on_delete=models.CASCADE, null=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -196,10 +205,7 @@ class TestResult(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk is None:
-            previous_attempts = TestResult.objects.filter(
-                user=self.user, 
-                quiz=self.quiz
-            ).count()
+            previous_attempts = TestResult.objects.filter(user=self.user, quiz=self.quiz).count()
             self.attempt_number = previous_attempts + 1
         super().save(*args, **kwargs)
 
@@ -210,7 +216,10 @@ class TestResult(models.Model):
     def __str__(self):
         return f"{self.user.username}의 '{self.quiz.title}' {self.attempt_number}차 ({self.completed_at.strftime('%Y-%m-%d %H:%M')}, {self.score}점)"
 
-# 각 문제에 대한 사용자의 답변을 저장하는 모델
+
+# ------------------------------------------------------------------
+# 8. 사용자 답변 (UserAnswer)
+# ------------------------------------------------------------------
 class UserAnswer(models.Model):
     test_result = models.ForeignKey(TestResult, on_delete=models.CASCADE)
     question = models.ForeignKey(Question, on_delete=models.CASCADE)
@@ -223,4 +232,5 @@ class UserAnswer(models.Model):
         verbose_name_plural = '사용자 답변'
         
     def __str__(self):
-        return f"{self.question.question_text} -> {self.selected_choice.choice_text if self.selected_choice else self.short_answer_text}"
+        answer = self.selected_choice.choice_text if self.selected_choice else self.short_answer_text
+        return f"{self.question.question_text} -> {answer}"
