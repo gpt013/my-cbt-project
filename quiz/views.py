@@ -3064,3 +3064,31 @@ def remove_question_from_quiz(request):
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+    
+@login_required
+def my_notifications(request):
+    """
+    교육생 전용 알림/피드백 전체 목록 페이지
+    """
+    profile = request.user.profile
+    
+    # 필터링
+    filter_type = request.GET.get('type', '')
+    
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
+    
+    if filter_type:
+        logs = logs.filter(log_type=filter_type)
+        
+    # 페이지네이션 (10개씩)
+    paginator = Paginator(logs, 10)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    
+    # 읽지 않은 알림 개수 (예시 로직)
+    # unread_count = logs.filter(is_read=False).count() 
+
+    return render(request, 'quiz/my_notifications.html', {
+        'page_obj': page_obj,
+        'filter_type': filter_type,
+        'log_types': StudentLog.LOG_TYPES,
+    })

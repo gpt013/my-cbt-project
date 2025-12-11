@@ -95,4 +95,5 @@ urlpatterns = [
     path('quiz/dashboard/', views.dashboard, name='dashboard'),
     path('pl-dashboard/', views.pl_dashboard, name='pl_dashboard'),
     path('manager/quiz/<int:quiz_id>/manage-questions/', views.quiz_question_manager, name='quiz_question_manager'),
+    path('my-page/notifications/', views.my_notifications, name='my_notifications'),
 ]
