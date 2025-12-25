@@ -85,6 +85,7 @@ urlpatterns = [
     # 9. 리포트 및 기타
     path('manager/report/pl/', views.pl_report_view, name='pl_report_view'),
     path('pl-dashboard/detail/<int:profile_id>/', views.pl_trainee_detail, name='pl_trainee_detail'),
+    path('manager/full-data-view/', views.admin_full_data_view, name='admin_full_data_view'),
     
     # [복구됨] 공정 열람 권한 요청 (기존 대시보드 호환용)
     path('request-access/', views.request_process_access, name='request_process_access'),

@@ -7,26 +7,34 @@
     <div class="d-flex justify-content-between align-items-center mt-4 mb-4">
         <h1 class="fw-bold mb-0">📊 통합 분석 대시보드</h1>
         
-        <div class="d-flex gap-2">
+        <div class="d-flex align-items-center gap-2">
             {% if user.is_superuser %}
                 <a href="{% url 'quiz:manage_access_requests' %}" class="btn btn-warning shadow-sm position-relative">
-        <i class="bi bi-shield-lock-fill"></i> 👑 권한 요청 관리
-        
-        {% if pending_requests_count > 0 %}
-            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                {{ pending_requests_count }}
-                <span class="visually-hidden">unread messages</span>
-            </span>
-        {% endif %}
-    </a>
+                    <i class="bi bi-shield-lock-fill"></i> 👑 권한 요청 관리
+                    {% if pending_requests_count > 0 %}
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                            {{ pending_requests_count }}
+                            <span class="visually-hidden">unread messages</span>
+                        </span>
+                    {% endif %}
+                </a>
             {% else %}
                 <button type="button" class="btn btn-outline-secondary shadow-sm" data-bs-toggle="modal" data-bs-target="#requestAccessModal">
                     <i class="bi bi-lock-fill"></i> 타 공정 조회 요청
                 </button>
             {% endif %}
 
-            <button type="button" class="btn btn-success shadow-sm" data-bs-toggle="modal" data-bs-target="#downloadModal">
-                <i class="bi bi-file-earmark-excel-fill"></i> 엑셀 다운로드
+            <div class="vr mx-2"></div> {% if user.is_superuser %}
+                <select id="admin_download_select" class="form-select" style="width: 180px;">
+                    <option value="ALL">🌍 전체 데이터</option>
+                    {% for p in processes %}
+                        <option value="{{ p.id }}">{{ p.name }}</option>
+                    {% endfor %}
+                </select>
+            {% endif %}
+
+            <button type="button" class="btn btn-success" onclick="downloadExcel()">
+                <i class="fas fa-file-excel"></i> 엑셀 다운로드
             </button>
         </div>
     </div>
@@ -232,25 +240,23 @@
                                 {{ item.wrong }} / {{ item.total }}
                             </td>
                             <td class="text-center">
-    <div class="progress" style="height: 20px;">
-        <div class="progress-bar bg-danger" role="progressbar" style="width: {{ item.rate }}%;" 
-             aria-valuenow="{{ item.rate }}" aria-valuemin="0" aria-valuemax="100">
-            {{ item.rate }}%
-        </div>
-    </div>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar bg-danger" role="progressbar" style="width: {{ item.rate }}%;" 
+                                         aria-valuenow="{{ item.rate }}" aria-valuemin="0" aria-valuemax="100">
+                                        {{ item.rate }}%
+                                    </div>
+                                </div>
 
-    {% if item.suggestion %}
-        <div class="mt-1">
-            <span class="badge 
-                {% if '하향' in item.suggestion %}bg-info text-dark
-                {% else %}bg-secondary{% endif %} 
-                text-wrap" style="font-size:0.7em;">
-                {{ item.suggestion }}
-            </span>
-        </div>
-    {% endif %}
-    </td>
-
+                                {% if item.suggestion %}
+                                    <div class="mt-1">
+                                        <span class="badge 
+                                            {% if '하향' in item.suggestion %}bg-info text-dark
+                                            {% else %}bg-secondary{% endif %} 
+                                            text-wrap" style="font-size:0.7em;">
+                                            {{ item.suggestion }}
+                                        </span>
+                                    </div>
+                                {% endif %}
                                 {% if item.difficulty == '상' and item.rate < 30 %}
                                     <div class="mt-1">
                                         <span class="badge bg-info text-dark text-wrap" style="font-size:0.7em;">
@@ -325,67 +331,6 @@
     </div>
 </div>
 
-<div class="modal fade" id="downloadModal" tabindex="-1">
-    <div class="modal-body">
-        <div class="alert alert-info">
-            <i class="bi bi-envelope-paper-fill"></i> <strong>안내:</strong><br>
-            보안을 위해 파일은 <strong>본인 이메일로 전송</strong>됩니다.<br>
-            (타 공정 요청 시, 메일 발송과 동시에 승인 권한이 차감됩니다.)
-        </div>
-        </div>
-    <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-        <button type="submit" class="btn btn-primary">
-            <i class="bi bi-send-fill"></i> 이메일로 받기
-        </button>
-    </div>
-    </div>
-                <div class="modal-body">
-                    <div class="alert alert-warning">
-                        <i class="bi bi-exclamation-triangle"></i> <strong>주의:</strong><br>
-                        타 공정 데이터 다운로드 시, <strong>승인된 권한이 즉시 소멸(1회 차감)</strong>됩니다.<br>
-                        다시 다운로드하려면 재요청해야 합니다.
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label class="form-label fw-bold">다운로드할 공정 선택</label>
-                        <select name="process_id" class="form-select">
-                            
-                            {% if user.is_superuser %}
-                                <option value="" class="fw-bold">🌍 전체 데이터 다운로드 (모든 공정)</option>
-                                <option disabled>──────────</option>
-                            {% endif %}
-                            {% if user.profile.process %}
-                                <option value="{{ user.profile.process.id }}" selected>
-                                    🟦 내 공정 ({{ user.profile.process.name }}) - 무제한
-                                </option>
-                            {% endif %}
-                            
-                            {% for req in user.access_requests.all %}
-                                {% if req.status == 'approved' %}
-                                    {% if req.target_process == None %}
-                                        <option value="ALL" class="fw-bold text-danger">
-                                            🎫 [1회용] 🌍 전체 데이터 (승인됨)
-                                        </option>
-                                    {% else %}
-                                        <option value="{{ req.target_process.id }}">
-                                            🎫 [1회용] {{ req.target_process.name }} (승인됨)
-                                        </option>
-                                    {% endif %}
-                                {% endif %}
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-                    <button type="submit" class="btn btn-success">다운로드 시작</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
 <div class="modal fade" id="analysisModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -417,6 +362,25 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
+    // [신규] 엑셀 다운로드 처리 함수
+    function downloadExcel() {
+        let processId = ''; // 기본값 (매니저는 공란 -> 본인 공정)
+
+        // 관리자용 드롭다운 확인
+        const adminSelect = document.getElementById('admin_download_select');
+        if (adminSelect) {
+            processId = adminSelect.value;
+        }
+
+        // 다운로드 URL로 이동 (자동 다운로드)
+        // 백엔드의 export_student_data 함수 호출
+        const baseUrl = "{% url 'quiz:export_student_data' %}";
+        const finalUrl = baseUrl + "?process_id=" + processId;
+        
+        // 페이지 이동 (브라우저가 파일 다운로드 처리)
+        location.href = finalUrl;
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         
         // [색상 팔레트]

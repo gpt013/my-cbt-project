@@ -1,0 +1,181 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6 col-lg-5">
+            <div class="card shadow-lg border-0 rounded-4">
+                <div class="card-header bg-primary text-white text-center py-4 rounded-top-4">
+                    <h4 class="mb-0 fw-bold"><i class="bi bi-geo-alt-fill"></i> 스마트 출근 인증</h4>
+                    <p class="mb-0 small opacity-75">위치 기반 + 보안(MDM) 자동 인증</p>
+                </div>
+                <div class="card-body p-5 text-center">
+                    
+                    <div id="statusIcon" class="mb-4">
+                        <div class="bg-light rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 100px; height: 100px;">
+                            <i class="bi bi-shield-lock-fill text-secondary" style="font-size: 3rem;"></i>
+                        </div>
+                    </div>
+                    
+                    <h5 class="fw-bold mb-3">출근 인증을 시작합니다</h5>
+                    <p class="text-muted small mb-4">
+                        회사(평택 캠퍼스) 내에서<br>
+                        보안 앱(MDM)이 켜진 상태로 버튼을 눌러주세요.
+                    </p>
+
+                    <button id="btnCheck" class="btn btn-primary btn-lg w-100 fw-bold rounded-pill py-3 shadow-sm" onclick="startVerification()">
+                        <i class="bi bi-fingerprint"></i> 출근 인증하기
+                    </button>
+                    
+                    <div id="resultMessage" class="mt-4 fw-bold small"></div>
+
+                    <div class="mt-4 pt-3 border-top text-start">
+                        <p class="text-muted small mb-1"><i class="bi bi-info-circle me-1"></i> <b>위치 인증:</b> 회사 반경 300m 이내</p>
+                        <p class="text-muted small mb-0"><i class="bi bi-camera-video-off me-1"></i> <b>보안 인증:</b> 카메라 차단 확인</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 1. 회사 좌표 설정 (삼성전자 평택캠퍼스 기준)
+    const COMPANY_LAT = 37.0295; 
+    const COMPANY_LNG = 127.0423;
+    const ALLOWED_RADIUS_METER = 300; // 허용 반경 (m)
+
+    function startVerification() {
+        const btn = document.getElementById('btnCheck');
+        const msg = document.getElementById('resultMessage');
+        
+        // 버튼 비활성화 및 로딩 표시
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span> 확인 중...';
+        msg.innerHTML = "📡 위치 및 보안 상태를 확인하고 있습니다...";
+        msg.className = "mt-4 text-primary fw-bold small";
+
+        // [단계 1] GPS 위치 확인
+        if (!navigator.geolocation) {
+            failAuth("이 브라우저는 위치 정보를 지원하지 않습니다.");
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const userLat = position.coords.latitude;
+                const userLng = position.coords.longitude;
+                
+                // 거리 계산
+                const distance = getDistanceFromLatLonInKm(COMPANY_LAT, COMPANY_LNG, userLat, userLng) * 1000;
+                console.log(`현재 위치와의 거리: ${distance.toFixed(2)}m`);
+
+                if (distance <= ALLOWED_RADIUS_METER) {
+                    // 위치 통과 -> [단계 2] MDM 확인 (카메라 차단 여부 체크)
+                    msg.innerHTML = "📍 위치 확인 완료! 보안 앱(MDM) 상태를 확인합니다...";
+                    checkCameraBlocked();
+                } else {
+                    failAuth(`회사 반경을 벗어났습니다.<br>(현재 거리: ${distance.toFixed(0)}m / 허용: ${ALLOWED_RADIUS_METER}m)`);
+                }
+            },
+            (error) => {
+                let errorMsg = "위치 정보를 가져올 수 없습니다.";
+                if(error.code == 1) errorMsg = "위치 정보 권한을 허용해주세요.";
+                else if(error.code == 2) errorMsg = "위치 정보를 사용할 수 없습니다 (GPS 켜짐 확인).";
+                else if(error.code == 3) errorMsg = "위치 확인 시간이 초과되었습니다.";
+                failAuth(errorMsg);
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+    }
+
+    // [단계 2] 카메라 권한 요청을 통해 MDM 작동 여부 확인
+    function checkCameraBlocked() {
+        navigator.mediaDevices.getUserMedia({ video: true })
+        .then(function(stream) {
+            // 카메라가 켜지면 -> 보안 앱 미작동(차단 안됨) -> 출근 불가 ❌
+            stream.getTracks().forEach(track => track.stop()); // 카메라 끄기
+            failAuth("⛔ 보안 앱(MDM)이 작동하지 않고 있습니다.<br>카메라가 차단되어야 출근이 가능합니다.");
+        })
+        .catch(function(err) {
+            // 카메라 에러(권한 거부/차단됨) -> 보안 앱 작동 중 -> 출근 가능 ✅
+            // (MDM이 카메라를 막고 있으면 이쪽으로 들어옵니다)
+            successAuth();
+        });
+    }
+
+    // [단계 3] 서버로 출근 기록 전송
+    function successAuth() {
+        const msg = document.getElementById('resultMessage');
+        msg.innerHTML = "🚀 인증 성공! 서버에 기록 중입니다...";
+
+        fetch("{% url 'attendance:process_attendance' %}", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": "{{ csrf_token }}",
+                "Content-Type": "application/json"
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            const btn = document.getElementById('btnCheck');
+            
+            if (data.status === 'success') {
+                msg.innerHTML = "✅ " + data.message;
+                msg.className = "mt-4 text-success fw-bold small";
+                
+                btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> 출근 완료';
+                btn.className = "btn btn-success btn-lg w-100 fw-bold rounded-pill py-3 shadow-sm";
+                
+                // 성공 아이콘 변경
+                document.getElementById('statusIcon').innerHTML = `
+                    <div class="bg-success bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 100px; height: 100px;">
+                        <i class="bi bi-check-lg text-success" style="font-size: 3rem;"></i>
+                    </div>
+                `;
+            } else {
+                failAuth(data.message);
+            }
+        })
+        .catch(err => failAuth("서버 통신 오류가 발생했습니다."));
+    }
+
+    function failAuth(message) {
+        const btn = document.getElementById('btnCheck');
+        const msg = document.getElementById('resultMessage');
+        
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 다시 시도';
+        btn.className = "btn btn-secondary btn-lg w-100 fw-bold rounded-pill py-3 shadow-sm";
+        
+        msg.innerHTML = "❌ " + message;
+        msg.className = "mt-4 text-danger fw-bold small";
+
+        // 실패 아이콘 변경
+        document.getElementById('statusIcon').innerHTML = `
+            <div class="bg-danger bg-opacity-10 rounded-circle d-inline-flex align-items-center justify-content-center" style="width: 100px; height: 100px;">
+                <i class="bi bi-x-lg text-danger" style="font-size: 3rem;"></i>
+            </div>
+        `;
+    }
+
+    // 거리 계산 함수 (Haversine Formula)
+    function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+        var R = 6371; // Earth radius in km
+        var dLat = deg2rad(lat2 - lat1);
+        var dLon = deg2rad(lon2 - lon1);
+        var a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        var d = R * c; // Distance in km
+        return d;
+    }
+
+    function deg2rad(deg) {
+        return deg * (Math.PI / 180);
+    }
+</script>
+{% endblock %}

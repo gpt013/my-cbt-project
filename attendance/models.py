@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from accounts.models import Profile
+from django.utils import timezone
 
 # ▼▼▼ [이 부분들이 누락되어 에러가 났습니다] ▼▼▼
 from django.db.models import Sum
@@ -106,3 +107,28 @@ def update_leave_usage(sender, instance, **kwargs):
         quota.used_leave = total_used
         quota.save()
         print(f"🔄 [연차 갱신] {profile.name}: 사용 {total_used}일 / 잔여 {quota.remaining_leave}일")
+
+class Attendance(models.Model):
+    """
+    [신규] 스마트 출근 인증 기록 (GPS + MDM)
+    - 기존 DailySchedule과 별도로, 실제 '출근 찍은 시간'을 기록합니다.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='attendance_records')
+    date = models.DateField(default=timezone.now) # 출근 날짜
+    check_in_time = models.DateTimeField(null=True, blank=True) # 실제 찍은 시간
+    
+    # 상태 (출근/지각/조퇴/결석)
+    status = models.CharField(max_length=20, default='미출근') 
+    
+    # 인증 여부 (True: GPS+MDM 통과)
+    is_verified = models.BooleanField(default=False) 
+
+    class Meta:
+        # 하루에 중복 출근 방지
+        unique_together = ('user', 'date') 
+        verbose_name = '출근 기록'
+        verbose_name_plural = '출근 기록 목록'
+
+    def __str__(self):
+        return f"{self.user.username} - {self.date} ({self.status})"
+    

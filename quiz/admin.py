@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Quiz, Question, Choice, TestResult, UserAnswer, QuizAttempt, Tag, ExamSheet
+from .models import Quiz, Question, Choice, TestResult, UserAnswer, QuizAttempt, Tag, ExamSheet,StudentLog
 from django.urls import reverse
 from django.utils.html import format_html
 from django.db.models import Count
@@ -187,6 +187,16 @@ class UserAnswerAdmin(admin.ModelAdmin):
     @admin.display(description='교육생', ordering='test_result__user__username')
     def get_user(self, obj):
         return obj.test_result.user.username
+    
+@admin.register(StudentLog)
+class StudentLogAdmin(admin.ModelAdmin):
+    list_display = ('get_type_display', 'profile', 'reason', 'created_by', 'created_at', 'is_resolved')
+    list_filter = ('log_type', 'is_resolved', 'created_at')
+    search_fields = ('profile__name', 'reason')
+    
+    def get_type_display(self, obj):
+        return obj.get_log_type_display()
+    get_type_display.short_description = '유형'
 
 
 # --- 4. 최종 등록 ---

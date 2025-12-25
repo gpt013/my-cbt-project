@@ -1,6 +1,6 @@
 from django import forms
-from accounts.models import ManagerEvaluation, EvaluationItem, Cohort, Process, Company, Profile, StudentLog
-from .models import Quiz, Question, Choice
+from accounts.models import ManagerEvaluation, EvaluationItem, Cohort, Process, Company, Profile
+from .models import Quiz, Question, Choice, StudentLog
 
 # --- [기존] 평가 폼 ---
 class EvaluationForm(forms.ModelForm):

@@ -123,39 +123,6 @@ class Profile(models.Model):
         return f"{self.name} ({self.get_status_display()})"
 
 
-# -----------------------------------------------------------
-# [신규 대체 모델] 학생 특이사항/이벤트 로그 (Interview 대체)
-# -----------------------------------------------------------
-class StudentLog(models.Model):
-    LOG_TYPES = [
-        ('warning', '⚠️ 일반 경고'),          # 사유 필수
-        ('warning_letter', '⛔ 경고장 발부'),  # 자동/수동 발부 (사유 필수)
-        ('exam_fail', '📉 시험 불합격'),      # 시스템 자동 기록
-        ('counseling', '💬 면담 및 조치'),    # 잠금 해제용
-        ('compliment', '👍 칭찬/우수'),
-    ]
-
-    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='logs', verbose_name="대상 교육생")
-    recorder = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="기록자")
-    
-    log_type = models.CharField(max_length=20, choices=LOG_TYPES, verbose_name="기록 유형")
-    
-    # 경고/경고장 발부 시 사유 필수
-    reason = models.TextField(verbose_name="사유 및 내용", help_text="경고 사유, 면담 내용 등을 상세히 기록하세요.")
-    
-    # [신규] 조치 사항 (요청 반영)
-    action_taken = models.TextField(verbose_name="조치 사항", blank=True, null=True, help_text="경고 후 조치된 내용이나 합의 사항")
-    
-    is_resolved = models.BooleanField(default=False, verbose_name="조치 완료 여부")
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-created_at']
-        verbose_name = "학생 특이사항 로그"
-        verbose_name_plural = "학생 특이사항 로그"
-
-    def __str__(self):
-        return f"[{self.get_log_type_display()}] {self.profile.name} - {self.created_at.date()}"
 
 # -----------------------------------------------------------
 # 3. 평가 및 데이터 관리 모델 (종합 평가, 요청 등)
@@ -299,9 +266,8 @@ def manage_permissions(sender, instance, created, **kwargs):
     # (그룹 권한 부여 로직은 위와 동일 - 생략 없이 포함됨)
     if group_created:
         from quiz.models import Quiz, Question, Choice, ExamSheet, Tag, QuizAttempt, TestResult
-        from accounts.models import Profile, PartLeader, ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog
-
-        full_access_models = [Quiz, Question, Choice, ExamSheet, Tag, PartLeader, ManagerEvaluation, EvaluationRecord, FinalAssessment, StudentLog]
+        
+        full_access_models = [Quiz, Question, Choice, ExamSheet, Tag, PartLeader, ManagerEvaluation, EvaluationRecord, FinalAssessment, ]
         for model in full_access_models:
             ct = ContentType.objects.get_for_model(model)
             perms = Permission.objects.filter(content_type=ct)

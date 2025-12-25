@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User, Group
 from accounts.models import Process
+from django.conf import settings
 
 # ------------------------------------------------------------------
 # 1. 태그 모델 (문제 분류용)
@@ -234,3 +235,35 @@ class UserAnswer(models.Model):
     def __str__(self):
         answer = self.selected_choice.choice_text if self.selected_choice else self.short_answer_text
         return f"{self.question.question_text} -> {answer}"
+    
+class StudentLog(models.Model):
+    """
+    학생에 대한 기록 및 알림 (경고, 칭찬, 면담, 시스템 알림 등)
+    """
+    LOG_TYPES = [
+        ('warning', '⚠️ 경고'),
+        ('warning_letter', '📜 경위서'),
+        ('counseling', '💬 면담/알림'),
+        ('praise', '👏 칭찬'),
+        ('system', '🔔 시스템'),
+    ]
+
+    profile = models.ForeignKey('accounts.Profile', on_delete=models.CASCADE, related_name='logs')
+    log_type = models.CharField(max_length=20, choices=LOG_TYPES, default='system')
+    reason = models.TextField(verbose_name="내용")
+    
+    # 누가 작성했는지 (시스템 자동인 경우 null 가능)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # 조치 완료 여부 (단순 알림은 생성 시 True로 설정)
+    is_resolved = models.BooleanField(default=False)
+    action_taken = models.TextField(blank=True, null=True, verbose_name="조치 사항")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '학생 기록/알림'
+        verbose_name_plural = '학생 기록/알림 목록'
+
+    def __str__(self):
+        return f"[{self.get_log_type_display()}] {self.profile.name} - {self.created_at.strftime('%m-%d')}"

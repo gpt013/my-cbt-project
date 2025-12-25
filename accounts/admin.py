@@ -8,7 +8,7 @@ from django.utils.html import format_html
 from .models import (
     Profile, Badge, Company, EvaluationRecord, PartLeader, Process, RecordType, 
     Cohort, EvaluationCategory, EvaluationItem, ManagerEvaluation, FinalAssessment,
-    StudentLog, ProcessAccessRequest # StudentLog 추가됨
+     ProcessAccessRequest 
 )
 from quiz.models import Quiz, TestResult
 
@@ -370,17 +370,6 @@ class UserAdmin(BaseUserAdmin):
         return ''
     employee_id.short_description = '사번'
 
-# [수정] Interview 대신 StudentLog 등록
-@admin.register(StudentLog)
-class StudentLogAdmin(admin.ModelAdmin):
-    list_display = ('profile', 'log_type', 'reason_snippet', 'recorder', 'is_resolved', 'created_at')
-    list_filter = ('log_type', 'is_resolved', 'profile__cohort', 'profile__process')
-    search_fields = ('profile__name', 'reason', 'recorder__username')
-    autocomplete_fields = ('profile', 'recorder')
-    
-    @admin.display(description='사유 요약')
-    def reason_snippet(self, obj):
-        return obj.reason[:30] + "..." if len(obj.reason) > 30 else obj.reason
 
 @admin.register(ProcessAccessRequest)
 class ProcessAccessRequestAdmin(admin.ModelAdmin):

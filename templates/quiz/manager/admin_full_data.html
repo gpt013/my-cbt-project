@@ -1,0 +1,368 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<style>
+    /* [마스터 그리드 컨테이너] - 전체 화면 높이 활용 & 스크롤 영역 지정 */
+    .master-grid-container {
+        position: relative;
+        /* 상단 헤더, 필터바 높이를 제외한 나머지 영역을 꽉 채움 */
+        height: calc(100vh - 240px); 
+        width: 100%;
+        overflow: auto; /* 가로/세로 스크롤 자동 활성화 */
+        border: 1px solid #aaa;
+        background-color: #fff;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    /* [테이블 기본 설정] */
+    .excel-table {
+        width: max-content; /* 내용물만큼 너비 확보 (가로 스크롤 유도) */
+        min-width: 100%;    /* 최소 화면 너비 */
+        border-collapse: separate; /* Sticky 고정 시 테두리 깨짐 방지 */
+        border-spacing: 0;
+        font-size: 13px;
+        white-space: nowrap; /* 줄바꿈 절대 금지 */
+        table-layout: fixed; /* 칸 너비 고정 */
+    }
+
+    .excel-table th, .excel-table td {
+        padding: 6px 10px;
+        border-right: 1px solid #ccc;
+        border-bottom: 1px solid #ccc;
+        vertical-align: middle;
+        box-sizing: border-box;
+        background-color: #fff; /* 기본 배경 흰색 */
+        text-align: center;
+        height: 35px; /* 행 높이 균일화 */
+    }
+
+    /* ----------------------------------------------------
+       [Sticky 고정 및 배경색 불투명 처리]
+       z-index 계층:
+       30: 좌측상단/우측상단 모서리 (최상위)
+       20: 상단 헤더
+       10: 좌측/우측 고정 컬럼
+    ---------------------------------------------------- */
+
+    /* 1. 상단 헤더 고정 (배경 회색) */
+    .excel-table thead { position: sticky; top: 0; z-index: 20; }
+    
+    /* 헤더 1번째 줄 */
+    .excel-table thead tr:nth-child(1) th { 
+        position: sticky; top: 0; height: 38px; 
+        background-color: #e9ecef !important; 
+        border-top: 1px solid #ccc; 
+    }
+    /* 헤더 2번째 줄 */
+    .excel-table thead tr:nth-child(2) th { 
+        position: sticky; top: 38px; height: 32px; 
+        background-color: #f8f9fa !important; 
+    }
+
+    /* 2. 좌측 고정 컬럼 (이름) */
+    .col-fix-name { 
+        position: sticky; left: 0; z-index: 10; 
+        width: 100px; min-width: 100px; /* 넉넉하게 */
+        background-color: #fff !important; 
+        border-right: 2px solid #999 !important; 
+    }
+    
+    /* 3. 좌측 고정 컬럼 (정보) */
+    .col-fix-info { 
+        position: sticky; left: 100px; z-index: 10; 
+        width: 140px; min-width: 140px; 
+        background-color: #fff !important; 
+        border-right: 2px solid #999 !important; 
+    }
+
+    /* 4. 헤더와 고정 컬럼이 겹치는 부분 (최상위) */
+    .excel-table thead th.col-fix-name, 
+    .excel-table thead th.col-fix-info { 
+        z-index: 30; 
+        background-color: #dee2e6 !important; 
+    }
+
+    /* 5. 우측 고정 컬럼 (관리 버튼) */
+    .col-fix-action { 
+        position: sticky; right: 0; z-index: 10; 
+        width: 70px; min-width: 70px;
+        background-color: #fff !important; 
+        border-left: 2px solid #999 !important; 
+    }
+    .excel-table thead th.col-fix-action { 
+        z-index: 30; 
+        background-color: #dee2e6 !important; 
+    }
+
+    /* [Hover 효과] - 고정 컬럼은 배경색 흰색 유지 */
+    .excel-table tbody tr:hover td { background-color: #e8f0fe; }
+    .excel-table tbody tr:hover td.col-fix-name,
+    .excel-table tbody tr:hover td.col-fix-info,
+    .excel-table tbody tr:hover td.col-fix-action { background-color: #fff !important; }
+
+    /* [셀 스타일] */
+    /* 점수 칸 너비 (99.99점 표시 가능하도록 60px 확보) */
+    .cell-score { width: 60px; min-width: 60px; text-align: right; padding-right: 8px; font-variant-numeric: tabular-nums; }
+    
+    /* 상태 뱃지 등 */
+    .pass { color: blue; font-weight: bold; background-color: #f0f8ff !important; }
+    .fail { color: red; font-weight: bold; background-color: #fff0f0 !important; }
+    .border-l-thick { border-left: 2px solid #bbb !important; }
+    
+    /* 석차 컬럼 */
+    .rank-col { width: 55px; min-width: 55px; background-color: #fdfdfe !important; font-size: 0.85rem; }
+    .rank-top { color: #d63384; font-weight: bold; } 
+    
+    .badge { font-weight: 500; letter-spacing: 0.5px; }
+</style>
+
+<div class="container-fluid py-3">
+    
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+            <h4 class="fw-bold mb-0"><i class="bi bi-table"></i> 마스터 데이터 그리드</h4>
+            <span class="text-muted small">모든 교육생의 성적, 근태, 평가 및 상세 석차를 엑셀 형식으로 조회합니다.</span>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <span class="badge bg-dark fs-6 shadow-sm">Total: {{ total_count|default:"0" }}명</span>
+            <button class="btn btn-success fw-bold shadow-sm" onclick="downloadCurrentFilter()">
+                <i class="fas fa-file-excel"></i> 엑셀 다운로드
+            </button>
+        </div>
+    </div>
+
+    <div class="card mb-3 border bg-light shadow-sm">
+        <div class="card-body py-2">
+            <form method="get" class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-0 text-secondary">📅 입과일</label>
+                    <div class="input-group input-group-sm">
+                        <input type="date" name="start_date" class="form-control" value="{{ sel_start }}">
+                        <span class="input-group-text">~</span>
+                        <input type="date" name="end_date" class="form-control" value="{{ sel_end }}">
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-0 text-secondary">🏢 회사</label>
+                    <select name="company" class="form-select form-select-sm" style="min-width: 120px;">
+                        <option value="">전체</option>
+                        {% for c in companies %}
+                            <option value="{{ c.id }}" {% if sel_company == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-0 text-secondary">⚙️ 공정</label>
+                    <select name="process" class="form-select form-select-sm">
+                        <option value="">전체</option>
+                        {% for p in processes %}
+                            <option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-0 text-secondary">🎓 기수</label>
+                    <select name="cohort" class="form-select form-select-sm">
+                        <option value="">전체</option>
+                        {% for c in cohorts %}
+                            <option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-0 text-secondary">🔍 검색</label>
+                    <input type="text" name="q" class="form-control form-control-sm" placeholder="이름/ID/사번" value="{{ sel_q }}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm px-3 fw-bold">조회</button>
+                    <a href="{% url 'quiz:admin_full_data_view' %}" class="btn btn-outline-secondary btn-sm">초기화</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="master-grid-container">
+        <table class="excel-table">
+            <thead>
+                <tr>
+                    <th rowspan="2" class="col-fix-name">이름</th>
+                    <th rowspan="2" class="col-fix-info">정보</th>
+                    
+                    <th rowspan="2" style="width: 80px; min-width: 80px;">상태</th>
+                    <th rowspan="2" class="border-l-thick" style="width: 100px; min-width: 100px;">근태<br>(출/연/반)</th>
+                    <th rowspan="2" class="text-danger" style="width: 60px; min-width: 60px;">경고</th>
+
+                    {% for q in quizzes %}
+                        <th colspan="3" class="border-l-thick bg-light" style="background-color: #f8f9fa !important; min-width: 180px;">{{ q.title }}</th>
+                    {% endfor %}
+
+                    <th colspan="5" class="border-l-thick" style="background-color: #fff3cd !important;">종합 점수</th>
+                    
+                    <th colspan="4" class="border-l-thick" style="background-color: #e2e3e5 !important;">석차 정보</th>
+                    
+                    <th rowspan="2" class="col-fix-action">관리</th>
+                </tr>
+
+                <tr>
+                    {% for q in quizzes %}
+                        <th class="text-muted border-l-thick small">1차</th>
+                        <th class="text-muted small">2차</th>
+                        <th class="text-muted small">3차</th>
+                    {% endfor %}
+
+                    <th class="border-l-thick small" style="min-width: 70px;">시험Avg</th>
+                    <th class="small" style="min-width: 60px;">실습</th>
+                    <th class="small" style="min-width: 60px;">노트</th>
+                    <th class="small" style="min-width: 60px;">태도</th>
+                    <th class="fw-bold bg-warning bg-opacity-25 small" style="min-width: 70px;">총점</th>
+
+                    <th class="border-l-thick rank-col" title="전체 인원 중 석차">전체</th>
+                    <th class="rank-col" title="같은 기수 내 석차">기수</th>
+                    <th class="rank-col" title="같은 공정 내 석차">공정</th>
+                    <th class="rank-col" title="같은 회사 내 석차">회사</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in table_rows %}
+                <tr>
+                    <td class="col-fix-name fw-bold text-primary">{{ row.profile.name|default:"(없음)" }}</td>
+                    
+                    <td class="col-fix-info">
+                        <div class="d-flex flex-column" style="line-height: 1.2;">
+                            <span class="text-dark fw-bold" style="font-size: 11px;">{{ row.profile.company.name|default:"-" }}</span>
+                            <span class="text-muted" style="font-size: 11px;">{{ row.profile.employee_id|default:"-" }}</span>
+                            <span class="badge bg-light text-dark border mt-1" style="font-size: 10px;">{{ row.profile.process.name|default:"미배정" }}</span>
+                        </div>
+                    </td>
+
+                    <td>
+                        {% if row.profile.status == 'attending' %}<span class="badge bg-success">재직</span>
+                        {% elif row.profile.status == 'counseling' %}<span class="badge bg-warning text-dark">면담</span>
+                        {% elif row.profile.status == 'dropout' %}<span class="badge bg-danger">퇴소</span>
+                        {% else %}<span class="badge bg-secondary">수료</span>{% endif %}
+                    </td>
+
+                    <td class="border-l-thick">
+                        {{ row.attendance.work }} / 
+                        <span class="{% if row.attendance.leave > 0 %}text-danger fw-bold{% endif %}">{{ row.attendance.leave }}</span> / 
+                        {{ row.attendance.half }}
+                    </td>
+
+                    <td class="fw-bold {% if row.profile.warning_count > 0 %}text-danger{% else %}text-muted{% endif %}">
+                        {{ row.profile.warning_count }}
+                    </td>
+
+                    {% for score_set in row.ordered_scores %}
+                        <td class="cell-score border-l-thick {% if score_set.0.is_pass %}pass{% elif score_set.0.val != '-' %}fail{% endif %}">
+                            {% if score_set.0.val != '-' %}{{ score_set.0.val|floatformat:2 }}{% else %}-{% endif %}
+                        </td>
+                        <td class="cell-score {% if score_set.1.is_pass %}pass{% elif score_set.1.val != '-' %}fail{% endif %}">
+                            {% if score_set.1.val != '-' %}{{ score_set.1.val|floatformat:2 }}{% else %}-{% endif %}
+                        </td>
+                        <td class="cell-score {% if score_set.2.is_pass %}pass{% elif score_set.2.val != '-' %}fail{% endif %}">
+                            {% if score_set.2.val != '-' %}{{ score_set.2.val|floatformat:2 }}{% else %}-{% endif %}
+                        </td>
+                    {% endfor %}
+
+                    <td class="border-l-thick">{{ row.final.exam_avg_score|default:"-"|floatformat:2 }}</td>
+                    <td>{{ row.final.practice_score|default:"-"|floatformat:2 }}</td>
+                    <td>{{ row.final.note_score|default:"-"|floatformat:2 }}</td>
+                    <td>{{ row.final.attitude_score|default:"-"|floatformat:2 }}</td>
+                    <td class="fw-bold" style="background-color: #fff3cd;">{{ row.final.final_score|default:"-"|floatformat:2 }}</td>
+
+                    <td class="border-l-thick rank-col fw-bold {% if row.ranks.overall <= 3 %}rank-top{% endif %}">
+                        {{ row.ranks.overall|default:"-" }}
+                    </td>
+                    <td class="rank-col">{{ row.ranks.cohort|default:"-" }}</td>
+                    <td class="rank-col">{{ row.ranks.process|default:"-" }}</td>
+                    <td class="rank-col">{{ row.ranks.company|default:"-" }}</td>
+
+                    <td class="col-fix-action">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" 
+                                data-bs-toggle="modal" data-bs-target="#detailModal{{ row.profile.id }}">
+                            <i class="bi bi-file-text"></i>
+                        </button>
+                    </td>
+                </tr>
+
+                <div class="modal fade" id="detailModal{{ row.profile.id }}" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <div class="modal-content">
+                            <div class="modal-header bg-light">
+                                <h5 class="modal-title fw-bold">
+                                    <i class="bi bi-person-lines-fill"></i> {{ row.profile.name }} 상세 기록
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <div class="p-3 border rounded bg-light h-100">
+                                            <h6 class="fw-bold text-primary">기본 정보</h6>
+                                            <ul class="list-unstyled small mb-0">
+                                                <li>• 입과일: {{ row.profile.joined_at|date:"Y-m-d"|default:"-" }}</li>
+                                                <li>• 연락처: {{ row.profile.phone|default:"-" }}</li>
+                                                <li>• 이메일: {{ row.profile.user.email }}</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="p-3 border rounded bg-light h-100">
+                                            <h6 class="fw-bold text-success">매니저 코멘트</h6>
+                                            <p class="small mb-0 fst-italic">
+                                                {{ row.manager_comment|default:"등록된 의견이 없습니다."|linebreaksbr }}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h6 class="fw-bold text-danger border-bottom pb-2">🚩 특이사항 히스토리</h6>
+                                {% if row.logs %}
+                                    <ul class="list-group list-group-flush">
+                                        {% for log in row.logs %}
+                                            <li class="list-group-item px-0">
+                                                <div class="d-flex justify-content-between">
+                                                    <span class="badge bg-secondary">{{ log.get_log_type_display }}</span>
+                                                    <small class="text-muted">{{ log.created_at|date:"Y-m-d" }}</small>
+                                                </div>
+                                                <p class="mb-1 mt-1 small fw-bold">{{ log.reason }}</p>
+                                                {% if log.action_taken %}
+                                                    <div class="bg-light p-2 rounded small">└ 조치: {{ log.action_taken }}</div>
+                                                {% endif %}
+                                            </li>
+                                        {% endfor %}
+                                    </ul>
+                                {% else %}
+                                    <p class="text-center text-muted small py-3">기록이 없습니다.</p>
+                                {% endif %}
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <tr><td colspan="100" class="text-center py-5">데이터가 없습니다.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    function downloadCurrentFilter() {
+        const params = new URLSearchParams(window.location.search);
+        // 다운로드용 process_id 보정
+        if (!params.has('process_id')) {
+            if (params.has('process')) {
+                params.set('process_id', params.get('process'));
+            } else {
+                params.set('process_id', 'ALL');
+            }
+        }
+        location.href = "{% url 'quiz:export_student_data' %}?" + params.toString();
+    }
+</script>
+{% endblock %}

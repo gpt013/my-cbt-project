@@ -1,8 +1,10 @@
+from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 import calendar
 from datetime import datetime, date, timedelta
@@ -17,8 +19,9 @@ except ImportError:
 
 # 모델 Import
 from accounts.models import Profile, Process, Cohort, PartLeader
-from .models import WorkType, DailySchedule, ScheduleRequest
-from .utils import analyze_mdm_image
+from quiz.models import StudentLog # [추가] 알림 발송용
+from .models import WorkType, DailySchedule, ScheduleRequest, Attendance # Attendance 모델 필요
+
 
 # ------------------------------------------------------------------
 # [Helper] 연차 발생 개수 계산 함수 (근속연수 기준)
@@ -26,9 +29,6 @@ from .utils import analyze_mdm_image
 def calculate_annual_leave_total(profile, target_year):
     """
     입사일(joined_at) 기준으로 해당 연도의 총 연차 개수를 계산합니다.
-    - 입사일 미입력 시: 기본 15개
-    - 1년 미만: 11개 (여기선 편의상 15개로 설정)
-    - 2년마다 1일씩 가산 (최대 25개)
     """
     if not profile.joined_at:
         return 15 # 입사일 없으면 기본값
@@ -40,7 +40,6 @@ def calculate_annual_leave_total(profile, target_year):
         return 15 # 1년차 미만
     
     # 가산 연차 계산: (근속연수 - 1) // 2
-    # 예: 3년차(1개 추가), 5년차(2개 추가)
     added_days = (years_worked - 1) // 2
     if added_days < 0: added_days = 0
     
@@ -54,9 +53,6 @@ def calculate_annual_leave_total(profile, target_year):
 # [Helper] 스케줄 수정 권한 확인
 # ------------------------------------------------------------------
 def can_manage_schedule(user, target_profile):
-    """
-    해당 유저가 타겟 프로필의 스케줄을 즉시 수정할 권한(관리자/매니저)이 있는지 확인
-    """
     if user.is_superuser:
         return True
     
@@ -68,69 +64,53 @@ def can_manage_schedule(user, target_profile):
 
 
 # ------------------------------------------------------------------
-# 1. MDM 인증 (정상 기준 강화)
+# 1. [신규] 스마트 출근 인증 (GPS + MDM/Camera Block)
 # ------------------------------------------------------------------
 @login_required
+@require_POST
+def process_attendance(request):
+    """
+    [신규] 출근 인증 처리 (AJAX 요청)
+    - 프론트엔드에서 1차 검증(GPS, 카메라 차단) 후 넘어온 데이터 저장
+    """
+    try:
+        # 1. 오늘 이미 출근했는지 확인
+        today = timezone.now().date()
+        if Attendance.objects.filter(user=request.user, date=today).exists():
+             return JsonResponse({'status': 'fail', 'message': '이미 오늘의 출근 기록이 존재합니다.'})
+
+        # 2. 출근 기록 저장
+        Attendance.objects.create(
+            user=request.user,
+            date=today,
+            check_in_time=timezone.now(),
+            status='출근', 
+            is_verified=True # 인증 성공 표시
+        )
+        
+        # (선택) DailySchedule에도 '출근' 상태 반영 (필요 시 주석 해제)
+        # schedule, created = DailySchedule.objects.get_or_create(
+        #     profile=request.user.profile, date=today,
+        #     defaults={'work_type': WorkType.objects.get(name='정상')}
+        # )
+        
+        return JsonResponse({'status': 'success', 'message': '출근 인증이 완료되었습니다! 오늘도 화이팅하세요.'})
+
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': f'시스템 오류: {str(e)}'})
+
+# (구버전 호환용 - 필요 없다면 삭제 가능하지만 URL 에러 방지 위해 유지)
+@login_required
 def upload_mdm(request):
-    today = timezone.now().date()
-    schedule = DailySchedule.objects.filter(profile=request.user.profile, date=today).first()
-
-    if request.method == 'POST' and request.FILES.get('mdm_image'):
-        image_file = request.FILES['mdm_image']
-        
-        # 스케줄 없으면 '정상 근무'로 생성
-        if not schedule:
-            default_work = WorkType.objects.filter(name__contains="정상", deduction=0).first()
-            if not default_work: default_work = WorkType.objects.filter(deduction=0).first()
-            
-            schedule = DailySchedule.objects.create(
-                profile=request.user.profile, 
-                date=today,
-                work_type=default_work
-            )
-        
-        schedule.mdm_image = image_file
-        schedule.save()
-
-        try:
-            file_path = schedule.mdm_image.path
-            is_valid_time, detected_time, is_violation = analyze_mdm_image(file_path)
-            
-            schedule.captured_time = detected_time
-            
-            # [수정] 비정상(파란색/해제)일 경우 저장하지 않고 경고
-            if is_violation:
-                schedule.is_mdm_verified = False
-                messages.error(request, "🚨 [보안 위반] 파란색(해제) 화면이 감지되었습니다. 담당 매니저에게 직접 보고하세요.")
-            elif not is_valid_time:
-                schedule.is_mdm_verified = False
-                msg = f"⏰ 시간 인증 실패. ({detected_time})" if detected_time else "⏰ 시간 인식 실패."
-                messages.warning(request, msg + " 다시 찍거나 매니저에게 보고하세요.")
-            else:
-                schedule.is_mdm_verified = True
-                if detected_time:
-                    limit = detected_time.replace(hour=9, minute=0, second=0, microsecond=0)
-                    schedule.is_late = (detected_time > limit)
-                    if schedule.is_late:
-                        messages.warning(request, "✅ 인증되었으나, 09:00가 넘어 '지각' 처리되었습니다.")
-                    else:
-                        messages.success(request, "✅ MDM 보안 인증 및 출석이 완료되었습니다.")
-                else:
-                    messages.success(request, "✅ MDM 보안 인증이 완료되었습니다.")
-
-        except Exception as e:
-            print(f"MDM Analysis Error: {e}")
-            messages.error(request, "이미지 분석 중 오류가 발생했습니다.")
-
-        schedule.save()
-        return redirect('attendance:mdm_status')
-
-    return render(request, 'attendance/upload_mdm.html', {'record': schedule})
+    return redirect('attendance:mdm_status') # 신규 페이지로 리다이렉트 권장
 
 @login_required
 def mdm_status(request):
-    logs = DailySchedule.objects.filter(profile=request.user.profile).order_by('-date')
-    return render(request, 'attendance/mdm_status.html', {'logs': logs})
+    # 출근 기록 조회 페이지 (Attendance 모델 조회)
+    # 기존 DailySchedule 대신 Attendance 모델을 보여주는 것이 맞으나,
+    # 여기서는 템플릿 호환성을 위해 DailySchedule을 보여주거나 수정 필요.
+    # 일단은 출근 인증 화면(index.html)을 보여주는 뷰로 연결하는 것이 좋음.
+    return render(request, 'attendance/index.html') 
 
 
 # ------------------------------------------------------------------
@@ -194,12 +174,12 @@ def schedule_index(request):
         if sel_process: profiles = profiles.filter(process_id=sel_process)
         
     else:
-        # [교육생 모드 - 핵심 수정]
+        # [교육생 모드]
         sel_role = 'student'
         profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False)
         
         if hasattr(user, 'profile'):
-            # [수정] 같은 공정(반)인 동료들은 모두 보여줌
+            # 같은 공정(반)인 동료들은 모두 보여줌
             if user.profile.process:
                 profiles = profiles.filter(process=user.profile.process)
             else:
@@ -394,9 +374,17 @@ def get_pending_requests(request):
     data = [{'id': r.id, 'name': r.requester.name, 'date': r.date.strftime('%Y-%m-%d'), 'type': r.target_work_type.short_name, 'reason': r.reason} for r in requests]
     return JsonResponse({'requests': data})
 
+
+# ------------------------------------------------------------------
+# [핵심 수정] 4. 근무 변경 요청 승인/반려 (알림 발송 추가)
+# ------------------------------------------------------------------
 @login_required
 @require_POST
 def process_request(request):
+    """
+    승인(approve) -> 근무표 변경 + '승인' 알림 발송
+    반려(reject)  -> 변경 없음 + '반려' 알림 발송
+    """
     try:
         data = json.loads(request.body)
         req = get_object_or_404(ScheduleRequest, pk=data.get('request_id'))
@@ -410,20 +398,41 @@ def process_request(request):
         
         if not can_approve: return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
 
-        if data.get('action') == 'approve':
-            DailySchedule.objects.update_or_create(profile=req.requester, date=req.date, defaults={'work_type': req.target_work_type})
+        action = data.get('action')
+        log_message = ""
+        
+        if action == 'approve':
+            # 1. 근무표 반영
+            DailySchedule.objects.update_or_create(
+                profile=req.requester, date=req.date, defaults={'work_type': req.target_work_type}
+            )
             req.status = 'approved'
+            log_message = f"[{req.date}] 근무 변경 요청이 승인되었습니다. ({req.target_work_type.name})"
+            
         else:
+            # 2. 반려 (변경 없음)
             req.status = 'rejected'
+            log_message = f"[{req.date}] 근무 변경 요청이 반려되었습니다."
+
         req.approver = request.user
         req.save()
+
+        # [알림 발송] StudentLog 생성
+        StudentLog.objects.create(
+            profile=req.requester,
+            log_type='counseling', # 또는 notification 등 적절한 타입 사용
+            reason=log_message,
+            created_by=request.user,
+            is_resolved=True # 단순 알림이므로 완료 처리
+        )
+
         return JsonResponse({'status': 'success'})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 
 # ------------------------------------------------------------------
-# [핵심 수정] 4. 전체 정상 적용 (버그 수정)
+# 5. 전체 정상 적용 (일괄 처리)
 # ------------------------------------------------------------------
 @login_required
 @require_POST
@@ -438,7 +447,7 @@ def apply_all_normal(request):
         if not (request.user.is_superuser or (hasattr(request.user, 'profile') and request.user.profile.is_manager)):
              return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
 
-        # [수정] '정상'이 포함되고 차감이 0인 근무를 우선 찾음 (연차 선택 방지)
+        # '정상'이 포함되고 차감이 0인 근무를 우선 찾음 (연차 선택 방지)
         normal_type = WorkType.objects.filter(name__contains="정상", deduction=0).first()
         if not normal_type: 
             normal_type = WorkType.objects.filter(deduction=0).exclude(name__contains="연차").order_by('order').first()
@@ -471,3 +480,152 @@ def apply_all_normal(request):
         
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+    
+@login_required
+def process_request(request, request_id, action):
+    """
+    [수정] 필드명 오류 수정 (new_work_type -> work_type)
+    """
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': '잘못된 접근입니다.'}, status=405)
+
+    if not request.user.is_staff:
+        return JsonResponse({'status': 'error', 'message': '관리자 권한이 없습니다.'}, status=403)
+
+    try:
+        with transaction.atomic():
+            req_obj = get_object_or_404(ScheduleRequest, id=request_id)
+            
+            print(f"🔹 [처리시작] 요청ID: {request_id}, 액션: {action}, 요청자: {req_obj.requester}")
+
+            if req_obj.status != 'pending':
+                return JsonResponse({'status': 'error', 'message': '이미 처리된 요청입니다.'})
+
+            # ============================================
+            # [CASE 1] 승인 (Approve)
+            # ============================================
+            if action == 'approve':
+                # 1) 상태 변경
+                req_obj.status = 'approved'
+                req_obj.save()
+
+                # 2) 근무표 변경
+                daily, created = DailySchedule.objects.get_or_create(
+                    profile=req_obj.requester,  
+                    date=req_obj.date
+                )
+                
+                # [수정] new_work_type -> work_type 으로 변경
+                daily.work_type = req_obj.target_work_type
+                daily.save()
+
+                # 3) 알림 생성
+                # [수정] new_work_type -> work_type 으로 변경
+                StudentLog.objects.create(
+                    profile=req_obj.requester,
+                    log_type='system',
+    reason=f"[근무변경 승인] {req_obj.date} 근무가 '{req_obj.target_work_type.short_name}'(으)로 변경되었습니다.",
+                    is_resolved=True,
+                    created_by=request.user
+                )
+                
+                print(f"✅ [성공] 승인 완료: {req_obj.date} -> {req_obj.date} -> {req_obj.target_work_type.short_name}")
+                return JsonResponse({'status': 'success', 'message': '승인이 완료되었습니다.'})
+
+            # ============================================
+            # [CASE 2] 반려 (Reject)
+            # ============================================
+            elif action == 'reject':
+                req_obj.status = 'rejected'
+                req_obj.save()
+
+                StudentLog.objects.create(
+                    profile=req_obj.requester,
+                    log_type='warning',
+                    reason=f"[근무변경 반려] {req_obj.date} 요청이 반려되었습니다. (사유: {req_obj.reason})",
+                    is_resolved=True,
+                    created_by=request.user
+                )
+
+                print(f"✅ [성공] 반려 완료")
+                return JsonResponse({'status': 'success', 'message': '요청이 반려되었습니다.'})
+
+            else:
+                return JsonResponse({'status': 'error', 'message': '알 수 없는 명령입니다.'})
+
+    except Exception as e:
+        print(f"❌ [에러발생] process_request 중 오류: {e}")
+        return JsonResponse({'status': 'error', 'message': f'서버 오류 발생: {str(e)}'}, status=500)
+
+@login_required
+def check_in_page(request):
+    """출근 체크 화면을 보여주는 뷰"""
+    return render(request, 'attendance/check_in.html')
+
+@login_required
+@csrf_exempt # JS에서 POST 요청을 편하게 보내기 위해 임시 허용 (보안 강화 시 제거 권장)
+def check_in_api(request):
+    """
+    프론트엔드에서 보낸 좌표와 MDM 상태를 받아 출근 처리하는 API
+    """
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': '잘못된 접근입니다.'})
+
+    try:
+        data = json.loads(request.body)
+        lat = float(data.get('lat', 0))
+        lon = float(data.get('lon', 0))
+        is_mdm_active = data.get('is_mdm_active', False) # True여야 출근 가능
+
+        # 1. MDM 검사 (카메라가 차단되어 있어야 함)
+        if not is_mdm_active:
+            return JsonResponse({'status': 'fail', 'message': '보안 앱(MDM)이 감지되지 않았습니다. (카메라가 작동 중입니다)'})
+
+        # 2. 위치 검사 (평택 캠퍼스 반경 300m)
+        # 평택 캠퍼스 좌표 (예시: 삼성전자 평택캠퍼스 인근) - 실제 좌표로 수정 필요!
+        CENTER_LAT = 37.027  # ⚠️ 실제 위도로 수정하세요
+        CENTER_LON = 127.047 # ⚠️ 실제 경도로 수정하세요
+        RADIUS_LIMIT = 0.3   # 300m = 0.3km
+
+        distance = calculate_distance(lat, lon, CENTER_LAT, CENTER_LON)
+        
+        if distance > RADIUS_LIMIT:
+            return JsonResponse({
+                'status': 'fail', 
+                'message': f'사업장 반경 {RADIUS_LIMIT*1000}m 이내에서만 출근 가능합니다.\n(현재 거리: {int(distance*1000)}m)'
+            })
+
+        # 3. 출근 기록 저장
+        # 오늘 날짜의 DailySchedule 확인
+        today = timezone.now().date()
+        daily_schedule, _ = DailySchedule.objects.get_or_create(
+            profile=request.user.profile,
+            date=today
+        )
+
+        # 이미 출근했는지 확인
+        if Attendance.objects.filter(daily_schedule=daily_schedule).exists():
+            return JsonResponse({'status': 'fail', 'message': '이미 금일 출근 기록이 있습니다.'})
+
+        # 출근 생성
+        Attendance.objects.create(
+            daily_schedule=daily_schedule,
+            check_in_time=timezone.now(),
+            status='present' # 우선 정상 출근으로 처리 (지각 로직은 리포트 발송 시 또는 여기서 추가 가능)
+        )
+
+        return JsonResponse({'status': 'success', 'message': '출근 인증이 완료되었습니다!'})
+
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Haversine 공식을 이용한 거리 계산 (단위: km)"""
+    R = 6371  # 지구 반지름 (km)
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = math.sin(d_lat / 2) * math.sin(d_lat / 2) + \
+        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * \
+        math.sin(d_lon / 2) * math.sin(d_lon / 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c

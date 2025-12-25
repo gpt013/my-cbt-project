@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-5 text-center">
+    <h2>🏢 출근 인증 (보안/위치)</h2>
+    <div class="card p-4 mt-3">
+        <p class="text-muted">
+            반드시 <b>보안 앱(MDM)</b>을 실행하여 카메라를 잠근 후,<br>
+            사업장 내에서 <b>[인증하기]</b> 버튼을 눌러주세요.
+        </p>
+        
+        <div id="status-box" class="alert alert-secondary">
+            대기 중...
+        </div>
+
+        <button id="btn-check-in" class="btn btn-primary btn-lg" onclick="startCheckIn()">
+            📍 위치 및 보안 확인 후 출근
+        </button>
+    </div>
+</div>
+
+<script>
+    async function startCheckIn() {
+        const statusBox = document.getElementById('status-box');
+        const btn = document.getElementById('btn-check-in');
+        
+        btn.disabled = true;
+        statusBox.className = 'alert alert-info';
+        statusBox.innerText = "1단계: 보안 앱(MDM) 작동 여부 확인 중... (카메라 접근 시도)";
+
+        // 1️⃣ MDM 확인 (카메라 실행 시도)
+        // 논리: MDM이 켜져있으면 카메라 접근 시 에러가 나야 정상!
+        // 카메라가 켜지면 -> MDM 안 킨 것 -> 출근 불가
+        let isMdmActive = false;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            
+            // 여기까지 왔다는 건 카메라가 켜졌다는 뜻 (MDM 미작동)
+            stream.getTracks().forEach(track => track.stop()); // 카메라 끄기
+            statusBox.className = 'alert alert-danger';
+            statusBox.innerHTML = "⛔ <b>출근 불가</b><br>카메라가 작동되었습니다.<br>보안 앱(MDM)을 실행하여 카메라를 차단해주세요.";
+            btn.disabled = false;
+            return; 
+
+        } catch (err) {
+            // 에러 발생 = 카메라 차단됨 = MDM 작동 중 (또는 권한 거부)
+            // 실제 상황에서는 유저가 브라우저 권한을 '허용'했는데도 OS/MDM이 막아서 에러난 것을 감지해야 함.
+            // 여기서는 '에러나면 통과'로 처리
+            console.log("카메라 차단 확인됨 (정상):", err);
+            isMdmActive = true;
+        }
+
+        if (isMdmActive) {
+            statusBox.innerText = "2단계: 현재 위치 확인 중...";
+            
+            // 2️⃣ 위치 확인 (GPS)
+            if (!navigator.geolocation) {
+                statusBox.className = 'alert alert-danger';
+                statusBox.innerText = "이 브라우저는 위치 정보를 지원하지 않습니다.";
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    
+                    statusBox.innerText = "3단계: 서버로 전송 중...";
+                    sendData(lat, lon, true); // MDM Active = true
+                },
+                (error) => {
+                    statusBox.className = 'alert alert-danger';
+                    statusBox.innerText = "❌ 위치 정보를 가져올 수 없습니다. GPS를 켜주세요.";
+                    btn.disabled = false;
+                },
+                { enableHighAccuracy: true } // 높은 정확도 요구
+            );
+        }
+    }
+
+    function sendData(lat, lon, mdmStatus) {
+        const statusBox = document.getElementById('status-box');
+        
+        fetch("{% url 'attendance:check_in_api' %}", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                lat: lat,
+                lon: lon,
+                is_mdm_active: mdmStatus
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                statusBox.className = 'alert alert-success';
+                statusBox.innerHTML = `✅ <b>성공</b><br>${data.message}`;
+                // 페이지 이동 또는 버튼 숨김
+                document.getElementById('btn-check-in').style.display = 'none';
+            } else {
+                statusBox.className = 'alert alert-warning';
+                statusBox.innerHTML = `⚠️ <b>실패</b><br>${data.message}`;
+                document.getElementById('btn-check-in').disabled = false;
+            }
+        })
+        .catch(error => {
+            statusBox.className = 'alert alert-danger';
+            statusBox.innerText = "서버 통신 오류 발생";
+            document.getElementById('btn-check-in').disabled = false;
+        });
+    }
+</script>
+{% endblock %}

@@ -3,7 +3,6 @@
 
 {% block content %}
 <style>
-    /* (스타일 부분은 네 코드 그대로, 생략 없이 유지) */
     /* 1. 테이블 컨테이너 */
     .schedule-table-container { 
         overflow: auto; 
@@ -102,7 +101,6 @@
         
         <div class="d-flex gap-2 align-items-center">
             {% if is_manager %}
-            <!-- 관리자/매니저용 버튼 + 필터 폼 (기존 그대로 유지) -->
             <button class="btn btn-warning shadow-sm fw-bold position-relative btn-sm text-nowrap" onclick="openApprovalModal()">
                 <i class="bi bi-bell-fill"></i> 결재
                 <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="badge-count" style="display:none;">0</span>
@@ -129,7 +127,6 @@
                 </select>
             </form>
             {% else %}
-            <!-- 교육생용: 팀 보기 / 내 것만 보기 (새로 추가) -->
             <form class="d-flex gap-2 align-items-center bg-white p-1 rounded border shadow-sm">
                 <div class="bg-white px-2 py-1 rounded text-muted shadow-none small text-nowrap">
                     <i class="bi bi-person-circle"></i> 내 근무표
@@ -141,17 +138,12 @@
             </form>
             {% endif %}
             
-            <!-- 이전/다음 월 이동 (view 파라미터 유지 추가) -->
             <div class="btn-group shadow-sm">
                 <a href="?year={{ prev_month|slice:':4' }}&month={{ prev_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}&view={{ view_scope|default:'' }}" class="btn btn-light border fw-bold btn-sm">◀</a>
                 <a href="?year={{ next_month|slice:':4' }}&month={{ next_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}&view={{ view_scope|default:'' }}" class="btn btn-light border fw-bold btn-sm">▶</a>
             </div>
         </div>
     </div>
-
-    <!-- 이하 control-box / table / modal / script 부분은 네 코드 그대로 유지 -->
-    <!-- ... (네가 준 코드와 동일, 변경 없음) ... -->
-    <!-- 아래부터는 그대로 복사해 사용하면 됨 -->
 
     <div class="control-box d-flex flex-wrap align-items-center justify-content-between shadow-sm" id="palette-toolbar">
         <div class="d-flex align-items-center gap-3">
@@ -327,7 +319,9 @@
                 let data = await response.json();
                 
                 if (data.status === 'reason_required') {
-                    let userReason = prompt(`📝 [승인 필요] ${change.date} 근무 변경 사유:\n(취소 시 미저장)`);
+                    // [수정] 취소 버튼 누르면 저장 안 되도록 로직 변경
+                    let userReason = prompt(`📝 [승인 필요] ${change.date} 근무 변경 사유:\n(취소 시 해당 항목은 저장되지 않습니다)`);
+                    
                     if (userReason) {
                         change.reason = userReason;
                         await fetch("{% url 'attendance:update_schedule' %}", {
@@ -335,6 +329,10 @@
                             headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
                             body: JSON.stringify(change)
                         });
+                    } else {
+                        // 사용자가 사유 입력을 취소함 -> 함수 중단
+                        alert("사유 입력이 취소되어 저장이 중단되었습니다.");
+                        return; // 여기서 멈춤!
                     }
                 } else if (data.status === 'error') {
                     alert(`저장 실패: ${data.message}`);
@@ -417,13 +415,26 @@
     }
 
     function processReq(reqId, action) {
-        fetch("{% url 'attendance:process_request' %}", {
+        // Django URL 패턴 생성
+        let url = "{% url 'attendance:process_request' 0 'action' %}";
+        url = url.replace('0', reqId).replace('action', action);
+
+        fetch(url, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
-            body: JSON.stringify({ request_id: reqId, action: action })
-        }).then(res => res.json()).then(data => {
-            document.getElementById(`req-${reqId}`).remove();
-            if(document.getElementById('approvalListBody').children.length === 0) document.getElementById('noRequestMsg').style.display = 'block';
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+        })
+        .then(res => res.json()) // JSON으로 변환
+        .then(data => {
+            if(data.status === 'success') {
+                alert(data.message); // 성공 메시지 띄우기
+                location.reload();   // [중요] 페이지 새로고침 -> 근무표 색깔 바뀌는 것 확인 가능!
+            } else {
+                alert("처리 실패: " + data.message);
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert("서버 통신 오류가 발생했습니다.");
         });
     }
 

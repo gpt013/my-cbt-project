@@ -62,7 +62,7 @@
                                 <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}">전체 통계</a></li>
                                 {% if user.is_superuser %}
                                 <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item fw-bold text-primary" href="{% url 'quiz:export_student_data' %}?process_id=ALL">📥 전체 데이터 다운로드</a></li>
+                                <li><a class="dropdown-item" href="{% url 'quiz:admin_full_data_view' %}"><i class="bi bi-grid-3x3"></i> 교육생 종합 마스터 그리드</a></li>
                                 <li><a class="dropdown-item text-danger" href="{% url 'admin:index' %}" target="_blank">⚙️ 시스템 Admin</a></li>
                                 {% endif %}
                             </ul>
@@ -125,7 +125,7 @@
                             </li>
                             
                             <li class="nav-item border-start ms-lg-2 ps-lg-2">
-                                <a class="nav-link" href="{% url 'attendance:upload_mdm' %}"><i class="bi bi-camera"></i> MDM</a>
+                                <a class="nav-link" href="{% url 'attendance:check_in_page' %}"><i class="bi bi-camera"></i> MDM</a>
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3"></i> 근무표</a>
