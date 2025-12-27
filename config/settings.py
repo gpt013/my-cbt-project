@@ -78,6 +78,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'quiz.context_processors.notification_status',
             ],
         },
     },
@@ -150,8 +151,12 @@ else:
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # --- 핵심 기능 설정 ---
-LOGIN_REDIRECT_URL = '/quiz/mypage/'
-LOGOUT_REDIRECT_URL = '/accounts/login/'
+
+# [수정됨] 로그인 후 이동할 URL (아까 수정한 quiz:index로 이동해야 관리자/교육생이 자동 분리됩니다)
+# 기존: '/quiz/mypage/' -> 변경: 'quiz:index' (URL 이름 사용 추천) 또는 '/quiz/'
+LOGIN_REDIRECT_URL = 'quiz:index' 
+
+LOGOUT_REDIRECT_URL = 'accounts:login' # '/accounts/login/'과 동일 (이름 사용 추천)
 
 # ASGI & Channels
 ASGI_APPLICATION = 'config.asgi.application'
@@ -219,7 +224,8 @@ ADMIN_INTERFACE_MODELS_GROUP_BY_CATEGORY = [
             "admin_interface.Theme",
             "quiz.UserAnswer",
             "quiz.Choice",
-            "accounts.StudentLog", # 추가된 로그 모델
+            "quiz.StudentLog", # accounts.StudentLog -> quiz.StudentLog (모델 위치에 맞게 수정됨)
+            "quiz.Notification", # [추가] 알림 모델도 보이게
         ],
     },
 ]
@@ -228,8 +234,7 @@ ADMIN_INTERFACE_MODELS_GROUP_BY_CATEGORY = [
 SITE_ID = 1
 
 # =========================================================
-# [이메일 설정 수정완료] 
-# (기존에 있던 console 백엔드 강제 설정을 제거했습니다)
+# [이메일 설정] 
 # =========================================================
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'

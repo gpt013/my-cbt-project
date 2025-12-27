@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4 mb-5" style="max-width: 1200px;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <div class="bg-light rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm border" style="width: 64px; height: 64px;">
+                <i class="bi bi-person-fill fs-2 text-secondary"></i>
+            </div>
+            <div>
+                <h3 class="fw-bold mb-0">{{ profile.name }} <span class="fs-6 text-muted fw-normal">({{ profile.user.username }})</span></h3>
+                <div class="mt-1">
+                    <span class="badge bg-secondary">{{ profile.process.name|default:"공정 미배정" }}</span>
+                    <span class="badge bg-dark">{{ profile.cohort.name|default:"기수 미배정" }}</span>
+                    <span class="badge {% if profile.status == 'attending' %}bg-success{% elif profile.status == 'counseling' %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                        {{ profile.get_status_display }}
+                    </span>
+                </div>
+            </div>
+        </div>
+        <a href="{% url 'quiz:pl_dashboard' %}" class="btn btn-outline-dark">
+            <i class="bi bi-arrow-left"></i> 목록으로
+        </a>
+    </div>
+
+    <div class="row g-4">
+        
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-bottom-0 py-3">
+                    <h5 class="fw-bold mb-0"><i class="bi bi-journal-text text-primary"></i> 시험 응시 이력</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="ps-4">시험명</th>
+                                    <th class="text-center">점수</th>
+                                    <th class="text-center">백분율</th>
+                                    <th class="text-center">결과</th>
+                                    <th class="text-center">응시일</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for result in results %}
+                                <tr>
+                                    <td class="ps-4 fw-bold">{{ result.quiz.title }}</td>
+                                    <td class="text-center">{{ result.score }} / {{ result.quiz.total_score }}</td>
+                                    <td class="text-center fw-bold text-primary">{{ result.percentage|floatformat:2 }}%</td>
+                                    <td class="text-center">
+                                        {% if result.is_pass %}
+                                            <span class="badge bg-success-subtle text-success border border-success">합격</span>
+                                        {% else %}
+                                            <span class="badge bg-danger-subtle text-danger border border-danger">불합격</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center text-muted small">{{ result.completed_at|date:"y.m.d" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="text-center py-4 text-muted">응시 기록이 없습니다.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white border-bottom-0 py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="fw-bold mb-0"><i class="bi bi-cpu text-purple" style="color: #6f42c1;"></i> AI 학습 분석</h5>
+                    <span class="badge bg-light text-dark border">응시 과목 기반</span>
+                </div>
+                <div class="card-body">
+                    {% if tag_analysis %}
+                        <div class="d-flex flex-column gap-3">
+                            {% for tag in tag_analysis|slice:":6" %}
+                            <div>
+                                <div class="d-flex justify-content-between mb-1">
+                                    <span class="fw-bold small">{{ tag.name }}</span>
+                                    <span class="small fw-bold {% if tag.status == 'weak' %}text-danger{% elif tag.status == 'strong' %}text-success{% else %}text-muted{% endif %}">
+                                        {{ tag.accuracy|floatformat:2 }}%
+                                    </span>
+                                </div>
+                                <div class="progress" style="height: 6px;">
+                                    <div class="progress-bar {% if tag.status == 'weak' %}bg-danger{% elif tag.status == 'strong' %}bg-success{% else %}bg-secondary{% endif %}" 
+                                         role="progressbar" 
+                                         style="width: {{ tag.accuracy|stringformat:'f' }}%"></div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5 text-muted">
+                            <i class="bi bi-bar-chart fs-1 opacity-25"></i>
+                            <p class="mt-2 small">분석할 데이터가 부족합니다.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 h-100 border-start border-4 border-primary">
+                <div class="card-body">
+                    <h6 class="text-muted fw-bold mb-3"><i class="bi bi-clipboard-data"></i> 종합 평가 점수</h6>
+                    <div class="text-center py-3">
+                        {% if profile.final_assessment %}
+                            <h2 class="display-4 fw-bold text-primary mb-0">
+                                {{ profile.final_assessment.final_score|floatformat:2 }}<span class="fs-4">점</span>
+                            </h2>
+                            <p class="text-muted small mt-1">
+                                기수 석차: <span class="fw-bold text-dark">{{ profile.final_assessment.rank|default:"-" }}등</span>
+                            </p>
+                        {% else %}
+                            <h2 class="text-muted display-4 fw-bold">-</h2>
+                            <p class="text-muted small">아직 최종 평가가 없습니다.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 h-100 border-start border-4 border-success">
+                <div class="card-body">
+                    <h6 class="text-muted fw-bold mb-3"><i class="bi bi-check-circle-fill"></i> 태도 및 역량 평가</h6>
+                    
+                    {% if checklist_items %}
+                        <div style="max-height: 150px; overflow-y: auto;">
+                            <ul class="list-group list-group-flush small">
+                                {% for item in checklist_items %}
+                                    <li class="list-group-item px-0 py-1 border-0 d-flex text-dark">
+                                        <i class="bi bi-check-lg text-success me-2"></i>
+                                        <span>{{ item.description }}</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4 text-muted small">
+                            <i class="bi bi-file-earmark-x fs-4 d-block mb-1"></i>
+                            작성된 평가가 없습니다.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card shadow-sm border-0 h-100 border-start border-4 border-danger">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="text-muted fw-bold mb-0"><i class="bi bi-exclamation-circle"></i> 특이사항 요약</h6>
+                        <a href="{% url 'quiz:manage_student_logs' profile.id %}" class="btn btn-xs btn-light border py-0" style="font-size: 0.7rem;">상세보기</a>
+                    </div>
+                    
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                            <span><i class="bi bi-exclamation-triangle text-warning me-2"></i>일반 경고</span>
+                            <span class="badge bg-warning text-dark rounded-pill">{{ warning_count }}회</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                            <span><i class="bi bi-file-earmark-excel text-danger me-2"></i>경고장 발부</span>
+                            <span class="badge bg-danger rounded-pill">{{ warning_letter_count }}회</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                            <span><i class="bi bi-arrow-repeat text-secondary me-2"></i>2차 재시험 과목</span>
+                            <span class="fw-bold text-dark">{{ retake_2_count }}개</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                            <span><i class="bi bi-arrow-repeat text-danger me-2"></i>3차 재시험 과목</span>
+                            <span class="fw-bold text-danger">{{ retake_3_count }}개</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

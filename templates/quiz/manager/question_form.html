@@ -1,81 +1,210 @@
 {% extends 'base.html' %}
 {% load static %}
 
+{% block extra_css %}
+<style>
+    /* [1] 보기(Choice) 입력 영역 스타일 (여백 개선) */
+    .choice-row {
+        transition: all 0.2s ease-in-out;
+    }
+    .choice-row:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 .5rem 1rem rgba(0,0,0,.1) !important;
+    }
+
+    /* [수정 1] 보기 번호 (좌측) - 너비를 90px -> 120px로 확 키움 */
+    .choice-label-box {
+        width: 120px; /* 여기를 늘려서 글자가 테두리에 붙지 않게 함 */
+        background-color: #f8f9fa;
+        color: #495057;
+        font-size: 1.1rem;
+        font-weight: 800;
+        border-right: 0;
+        /* 글자가 박스 정중앙에 오도록 설정 */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* 입력창 본체 */
+    .choice-textarea {
+        border: 1px solid #ced4da;
+        border-radius: 0;
+        padding: 15px;
+        font-size: 1.05rem;
+        min-height: 80px;
+    }
+    .choice-textarea:focus {
+        z-index: 5;
+        border-color: #86b7fe;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+    }
+
+    /* [수정 2] 정답 체크 영역 (우측) - 너비를 110px -> 130px로 늘림 */
+    .choice-check-box {
+        width: 130px; /* 여기를 늘려서 스위치가 여유롭게 보이게 함 */
+        background-color: white;
+        border: 1px solid #ced4da;
+        border-left: 0;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        /* 내용물 정중앙 정렬 */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .choice-check-box:hover {
+        background-color: #e8f5e9;
+    }
+
+    /* 스위치와 글자 간격 조정 */
+    .choice-check-box .form-check {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+    }
+    
+    /* "정답" 라벨 스타일 */
+    .choice-check-box label {
+        margin-top: 5px; /* 스위치와 글자 사이 간격 확보 */
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: #198754; /* 초록색 */
+        cursor: pointer;
+    }
+
+    /* [2] 태그 검색창 및 목록 스타일 (기존 유지) */
+    #tag-search-input {
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        border-bottom: none;
+    }
+    #id_tags {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+        min-height: 200px;
+    }
+
+    .form-label { font-weight: 800; color: #212529; margin-bottom: 0.5rem; font-size: 1.05rem; }
+    .card { border: none; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.08); }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container mt-4" style="max-width: 800px;">
+<div class="container mt-5 mb-5" style="max-width: 900px;">
     <div class="card shadow-sm border-0">
-        <div class="card-header bg-white py-3">
-            <h4 class="fw-bold mb-0 text-primary">
+        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+            <h4 class="mb-0 text-primary fw-bold">
                 {% if form.instance.pk %}
-                    <i class="bi bi-pencil-square"></i> 문제 및 정답 수정
+                    <i class="bi bi-pencil-square me-2"></i>문제 수정
                 {% else %}
-                    <i class="bi bi-plus-circle"></i> 새 문제 추가
+                    <i class="bi bi-plus-lg me-2"></i>새 문제 추가
                 {% endif %}
             </h4>
-            <small class="text-muted">시험: <strong>{{ quiz.title }}</strong></small>
+            {% if quiz %}
+                <span class="badge bg-primary bg-opacity-10 text-primary border border-primary px-3 py-2">
+                    시험: {{ quiz.title }}
+                </span>
+            {% endif %}
         </div>
-        <div class="card-body p-4">
+        
+        <div class="card-body p-4 p-md-5">
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
                 
-                <h5 class="fw-bold border-bottom pb-2 mb-3">문제 정보</h5>
-                <div class="mb-3">
-                    <label class="form-label fw-bold">문제 내용</label>
+                <h5 class="fw-bold text-secondary mb-4 border-bottom pb-2">
+                    <i class="bi bi-info-circle me-1"></i> 문제 정보
+                </h5>
+                
+                <div class="mb-4">
+                    <label class="form-label">문제 내용</label>
                     {{ form.question_text }}
                 </div>
 
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-bold">유형</label>
+                <div class="row g-4 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">유형</label>
                         {{ form.question_type }}
                     </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-bold">난이도</label>
+                    <div class="col-md-6">
+                        <label class="form-label">난이도</label>
                         {{ form.difficulty }}
                     </div>
                 </div>
 
-                <div class="mb-3">
-                    <label class="form-label fw-bold">태그</label>
+                <div class="mb-4">
+                    <label class="form-label">태그 선택</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white text-muted"><i class="bi bi-search"></i></span>
+                        <input type="text" id="tag-search-input" class="form-control" placeholder="태그 이름 검색... (입력하면 아래 목록이 필터링됩니다)">
+                    </div>
                     {{ form.tags }}
+                    <div class="form-text text-muted mt-1">
+                        <i class="bi bi-check2-all"></i> 목록에서 원하는 태그를 클릭하세요. (Ctrl/Command 키를 누르고 클릭하면 여러 개 선택 가능)
+                    </div>
                 </div>
 
-                <div class="mb-4">
-                    <label class="form-label fw-bold">이미지</label>
+                <div class="mb-5">
+                    <label class="form-label">이미지 (선택)</label>
                     {{ form.image }}
                 </div>
 
                 {% if formset %}
-                    <h5 class="fw-bold border-bottom pb-2 mb-3 mt-4">보기 및 정답 설정</h5>
+                    <h5 class="fw-bold text-secondary mb-4 border-bottom pb-2 mt-5">
+                        <i class="bi bi-check2-square me-1"></i> 보기 및 정답 설정
+                    </h5>
+                    
                     {{ formset.management_form }}
                     
-                    <div class="vstack gap-2">
+                    <div class="vstack gap-4">
                         {% for choice_form in formset %}
-                            <div class="input-group">
-                                <span class="input-group-text bg-light fw-bold">보기 {{ forloop.counter }}</span>
-                                {{ choice_form.id }} {{ choice_form.choice_text }}
-                                <div class="input-group-text bg-white">
-                                    <div class="form-check mb-0">
+                            {% for hidden in choice_form.hidden_fields %}
+                                {{ hidden }}
+                            {% endfor %}
+
+                            <div class="d-flex choice-row shadow-sm">
+                                <div class="choice-label-box d-flex align-items-center justify-content-center border border-end-0 rounded-start">
+                                    보기 {{ forloop.counter }}
+                                </div>
+                                
+                                <div class="flex-grow-1">
+                                    {{ choice_form.choice_text }} </div>
+                                
+                                <div class="choice-check-box d-flex align-items-center justify-content-center rounded-end" onclick="toggleCheckbox(this)">
+                                    <div class="form-check form-switch m-0 d-flex flex-column align-items-center justify-content-center">
                                         {{ choice_form.is_correct }}
-                                        <label class="form-check-label text-success fw-bold small">정답</label>
+                                        <label class="form-check-label fw-bold text-success mt-1" style="font-size: 0.9rem; cursor: pointer;">
+                                            정답
+                                        </label>
                                     </div>
                                 </div>
                             </div>
+                            
+                            {% if choice_form.choice_text.errors %}
+                                <div class="text-danger small ps-2 mt-1">
+                                    <i class="bi bi-exclamation-circle"></i> {{ choice_form.choice_text.errors.0 }}
+                                </div>
+                            {% endif %}
                         {% endfor %}
                     </div>
                     
-                    <div class="alert alert-info mt-3 small">
-                        <i class="bi bi-info-circle-fill"></i> 
-                        객관식/다중선택 유형인 경우, <strong>정답</strong> 체크박스를 통해 정답을 지정하세요.
+                    <div class="alert alert-light border mt-4 small text-secondary d-flex align-items-center">
+                        <i class="bi bi-info-circle-fill text-info fs-5 me-2"></i>
+                        <span>객관식은 정답 1개를, 다중선택은 2개 이상을 체크하세요.</span>
                     </div>
                 {% endif %}
 
-                <hr class="my-4">
-
-                <div class="d-flex justify-content-end gap-2">
-                    <a href="{% url 'quiz:question_list' quiz.id %}" class="btn btn-secondary fw-bold px-3">취소</a>
-                    <button type="submit" class="btn btn-primary fw-bold px-4">
-                        <i class="bi bi-save"></i> 저장하기
+                <div class="d-flex justify-content-end gap-2 mt-5 pt-3 border-top">
+                    {% if quiz %}
+                        <a href="{% url 'quiz:question_list' quiz.id %}" class="btn btn-lg btn-secondary px-4 fw-bold">취소</a>
+                    {% else %}
+                        <a href="{% url 'quiz:dashboard' %}" class="btn btn-lg btn-secondary px-4 fw-bold">취소</a>
+                    {% endif %}
+                    
+                    <button type="submit" class="btn btn-lg btn-primary px-5 fw-bold">
+                        <i class="bi bi-save me-1"></i> 저장하기
                     </button>
                 </div>
             </form>
@@ -83,15 +212,35 @@
     </div>
 </div>
 
-<style>
-    /* 보기 텍스트 입력창 스타일 */
-    input[name$='-choice_text'] {
-        form-control;
-        flex: 1 1 auto;
-        width: 1%;
-        min-width: 0;
-        border: 1px solid #dee2e6;
-        padding: .375rem .75rem;
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. 태그 검색 필터링 스크립트
+        var searchInput = document.getElementById('tag-search-input');
+        if (searchInput) {
+            searchInput.addEventListener('keyup', function() {
+                var searchText = this.value.toLowerCase();
+                var selectBox = document.getElementById('id_tags');
+                var options = selectBox.options;
+
+                for (var i = 0; i < options.length; i++) {
+                    var optionText = options[i].text.toLowerCase();
+                    if (optionText.indexOf(searchText) > -1) {
+                        options[i].style.display = ""; 
+                    } else {
+                        options[i].style.display = "none";
+                    }
+                }
+            });
+        }
+    });
+
+    // 2. 정답 영역 클릭 시 체크박스 토글
+    function toggleCheckbox(element) {
+        if (event.target.type === 'checkbox') return;
+        var checkbox = element.querySelector('input[type="checkbox"]');
+        if (checkbox) {
+            checkbox.checked = !checkbox.checked;
+        }
     }
-</style>
+</script>
 {% endblock %}

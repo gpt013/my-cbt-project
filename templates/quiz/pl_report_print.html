@@ -1,146 +1,87 @@
+{% extends 'base.html' %}
 {% load static %}
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <title>교육생 종합 성적 리포트</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+{% block content %}
+<div class="container mt-4 mb-5" style="max-width: 1200px;">
     
-    <style>
-        body { background-color: #f8f9fa; font-family: "Malgun Gothic", sans-serif; }
-        
-        .report-card { 
-            background: white; 
-            border: 1px solid #ddd; 
-            padding: 30px; 
-            margin-bottom: 30px; 
-            page-break-inside: avoid; /* 인쇄 시 중간에 잘리지 않게 함 */
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            border-radius: 8px;
-        }
-        
-        .table-sm th, .table-sm td { font-size: 0.9rem; vertical-align: middle; }
-        
-        .comment-box {
-            background-color: #f8f9fa;
-            border-left: 5px solid #0d6efd;
-            padding: 15px;
-            min-height: 80px;
-            border-radius: 4px;
-        }
-
-        /* 인쇄 전용 스타일 */
-        @media print {
-            body { background-color: white; -webkit-print-color-adjust: exact; }
-            .no-print { display: none !important; }
-            .report-card { 
-                border: 1px solid #000; 
-                box-shadow: none; 
-                margin-bottom: 50px; 
-                page-break-inside: avoid;
-                break-inside: avoid; 
-            }
-            .badge { border: 1px solid #000; color: #000 !important; background: none !important; }
-            .bg-light { background-color: #f8f9fa !important; }
-        }
-    </style>
-</head>
-<body>
-
-    <div class="container mt-3 mb-4 no-print">
-        <div class="d-flex justify-content-between align-items-center bg-white p-3 rounded shadow-sm border">
-            <h5 class="mb-0 fw-bold"><i class="bi bi-file-earmark-pdf text-danger"></i> 교육생 종합 성적 리포트</h5>
-            <div>
-                <button onclick="window.close()" class="btn btn-secondary me-2">닫기</button>
-                <button onclick="window.print()" class="btn btn-primary fw-bold">
-                    <i class="bi bi-printer"></i> 인쇄 / PDF 저장
-                </button>
-            </div>
-        </div>
-        <div class="alert alert-info mt-2 mb-0 shadow-sm border-0">
-            <i class="bi bi-info-circle-fill"></i> <strong>Tip:</strong> [인쇄] 버튼을 누른 후, 대상(프린터)을 <strong>'PDF로 저장'</strong>으로 변경하면 파일로 저장할 수 있습니다.
-        </div>
+    <div class="d-flex justify-content-between align-items-center mb-4 d-print-none">
+        <a href="{% url 'quiz:pl_dashboard' %}" class="btn btn-outline-dark">
+            <i class="bi bi-arrow-left"></i> 목록으로 돌아가기
+        </a>
+        <button onclick="window.print()" class="btn btn-primary fw-bold">
+            <i class="bi bi-printer"></i> 인쇄 / PDF 저장
+        </button>
     </div>
 
-    <div class="container">
-        <div class="text-center mb-5 mt-4">
-            <h1 class="fw-bold">교육 운영 종합 결과 보고서</h1>
-            <p class="text-muted">출력일: {{ today|date:"Y년 m월 d일" }}</p>
-        </div>
+    <div class="text-center mb-5 pt-3">
+        <h2 class="fw-bold">교육생 종합 성적 리포트</h2>
+        <p class="text-muted">출력일: {{ today|date:"Y년 m월 d일" }}</p>
+    </div>
 
-        {% for item in report_data %}
-        <div class="report-card">
-            <div class="d-flex justify-content-between align-items-end border-bottom pb-3 mb-4">
-                <div class="d-flex align-items-center">
-                    <h2 class="fw-bold mb-0 me-2">{{ item.profile.name }}</h2>
-                    <span class="text-muted fs-5">({{ item.profile.employee_id }})</span>
-                </div>
-                <div class="text-end">
-                    <span class="badge bg-dark fs-6">{{ item.profile.cohort.name }}</span>
-                    <span class="badge bg-secondary fs-6">{{ item.profile.process.name }}</span>
-                    <span class="badge {% if item.profile.status == 'attending' %}bg-success{% elif item.profile.status == 'completed' %}bg-primary{% else %}bg-danger{% endif %} fs-6">
-                        {{ item.profile.get_status_display }}
-                    </span>
+    {% for item in report_data %}
+    <div class="card mb-4 border shadow-none" style="page-break-inside: avoid;">
+        <div class="card-header bg-white py-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0 fw-bold">{{ item.profile.name }} <span class="fs-6 text-muted">({{ item.profile.user.username }})</span></h4>
+                <div>
+                    <span class="badge bg-secondary border text-dark bg-opacity-10">{{ item.profile.process.name }}</span>
+                    <span class="badge bg-secondary border text-dark bg-opacity-10">{{ item.profile.cohort.name }}</span>
                 </div>
             </div>
-
-            <div class="row g-4">
-                <div class="col-3 border-end">
-                    <div class="text-center py-4">
-                        <h6 class="text-secondary fw-bold text-uppercase mb-2">종합 환산 점수</h6>
-                        <h1 class="display-4 fw-bold text-primary mb-0">{{ item.assessment.final_score }}</h1>
-                        <small class="text-muted">점</small>
-                    </div>
-                    <div class="text-center py-3 border-top mt-2">
-                        <h6 class="text-secondary fw-bold mb-1">기수 석차</h6>
-                        <h4 class="fw-bold mb-0 text-dark">
-                            {{ item.assessment.rank }} <small class="fs-6 text-muted fw-normal">등</small>
-                        </h4>
-                    </div>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-3 text-center border-end d-flex flex-column justify-content-center">
+                    <h6 class="text-muted">종합 점수</h6>
+                    <h1 class="display-4 fw-bold text-primary mb-0">{{ item.assessment.final_score|floatformat:2 }}</h1>
+                    <p class="mb-0 fw-bold text-dark">기수 석차: {{ item.assessment.rank }}등</p>
                 </div>
 
                 <div class="col-9">
-                    <h6 class="fw-bold mb-2 ps-1"><i class="bi bi-bar-chart-fill text-secondary"></i> 과목별 상세 성적</h6>
-                    <table class="table table-bordered table-sm text-center align-middle mb-0">
+                    <table class="table table-sm table-bordered text-center align-middle mb-0">
                         <thead class="table-light">
                             <tr>
-                                <th style="width: 40%;">과목명</th>
-                                <th style="width: 20%;">1차</th>
-                                <th style="width: 20%;">2차</th>
-                                <th style="width: 20%;">3차</th>
+                                <th>과목명</th>
+                                <th style="width: 60px;">1차</th>
+                                <th style="width: 60px;">2차</th>
+                                <th style="width: 60px;">3차</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for score in item.scores %}
                             <tr>
-                                <td class="text-start ps-3 fw-bold">{{ score.title }}</td>
-                                <td class="{% if score.s1 != '-' and score.s1 >= 80 %}text-primary fw-bold bg-light{% endif %}">{{ score.s1 }}</td>
-                                <td class="{% if score.s2 != '-' and score.s2 >= 80 %}text-primary fw-bold bg-light{% endif %}">{{ score.s2 }}</td>
-                                <td class="{% if score.s3 != '-' and score.s3 >= 80 %}text-primary fw-bold bg-light{% endif %}">{{ score.s3 }}</td>
+                                <td class="text-start ps-2 fw-bold">{{ score.title }}</td>
+                                <td>{{ score.s1 }}</td>
+                                <td>{{ score.s2 }}</td>
+                                <td>{{ score.s3 }}</td>
                             </tr>
-                            {% empty %}
-                            <tr><td colspan="4" class="text-muted py-3">응시 기록이 없습니다.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            <div class="mt-4 pt-2">
-                <h6 class="fw-bold mb-2 ps-1"><i class="bi bi-chat-square-quote-fill text-secondary"></i> 매니저 종합 평가 의견</h6>
-                <div class="comment-box text-dark">
-                    {{ item.assessment.comment|linebreaksbr }}
-                </div>
+            <div class="mt-3 pt-3 border-top bg-light p-3 rounded">
+                <strong class="text-primary"><i class="bi bi-chat-square-quote-fill"></i> 매니저 종합 의견</strong>
+                <p class="mb-0 mt-1 small text-dark">{{ item.assessment.comment|default:"작성된 의견이 없습니다."|linebreaksbr }}</p>
             </div>
         </div>
-        {% empty %}
-            <div class="alert alert-warning text-center py-5">
-                <h4>표시할 데이터가 없습니다.</h4>
-                <p>대시보드에서 조건을 선택한 후 다시 시도해주세요.</p>
-            </div>
-        {% endfor %}
     </div>
+    {% empty %}
+    <div class="text-center py-5 text-muted">
+        데이터가 없습니다.
+    </div>
+    {% endfor %}
+</div>
 
-</body>
-</html>
+<style>
+    /* 인쇄 시 배경색 등 강제 적용 */
+    @media print {
+        .d-print-none { display: none !important; }
+        body { background-color: white; }
+        .card { border: 1px solid #000 !important; }
+        .badge { border: 1px solid #000 !important; color: #000 !important; }
+        .bg-light { background-color: #f0f0f0 !important; -webkit-print-color-adjust: exact; }
+    }
+</style>
+{% endblock %}

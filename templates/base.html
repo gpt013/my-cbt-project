@@ -26,11 +26,13 @@
     {# --- 시험 중이거나 프로필 설정 중이 아닐 때만 헤더 표시 --- #}
     {% if not is_in_test_mode and not is_completing_profile %}
     
+    {# [A] 스태프(관리자/PL) 권한이 있는 경우 #}
     {% if user.is_staff %}
     <header>
         <nav class="navbar navbar-expand-xl manager-nav navbar-dark shadow-sm">
             <div class="container-fluid">
-                <a class="navbar-brand fw-bold" href="{% url 'quiz:manager_dashboard' %}">
+                {# 로고 링크: 매니저는 대시보드, PL은 PL 대시보드로 #}
+                <a class="navbar-brand fw-bold" href="{% if user.profile.is_manager or user.is_superuser %}{% url 'quiz:manager_dashboard' %}{% else %}{% url 'quiz:pl_dashboard' %}{% endif %}">
                     <i class="bi bi-shield-lock-fill text-warning"></i> PMTC 매니저 센터
                 </a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#managerNav">
@@ -39,52 +41,85 @@
                 
                 <div class="collapse navbar-collapse" id="managerNav">
                     <ul class="navbar-nav me-auto mb-2 mb-xl-0">
-                        <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_dashboard' %}"><i class="bi bi-speedometer2"></i> 대시보드</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_trainee_list' %}"><i class="bi bi-people"></i> 교육생 관리</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}?role=manager"><i class="bi bi-calendar-check"></i> 근무표</a></li>
-                        <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_exam_requests' %}"><i class="bi bi-bell"></i> 요청 승인</a></li>
                         
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-file-earmark-text"></i> 시험/문제</a>
-                            <ul class="dropdown-menu shadow">
-                                <li><a class="dropdown-item" href="{% url 'quiz:manager_quiz_list' %}">시험 목록 및 수정</a></li>
-                                <li><a class="dropdown-item" href="{% url 'quiz:upload_quiz' %}">엑셀로 시험 등록</a></li>
-                                <li><a class="dropdown-item" href="{% url 'quiz:bulk_add_sheet_view' %}">엑셀로 문제 추가</a></li>
-                            </ul>
-                        </li>
+                        {# ================================================= #}
+                        {# [1] 진짜 매니저(또는 슈퍼유저)만 보는 메뉴 그룹 #}
+                        {# (대시보드, 교육생관리, 근무표, 교육생센터 포함) #}
+                        {# ================================================= #}
+                        {% if user.is_superuser or user.profile.is_manager %}
+                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_dashboard' %}"><i class="bi bi-speedometer2"></i> 대시보드</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_trainee_list' %}"><i class="bi bi-people"></i> 교육생 관리</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}?role=manager"><i class="bi bi-calendar-check"></i> 근무표</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_exam_requests' %}"><i class="bi bi-check-circle"></i> 요청 승인</a></li>
+                            
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-file-earmark-text"></i> 시험/문제</a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_quiz_list' %}">시험 목록 및 수정</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:upload_quiz' %}">엑셀로 시험 등록</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:bulk_add_sheet_view' %}">엑셀로 문제 추가</a></li>
+                                </ul>
+                            </li>
 
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-bar-chart"></i> 통계/분석</a>
-                            <ul class="dropdown-menu shadow">
-                                {% if user.is_superuser or user.profile.is_pl %}
-                                    <li><a class="dropdown-item" href="{% url 'quiz:pl_dashboard' %}">PL 대시보드</a></li>
-                                {% endif %}
-                                <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}">전체 통계</a></li>
-                                {% if user.is_superuser %}
-                                <li><hr class="dropdown-divider"></li>
-                                <li><a class="dropdown-item" href="{% url 'quiz:admin_full_data_view' %}"><i class="bi bi-grid-3x3"></i> 교육생 종합 마스터 그리드</a></li>
-                                <li><a class="dropdown-item text-danger" href="{% url 'admin:index' %}" target="_blank">⚙️ 시스템 Admin</a></li>
-                                {% endif %}
-                            </ul>
-                        </li>
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-bar-chart"></i> 통계/분석</a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}">전체 통계</a></li>
+                                    {% if user.is_superuser %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:admin_full_data_view' %}"><i class="bi bi-grid-3x3"></i> 교육생 종합 마스터 그리드</a></li>
+                                    <li><a class="dropdown-item text-danger" href="{% url 'admin:index' %}" target="_blank">⚙️ 시스템 Admin</a></li>
+                                    {% endif %}
+                                </ul>
+                            </li>
 
-                        <li class="nav-item dropdown border-start ms-2 ps-2">
-                            <a class="nav-link dropdown-toggle text-info fw-bold" href="#" data-bs-toggle="dropdown">
-                                🎓 교육생 센터
-                            </a>
-                            <ul class="dropdown-menu shadow">
-                                <li><h6 class="dropdown-header">학생 모드 기능</h6></li>
-                                <li><a class="dropdown-item" href="{% url 'quiz:my_page' %}">마이페이지 (홈)</a></li>
-                                <li><a class="dropdown-item" href="{% url 'quiz:index' %}">시험 응시 목록</a></li>
-                                <li><a class="dropdown-item" href="{% url 'quiz:my_results_index' %}">내 성적 확인</a></li>
-                                <li><a class="dropdown-item" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a></li>
-                            </ul>
-                        </li>
+                            {# [수정됨] 교육생 센터 메뉴를 여기(매니저 전용 구역) 안으로 이동시켰습니다. #}
+                            <li class="nav-item dropdown border-start ms-2 ps-2">
+                                <a class="nav-link dropdown-toggle text-info fw-bold" href="#" data-bs-toggle="dropdown">
+                                    🎓 교육생 센터
+                                </a>
+                                <ul class="dropdown-menu shadow">
+                                    <li><h6 class="dropdown-header">학생 모드 기능</h6></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:my_page' %}">마이페이지 (홈)</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:index' %}">시험 응시 목록</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:my_results_index' %}">내 성적 확인</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a></li>
+                                </ul>
+                            </li>
+                        {% endif %}
+
+                        {# ================================================= #}
+                        {# [2] PL(파트장) 또는 슈퍼유저만 보는 메뉴 #}
+                        {# ================================================= #}
+                        {% if user.is_superuser or user.profile.is_pl %}
+                            <li class="nav-item ms-lg-2">
+                                <a class="nav-link text-warning fw-bold border border-warning rounded px-2" href="{% url 'quiz:pl_dashboard' %}">
+                                    <i class="bi bi-bar-chart-steps"></i> PL 대시보드
+                                </a>
+                            </li>
+                        {% endif %}
                     </ul>
 
                     <div class="d-flex align-items-center text-white">
+                        {# [공통] 알림 센터 (PL도 알림은 봐야 하므로 유지) #}
+                        <a class="nav-link position-relative" href="{% url 'quiz:notification_list' %}">
+    <i class="bi bi-bell fs-5"></i>
+    
+    {% if has_unread_notifications %}
+        <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle">
+            <span class="visually-hidden">New alerts</span>
+        </span>
+    {% endif %}
+</a>
+
                         <span class="me-3 d-none d-lg-inline">
-                            <span class="badge bg-warning text-dark me-1">Manager</span>
+                            {% if user.profile.is_manager %}
+                                <span class="badge bg-warning text-dark me-1">Manager</span>
+                            {% elif user.profile.is_pl %}
+                                <span class="badge bg-info text-dark me-1">PL</span>
+                            {% else %}
+                                <span class="badge bg-secondary me-1">Staff</span>
+                            {% endif %}
                             <strong>{{ user.profile.name|default:user.username }}</strong>
                         </span>
                         <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
@@ -97,6 +132,7 @@
         </nav>
     </header>
 
+    {# [B] 일반 교육생인 경우 #}
     {% else %}
     <header>
         <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
@@ -122,6 +158,9 @@
                             </li>
                             <li class="nav-item">
                                 <a class="nav-link" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up"></i> 대시보드</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'quiz:notification_list' %}"><i class="bi bi-bell"></i> 알림함</a>
                             </li>
                             
                             <li class="nav-item border-start ms-lg-2 ps-lg-2">
@@ -186,7 +225,7 @@
                 notificationSocket.onmessage = function(e) {
                     const data = JSON.parse(e.data);
                     alert(data.message);
-                    window.location.reload();
+                    window.location.reload(); 
                 };
             } catch (e) {
                 console.log('WebSocket skipped.');

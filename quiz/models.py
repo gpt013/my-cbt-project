@@ -242,7 +242,7 @@ class StudentLog(models.Model):
     """
     LOG_TYPES = [
         ('warning', '⚠️ 경고'),
-        ('warning_letter', '📜 경위서'),
+        ('warning_letter', '📜 경고장'),
         ('counseling', '💬 면담/알림'),
         ('praise', '👏 칭찬'),
         ('system', '🔔 시스템'),
@@ -267,3 +267,25 @@ class StudentLog(models.Model):
 
     def __str__(self):
         return f"[{self.get_log_type_display()}] {self.profile.name} - {self.created_at.strftime('%m-%d')}"
+    
+class Notification(models.Model):
+    """
+    사용자(관리자/교육생)에게 보여줄 알림 데이터
+    """
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications', verbose_name="받는 사람")
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_notifications', verbose_name="보낸 사람")
+    
+    message = models.CharField(max_length=255, verbose_name="알림 내용")
+    notification_type = models.CharField(max_length=50, default='general', verbose_name="알림 유형") # counseling, warning 등
+    related_url = models.CharField(max_length=255, blank=True, null=True, verbose_name="이동할 링크")
+    
+    is_read = models.BooleanField(default=False, verbose_name="읽음 여부")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = '알림'
+        verbose_name_plural = '알림 목록'
+
+    def __str__(self):
+        return f"{self.recipient}에게: {self.message}"

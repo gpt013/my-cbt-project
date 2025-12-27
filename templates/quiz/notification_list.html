@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-5" style="max-width: 800px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="fw-bold"><i class="bi bi-bell-fill text-warning"></i> 알림 센터</h3>
+        <span class="badge bg-danger rounded-pill">안 읽음 {{ unread_count }}개</span>
+    </div>
+
+    <div class="list-group shadow-sm">
+        {% for noti in notifications %}
+            <a href="{% url 'quiz:notification_read' noti.id %}" 
+               class="list-group-item list-group-item-action p-4 {% if not noti.is_read %}bg-light border-start border-4 border-primary{% endif %}"
+               aria-current="true">
+                
+                <div class="d-flex w-100 justify-content-between mb-1">
+                    <h5 class="mb-1 fw-bold text-dark">
+                        {% if not noti.is_read %}<span class="text-primary me-1">●</span>{% endif %}
+                        {{ noti.message }}
+                    </h5>
+                    <small class="text-muted">{{ noti.created_at|date:"m/d H:i" }}</small>
+                </div>
+                
+                <p class="mb-1 text-secondary small">
+                    보낸 사람: <strong>{{ noti.sender.profile.name|default:noti.sender.username }}</strong> 
+                    <span class="badge bg-secondary bg-opacity-10 text-secondary ms-1">{{ noti.notification_type }}</span>
+                </p>
+            </a>
+        {% empty %}
+            <div class="text-center py-5 text-muted bg-white border rounded">
+                <i class="bi bi-inbox fs-1 d-block mb-3 text-secondary"></i>
+                <p class="mb-0">새로운 알림이 없습니다.</p>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
