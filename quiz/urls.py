@@ -5,37 +5,43 @@ app_name = 'quiz'
 
 urlpatterns = [
     # ==========================================
-    # [Section 1] 공통 및 학생 기능
+    # [Section 1] 공통 및 학생 기능 (Student Zone)
     # ==========================================
-    path('', views.index, name='index'),
-    path('mypage/', views.index, name='my_page'), # index 뷰 재사용
     
-    # 1. 알림 및 로그 (학생용)
+    # 1. 메인 & 마이페이지
+    path('', views.index, name='index'), # 교육생 센터 홈 (시험 목록)
+    path('student/', views.my_page, name='my_page'), # 마이페이지
+    
+    # 2. 알림 및 로그 (학생용)
     path('notifications/', views.notification_list, name='notification_list'),
     path('notifications/<int:noti_id>/read/', views.notification_read, name='notification_read'),
     
-    path('my-page/notifications/', views.notification_list, name='my_notifications'), # 호환용
-    path('my-page/log/create/', views.student_create_counseling_log, name='student_create_counseling_log'),
-    path('my-page/log/<int:log_id>/', views.student_log_detail, name='student_log_detail'),
+    # [수정 완료] 템플릿 오류 해결을 위해 'my_notifications' 이름 복구
+    path('my-page/notifications/', views.notification_list, name='my_notifications'), 
     
-    # 2. 시험 응시 프로세스
-    path('quiz/<int:quiz_id>/request/', views.request_quiz, name='request_quiz'),
-    path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'),
-    path('quiz/attempt/<int:attempt_id>/start/', views.start_quiz, name='start_quiz'),
-    path('quiz/take/<int:page_number>/', views.take_quiz, name='take_quiz'),
-    path('quiz/submit-page/<int:page_number>/', views.submit_page, name='submit_page'),
-    path('quiz/submit-quiz/', views.submit_quiz, name='submit_quiz'),
+    # 학생이 상담 요청(로그 생성)
+    path('student/log/create/', views.student_create_counseling_log, name='student_create_counseling_log'),
+    path('student/log/<int:log_id>/', views.student_log_detail, name='student_log_detail'),
     
-    # 3. 결과 및 대시보드
-    path('quiz/results/', views.quiz_results, name='quiz_results'),
-    path('quiz/my-results/', views.my_results_index, name='my_results_index'),
-    path('quiz/my-results/<int:quiz_id>/', views.my_results_by_quiz, name='my_results_by_quiz'),
-    path('quiz/results/<int:result_id>/', views.result_detail, name='result_detail'),
+    # 3. 시험 응시 프로세스
+    path('quiz/<int:quiz_id>/request/', views.request_quiz, name='request_quiz'),         
+    path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'), 
+    path('quiz/attempt/<int:attempt_id>/start/', views.start_quiz, name='start_quiz'),    
+    path('quiz/take/<int:page_number>/', views.take_quiz, name='take_quiz'),             
+    path('quiz/submit-page/<int:page_number>/', views.submit_page, name='submit_page'),   
+    path('quiz/submit-quiz/', views.submit_quiz, name='submit_quiz'),                     
     
-    path('quiz/my-incorrect-answers/', views.my_incorrect_answers_index, name='my_incorrect_answers_index'),
-    path('quiz/my-incorrect-answers/<int:quiz_id>/', views.my_incorrect_answers_by_quiz, name='my_incorrect_answers_by_quiz'),
-    path('quiz/personal_dashboard/', views.personal_dashboard, name='personal_dashboard'),
-    path('certificate/', views.certificate_view, name='certificate_view'),
+    # 4. 결과 및 오답 노트
+    path('quiz/results/', views.quiz_results, name='quiz_results'), 
+    path('quiz/my-results/', views.my_results_index, name='my_results_index'), 
+    path('quiz/my-results/<int:quiz_id>/', views.my_results_by_quiz, name='my_results_by_quiz'), 
+    path('quiz/results/<int:result_id>/', views.result_detail, name='result_detail'), 
+    
+    path('quiz/my-incorrect-answers/', views.my_incorrect_answers_index, name='my_incorrect_answers_index'), 
+    path('quiz/my-incorrect-answers/<int:quiz_id>/', views.my_incorrect_answers_by_quiz, name='my_incorrect_answers_by_quiz'), 
+    
+    path('quiz/personal_dashboard/', views.personal_dashboard, name='personal_dashboard'), 
+    path('certificate/', views.certificate_view, name='certificate_view'), 
 
 
     # ==========================================
@@ -50,9 +56,9 @@ urlpatterns = [
     # [Section 3] 매니저 센터 (Manager Center)
     # ==========================================
     
-    # 1. 대시보드 및 권한
+    # 1. 대시보드 및 권한 관리
     path('manager/', views.manager_dashboard, name='manager_dashboard'),
-    path('quiz/dashboard/', views.dashboard, name='dashboard'), # 구버전 호환
+    path('quiz/dashboard/', views.dashboard, name='dashboard'), 
     path('request-access/', views.request_process_access, name='request_process_access'),
     path('manage-requests/', views.manage_access_requests, name='manage_access_requests'),
     path('approve-request/<int:request_id>/<str:action>/', views.approve_access_request, name='approve_access_request'),
@@ -61,14 +67,13 @@ urlpatterns = [
     path('manager/trainees/', views.manager_trainee_list, name='manager_trainee_list'),
     path('manager/trainees/<int:profile_id>/', views.manager_trainee_detail, name='manager_trainee_detail'),
     
-    # 3. 평가 및 특이사항(로그) 관리
-    # [핵심 수정] 404 오류 해결을 위해 옛날 주소와 새 주소 모두 연결
+    # 3. 평가 및 특이사항 관리
     path('manager/trainees/<int:profile_id>/logs/', views.manage_student_logs, name='manage_student_logs'),
-    path('manage/student/<int:profile_id>/logs/', views.manage_student_logs), # [추가됨] 옛날 주소 호환용 (Legacy)
+    path('manage/student/<int:profile_id>/logs/', views.manage_student_logs), 
     
-    path('manager/evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
-    path('manager/log/create/<int:profile_id>/', views.manager_create_counseling_log, name='manager_create_counseling_log'),
-    path('manager/interview/<int:profile_id>/', views.manage_interviews, name='manage_interviews'),
+    path('manager/evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),       
+    path('manager/log/create/<int:profile_id>/', views.manager_create_counseling_log, name='manager_create_counseling_log'), 
+    path('manager/interview/<int:profile_id>/', views.manage_interviews, name='manage_interviews'),   
 
     # 4. 계정 승인/관리
     path('manager/action/approve-signup/', views.approve_signup_bulk, name='approve_signup_bulk'),
@@ -89,6 +94,7 @@ urlpatterns = [
     path('manager/quiz/<int:quiz_id>/questions/', views.question_list, name='question_list'),
     path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
     path('manager/quiz/<int:quiz_id>/manage-questions/', views.quiz_question_manager, name='quiz_question_manager'),
+    
     path('manager/quiz/action/add-question/', views.add_question_to_quiz, name='add_question_to_quiz'),
     path('manager/quiz/action/remove-question/', views.remove_question_from_quiz, name='remove_question_from_quiz'),
 
@@ -101,6 +107,6 @@ urlpatterns = [
     path('manager/quiz/bulk-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
     path('export/student-data/', views.export_student_data, name='export_student_data'),
     
-    # 9. 관리자 전체 데이터 뷰
+    # 9. 전체 데이터 뷰
     path('manager/full-data-view/', views.admin_full_data_view, name='admin_full_data_view'),
 ]

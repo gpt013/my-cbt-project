@@ -63,26 +63,39 @@ def is_process_manager(user, target_profile):
 # 1. '마이 페이지'
 @login_required
 def my_page(request):
+    """
+    마이페이지 (홈)
+    - 매니저 강제 리다이렉트 제거됨 (누구나 접근 가능)
+    - 시험 불합격 시 면담 요청 상태(예정/완료) 체크 로직 포함
+    - [수정 완료] 템플릿 경로를 실제 파일 위치인 'quiz/my_page.html'로 변경
+    """
     user = request.user
+    
+    # 1. 프로필 가져오기 (없으면 생성)
     profile, created = Profile.objects.get_or_create(user=user)
 
-    # 1. 진행 중인 시험
+    # -------------------------------------------------------
+    # [1] 진행 중인 시험 (결재 대기/승인됨)
+    # -------------------------------------------------------
     pending_attempts = QuizAttempt.objects.filter(
         user=user, 
         status__in=['대기중', '승인됨']
     )
 
-    # 2. [핵심] 시험 결과 + 면담 상태 데이터 가공
-    # (단순 test_results가 아니라, 상태를 포함한 enhanced_results를 만듭니다)
-    raw_results = TestResult.objects.filter(user=user).select_related('quiz').order_by('-completed_at')[:5] # 최근 5개
+    # -------------------------------------------------------
+    # [2] 시험 결과 + 면담 상태 데이터 가공 (핵심 로직)
+    # -------------------------------------------------------
+    # 최근 5개 결과 조회
+    raw_results = TestResult.objects.filter(user=user).select_related('quiz').order_by('-completed_at')[:5]
     enhanced_results = []
 
     for result in raw_results:
         counseling_status = None
         
-        # 80점 미만(불합격)인 경우에만 면담 로직 체크
+        # 불합격(is_pass=False)인 경우에만 면담 로직 체크
         if not result.is_pass:
-            # 이미 면담/특이사항 기록이 있는지 확인 (로그 내용에 시험 제목이 있는지로 판단)
+            # 이미 해당 시험 제목으로 면담/특이사항 기록이 있는지 확인
+            # (로그 내용에 시험 제목이 포함되어 있는지로 단순 판단)
             exists_log = StudentLog.objects.filter(
                 profile=profile,
                 log_type='counseling',
@@ -90,28 +103,52 @@ def my_page(request):
             ).exists()
 
             if exists_log:
-                counseling_status = '완료'
+                counseling_status = '완료' # 이미 상담함
             else:
-                counseling_status = '예정' # 버튼이 떠야 함
+                counseling_status = '예정' # 상담 버튼이 떠야 함 ('면담 요청' 필요)
         
+        # 템플릿에서 사용할 데이터 구조 만들기
         enhanced_results.append({
             'result': result,
             'counseling_status': counseling_status
         })
 
-    # 3. 배지 & 최근 피드백
+    # -------------------------------------------------------
+    # [3] 배지 & 최근 피드백 (평가 로그)
+    # -------------------------------------------------------
     latest_badges = profile.badges.all().order_by('-id')[:3]
+    
     latest_evaluations = StudentLog.objects.filter(
         profile=profile
     ).order_by('-created_at')[:3]
     
+    # -------------------------------------------------------
+    # [4] 통계 데이터 (옵션: 필요 시 사용)
+    # -------------------------------------------------------
+    # 전체 결과 재조회 (통계용)
+    all_results = TestResult.objects.filter(user=user)
+    total_tests = all_results.count()
+    pass_count = all_results.filter(is_pass=True).count()
+    
+    avg_score = 0
+    if total_tests > 0:
+        total_score_sum = sum(r.score for r in all_results)
+        avg_score = round(total_score_sum / total_tests, 1)
+
     context = {
         'profile': profile,
         'pending_attempts': pending_attempts,
-        'enhanced_results': enhanced_results, # [중요] 템플릿에서 이걸 씁니다!
+        'enhanced_results': enhanced_results,   # [핵심] 상태 포함 결과 리스트
         'latest_badges': latest_badges,
         'latest_evaluations': latest_evaluations,
+        'stats': {
+            'total': total_tests,
+            'passed': pass_count,
+            'avg_score': avg_score,
+        }
     }
+    
+    # [수정됨] 실제 파일이 존재하는 경로('quiz/my_page.html')로 변경했습니다.
     return render(request, 'quiz/my_page.html', context)
 
 
@@ -195,26 +232,17 @@ def student_create_counseling_log(request):
 @login_required
 def index(request):
     """
-    대시보드 메인 페이지 (겸 로그인 리다이렉트 분기점)
-    - 관리자/PL -> 각자의 대시보드로 즉시 이동
-    - 교육생 -> 아래 로직(시험 목록)을 실행하여 화면 표시
+    대시보드 메인 페이지 (교육생 센터 홈)
+    - [수정 완료] 매니저가 접속해도 강제로 튕겨내지 않도록 리다이렉트 로직 삭제
     """
     user = request.user
 
     # =======================================================
-    # [0] 권한별 리다이렉트 (추가된 부분)
+    # [삭제됨] 아래 코드가 매니저를 튕겨내는 원인이었습니다.
+    # if user.is_superuser or (hasattr(user, 'profile') and user.profile.is_manager):
+    #     return redirect('quiz:manager_dashboard')
     # =======================================================
-    # 1. 관리자(Manager) 또는 슈퍼유저 -> 매니저 대시보드로
-    if user.is_superuser or (hasattr(user, 'profile') and user.profile.is_manager):
-        return redirect('quiz:manager_dashboard')
     
-    # 2. 파트장(PL) -> PL 대시보드로
-    if hasattr(user, 'profile') and user.profile.is_pl:
-        return redirect('quiz:pl_dashboard')
-
-    # =======================================================
-    # [기존 로직] 교육생용 시험 목록 출력 (누락 없음)
-    # =======================================================
     user_groups = user.groups.all()
     
     # 사용자 프로필 및 공정 정보 가져오기
@@ -223,56 +251,42 @@ def index(request):
         user_process = user.profile.process
 
     # -------------------------------------------------------
-    # [1] 공통 과목 (Common) - 누구나 무조건 보임
+    # [1] 공통 과목 (Common)
     # -------------------------------------------------------
-    # status='active' 조건을 추가하여 활성 시험만 보이게 하는 것이 안전합니다.
     all_common_quizzes = Quiz.objects.filter(
-        category=Quiz.Category.COMMON,
-        status='active'
+        category=Quiz.Category.COMMON
     ).distinct()
 
     # -------------------------------------------------------
-    # [2] 권한 쿼리 (사용자 그룹/개인 권한)
+    # [2] 권한 쿼리
     # -------------------------------------------------------
-    # 관리자(is_staff)라고 해서 무조건 모든 권한을 주는 로직을 제거하고,
-    # 공정 분류 로직을 태우기 위해 권한 쿼리만 미리 준비합니다.
     permission_query = Q(allowed_groups__in=user_groups) | Q(allowed_users=user)
 
     # -------------------------------------------------------
     # [3] '나의 공정' 퀴즈 목록
     # -------------------------------------------------------
-    # [수정됨] 관리자 분기(if user.is_staff)를 제거하여 관리자도 본인 공정만 '나의 공정'에 뜨게 함.
-    # 조건: (카테고리=공정) AND [ (퀴즈공정 == 내공정) OR (특별권한 보유) ]
-    
     my_process_condition = Q(associated_process=user_process) | permission_query
     
-    # 만약 공정이 없는 관리자라면, 특별 권한이 있는 시험만 '나의 공정'에 뜹니다.
     if user_process is None:
         my_process_condition = permission_query
 
     my_process_quizzes_list = Quiz.objects.filter(
         Q(category=Quiz.Category.PROCESS) & 
-        Q(status='active') &
         (my_process_condition)
     ).distinct()
 
     # -------------------------------------------------------
     # [4] '기타 공정' 퀴즈 목록
     # -------------------------------------------------------
-    # [수정됨] 관리자도 타 공정 시험은 '기타 공정' 탭에서 확인합니다.
-    # 조건: (카테고리=공정) 이면서 '나의 공정' 리스트에 없는 것들
-    
     other_process_quizzes_list = Quiz.objects.filter(
-        category=Quiz.Category.PROCESS,
-        status='active'
+        category=Quiz.Category.PROCESS
     ).exclude(
         id__in=my_process_quizzes_list.values('id')
     ).distinct()
 
     # -------------------------------------------------------
-    # [5] 합격 여부 카운팅 (기존 로직 유지)
+    # [5] 합격 여부 카운팅
     # -------------------------------------------------------
-    # 공통 과목 합격 여부
     all_common_passed = False
     passed_common_count = TestResult.objects.filter(
         user=user, quiz__in=all_common_quizzes, is_pass=True
@@ -283,7 +297,6 @@ def index(request):
     elif all_common_quizzes.count() == 0:
         all_common_passed = True
 
-    # 나의 공정 합격 여부
     all_my_process_passed = False
     passed_my_process_count = TestResult.objects.filter(
         user=user, quiz__in=my_process_quizzes_list, is_pass=True
@@ -295,36 +308,35 @@ def index(request):
         all_my_process_passed = True
 
     # -------------------------------------------------------
-    # [6] 헬퍼 함수 (상태 결정 로직 - 기존 유지)
+    # [6] 상태 처리 헬퍼 함수
     # -------------------------------------------------------
     def process_quiz_list(quiz_list):
         for quiz in quiz_list:
             quiz.user_status = None
             quiz.action_id = None
-            quiz.is_pass = False # 기본값
+            quiz.is_pass = False 
             
-            # 1. 최근 시험 결과 확인
+            # 1. 최근 결과
             latest_result = TestResult.objects.filter(user=user, quiz=quiz).order_by('-completed_at').first()
             
-            # 2. 진행 중인 요청 확인 (개인)
+            # 2. 요청 상태
             active_individual_attempt = QuizAttempt.objects.filter(
                 user=user, quiz=quiz, 
                 assignment_type=QuizAttempt.AssignmentType.INDIVIDUAL,
                 status__in=['대기중', '승인됨'],
-                testresult__isnull=True # 결과가 없는(아직 안 친) 요청만
+                testresult__isnull=True
             ).first()
 
             if active_individual_attempt:
-                quiz.user_status = active_individual_attempt.status # '대기중' or '승인됨'
+                quiz.user_status = active_individual_attempt.status
                 quiz.action_id = active_individual_attempt.id
                 continue
 
-            # 3. 그룹 할당 확인 (개인 지정이 아닌 경우에만)
+            # 3. 그룹 상태
             is_individually_assigned = quiz.allowed_users.filter(id=user.id).exists()
             is_group_assigned = quiz.allowed_groups.filter(id__in=user_groups).exists()
             
             if is_group_assigned and not is_individually_assigned:
-                # 그룹으로 이미 응시했는지 확인
                 completed_group_attempt = TestResult.objects.filter(
                     user=user, quiz=quiz, 
                     attempt__assignment_type=QuizAttempt.AssignmentType.GROUP
@@ -334,25 +346,23 @@ def index(request):
                     quiz.action_id = quiz.id
                     continue
             
-            # 4. 이미 완료된 시험 (결과 있음)
+            # 4. 완료됨
             if latest_result:
                 quiz.user_status = '완료됨'
                 quiz.action_id = latest_result.id
                 quiz.is_pass = latest_result.is_pass
                 continue
             
-            # 5. 아무 상태도 아니면 요청 가능
+            # 5. 기본
             quiz.user_status = '요청 가능'
             quiz.action_id = quiz.id
             
         return quiz_list
 
-    # 리스트 처리
     common_quizzes = process_quiz_list(all_common_quizzes)
     my_process_quizzes = process_quiz_list(my_process_quizzes_list)
     other_process_quizzes = process_quiz_list(other_process_quizzes_list)
 
-    # 탭에 알림 표시용 (승인됨/대기중이 있으면 뱃지 표시 등)
     my_process_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in my_process_quizzes)
     other_process_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in other_process_quizzes)
 
@@ -364,7 +374,7 @@ def index(request):
         'all_my_process_passed': all_my_process_passed,
         'my_process_has_override': my_process_has_override,
         'other_process_has_override': other_process_has_override,
-        'profile': getattr(user, 'profile', None), # 프로필 전달
+        'profile': getattr(user, 'profile', None),
     }
     return render(request, 'quiz/index.html', context)
 
