@@ -2223,9 +2223,10 @@ def pl_dashboard(request):
 @login_required
 def pl_trainee_detail(request, profile_id):
     """
-    PL용 교육생 상세 리포트 (업데이트됨)
-    - 태도/역량: 매니저 평가서(ManagerEvaluation)의 체크리스트 항목 표시
-    - 특이사항: 경고/경고장 횟수 및 재시험(2차/3차) 과목 수 계산
+    PL용 교육생 상세 리포트
+    - 태도/역량: 매니저 평가서 체크리스트
+    - 특이사항: 경고 횟수 및 재시험 과목 수 계산
+    - AI 분석: 퀴즈 결과 기반 태그별 정답률 분석 (UserAnswer 필드명 수정됨)
     """
     # 1. 권한 체크
     if not (request.user.is_superuser or (hasattr(request.user, 'profile') and request.user.profile.is_pl)):
@@ -2234,42 +2235,60 @@ def pl_trainee_detail(request, profile_id):
     profile = get_object_or_404(Profile, pk=profile_id)
     
     # 2. 시험 결과 (최신순)
+    # [확인 완료] 슬라이싱 없이 전체 데이터를 가져옵니다. (HTML 스크롤바 사용)
     results = TestResult.objects.filter(user=profile.user).select_related('quiz').order_by('-completed_at')
     
     # 3. AI 분석 (태그 필터링)
+    # (1) 사용자가 응시한 퀴즈 ID 목록
     taken_quiz_ids = results.values_list('quiz_id', flat=True).distinct()
-    relevant_tags = Tag.objects.filter(question__quiz__id__in=taken_quiz_ids).distinct()
+    
+    # (2) 해당 퀴즈들에 포함된 질문들 (Question-Quiz 관계가 N:M일 경우 quizzes__in 사용)
+    relevant_questions = Question.objects.filter(quizzes__in=taken_quiz_ids).distinct()
+    
+    # (3) 그 질문들에 달린 태그들
+    relevant_tags = Tag.objects.filter(question__in=relevant_questions).distinct()
     
     tag_analysis = []
     for tag in relevant_tags:
-        total = UserAnswer.objects.filter(attempt__user=profile.user, question__tags=tag).count()
+        # [수정] attempt__user -> test_result__user (모델 필드명 일치)
+        total = UserAnswer.objects.filter(
+            test_result__user=profile.user, 
+            question__tags=tag
+        ).count()
+        
         if total > 0:
-            correct = UserAnswer.objects.filter(attempt__user=profile.user, question__tags=tag, is_correct=True).count()
+            correct = UserAnswer.objects.filter(
+                test_result__user=profile.user, 
+                question__tags=tag, 
+                is_correct=True
+            ).count()
+            
             accuracy = (correct / total) * 100
             tag_analysis.append({
-                'name': tag.name, 'accuracy': accuracy, 
+                'name': tag.name, 
+                'accuracy': accuracy, 
                 'status': 'weak' if accuracy < 60 else 'strong' if accuracy >= 80 else 'normal'
             })
+    
+    # 정답률 높은 순으로 정렬
     tag_analysis.sort(key=lambda x: x['accuracy'], reverse=True)
 
-    # 4. [수정됨] 태도 및 역량 (매니저 평가 체크리스트)
+    # 4. 태도 및 역량 (매니저 평가 체크리스트)
     manager_eval = ManagerEvaluation.objects.filter(trainee_profile=profile).last()
     checklist_items = []
     if manager_eval:
-        # 체크된 항목들만 가져오기
         checklist_items = manager_eval.selected_items.all().select_related('category').order_by('category__order')
 
-    # 5. [수정됨] 특이사항 통계 (경고 및 재시험)
+    # 5. 특이사항 통계 (경고 및 재시험)
     # (A) 경고/경고장 횟수
     warning_count = StudentLog.objects.filter(profile=profile, log_type='warning').count()
     warning_letter_count = StudentLog.objects.filter(profile=profile, log_type='warning_letter').count()
     
     # (B) 재시험 횟수 계산 (과목별 응시 횟수 집계)
-    # 퀴즈별로 몇 번 응시했는지 카운트
     quiz_counts = TestResult.objects.filter(user=profile.user).values('quiz').annotate(attempt_cnt=Count('id'))
     
-    retake_2_count = 0 # 2차 시험까지 본 과목 수 (응시 횟수 >= 2)
-    retake_3_count = 0 # 3차 시험까지 본 과목 수 (응시 횟수 >= 3)
+    retake_2_count = 0 
+    retake_3_count = 0 
     
     for q in quiz_counts:
         if q['attempt_cnt'] >= 2:
@@ -2279,14 +2298,10 @@ def pl_trainee_detail(request, profile_id):
 
     context = {
         'profile': profile,
-        'results': results,
+        'results': results, # [재확인] 전체 목록 전달
         'tag_analysis': tag_analysis,
-        
-        # 태도/역량 (체크리스트)
         'manager_eval': manager_eval,
         'checklist_items': checklist_items,
-        
-        # 특이사항 (통계)
         'warning_count': warning_count,
         'warning_letter_count': warning_letter_count,
         'retake_2_count': retake_2_count,
@@ -2294,7 +2309,6 @@ def pl_trainee_detail(request, profile_id):
     }
     
     return render(request, 'quiz/pl_trainee_detail.html', context)
-
 
 # 3. PL 리포트 출력 뷰 (인쇄용)
 @login_required
