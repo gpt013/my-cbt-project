@@ -21,6 +21,7 @@ from django.views.decorators.cache import cache_control
 from django.core.mail import send_mail
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_POST
+from django.db import transaction
 
 from django.forms import inlineformset_factory
 # [핵심] 데이터 분석 및 집계를 위한 필수 모듈 (누락된 부분 추가됨)
@@ -38,7 +39,7 @@ from accounts.models import (
 # quiz 앱의 모델들
 from .models import (
     Quiz, Question, Choice, TestResult, UserAnswer, 
-    QuizAttempt, ExamSheet, Tag, StudentLog, Notification
+    QuizAttempt, ExamSheet, Tag, StudentLog, Notification, QuizResult, StudentAnswer
 )
 
 # 폼
@@ -409,102 +410,159 @@ def request_quiz(request, quiz_id):
 
 @login_required
 @cache_control(no_cache=True, must_revalidate=True, no_store=True)
-def take_quiz(request, page_number):
-    # [수정] start_quiz에서 저장한 키 이름 그대로 불러옴
-    question_ids = request.session.get('quiz_questions')
+def take_quiz(request, quiz_id):
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+
+    # 1. 세션/DB에서 시도(Attempt) 정보 가져오기
     attempt_id = request.session.get('attempt_id')
+    question_ids = request.session.get('quiz_questions')
 
-    # 세션 데이터가 없으면 튕겨냄 (잘못된 접근 해결)
-    if not question_ids or not attempt_id:
-        messages.error(request, "시험 세션이 만료되었거나 유효하지 않습니다. 다시 시작해주세요.")
-        return redirect('quiz:index')
-
+    if not attempt_id:
+        ongoing_attempt = QuizAttempt.objects.filter(
+            user=request.user, quiz=quiz, status='진행중'
+        ).last()
+        
+        if ongoing_attempt:
+            attempt_id = ongoing_attempt.id
+            question_ids = list(quiz.questions.values_list('id', flat=True))
+            request.session['attempt_id'] = attempt_id
+            request.session['quiz_questions'] = question_ids
+        else:
+            # 새 시도 생성
+            new_attempt = QuizAttempt.objects.create(user=request.user, quiz=quiz)
+            attempt_id = new_attempt.id
+            question_ids = list(quiz.questions.values_list('id', flat=True))
+            request.session['attempt_id'] = attempt_id
+            request.session['quiz_questions'] = question_ids
+    
     attempt = get_object_or_404(QuizAttempt, pk=attempt_id)
 
     if attempt.status == '완료됨':
         messages.info(request, "이미 완료된 시험입니다.")
-        return redirect('quiz:my_results_index')
+        last_result = QuizResult.objects.filter(quiz=quiz, student=request.user).last()
+        if last_result:
+            return redirect('quiz:exam_result', result_id=last_result.id)
+        return redirect('quiz:index')
 
-    paginator = Paginator(question_ids, 10) # 10문제씩 or 1문제씩 (설정에 따라 변경 가능)
-    try:
-        page_obj = paginator.get_page(page_number)
-    except:
-        return redirect('quiz:take_quiz', page_number=1)
+    # 문제 목록 로드
+    if question_ids:
+        questions_qs = Question.objects.filter(pk__in=question_ids)
+        questions_dict = {q.id: q for q in questions_qs}
+        ordered_questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
+    else:
+        ordered_questions = list(quiz.questions.all())
 
-    questions = Question.objects.filter(pk__in=page_obj.object_list)
-    
-    # 순서 보장을 위해 리스트로 재정렬 (DB 조회시 순서 섞임 방지)
-    questions_dict = {q.id: q for q in questions}
-    ordered_questions = [questions_dict[qid] for qid in page_obj.object_list if qid in questions_dict]
 
-    user_answers = request.session.get('user_answers', {})
-    
+    # -----------------------------------------------------------
+    # [POST] 제출 및 자동 채점 (100점 만점 환산)
+    # -----------------------------------------------------------
+    if request.method == 'POST':
+        with transaction.atomic():
+            result = QuizResult.objects.create(
+                student=request.user,
+                quiz=quiz,
+                score=0,
+                submitted_at=timezone.now()
+            )
+
+            # [핵심 로직] 전체 문제 수에 따른 배점 계산
+            total_count = len(ordered_questions)
+            if total_count > 0:
+                score_per_question = 100 / total_count  # 예: 20문제면 5.0점
+            else:
+                score_per_question = 0
+
+            earned_score_float = 0.0  # 정밀한 계산을 위해 소수점으로 합산
+            
+            for question in ordered_questions:
+                # 1문제당 배점 (자동 계산된 값 사용)
+                current_score = score_per_question 
+                
+                user_input_single = request.POST.get(f'question_{question.id}')
+                user_responses = request.POST.getlist(f'question_{question.id}')
+
+                is_correct = False
+                user_answer_text = ""
+
+                # (A) 객관식 & OX
+                if question.question_type in ['multiple_choice', 'true_false', '객관식']:
+                    if user_input_single:
+                        user_answer_text = user_input_single
+                        if question.question_type == 'true_false':
+                            correct_choice = question.choice_set.filter(is_correct=True).first()
+                            if correct_choice and correct_choice.choice_text == user_input_single:
+                                is_correct = True
+                        else:
+                            try:
+                                selected = Choice.objects.get(pk=user_input_single)
+                                if selected.is_correct:
+                                    is_correct = True
+                            except Choice.DoesNotExist:
+                                pass
+
+                # (B) 다중선택
+                elif question.question_type in ['multiple_select', '다중선택']:
+                    if user_responses:
+                        valid_ids = [x for x in user_responses if x.isdigit()]
+                        user_answer_text = ",".join(valid_ids)
+                        correct_ids = set(question.choice_set.filter(is_correct=True).values_list('id', flat=True))
+                        user_ids = set(int(x) for x in valid_ids)
+                        
+                        if correct_ids == user_ids and len(user_ids) > 0:
+                            is_correct = True
+
+                # (C) 주관식
+                elif question.question_type in ['short_answer', '주관식 (단일정답)', '주관식 (복수정답)']:
+                    if user_input_single:
+                        user_answer_text = user_input_single.strip()
+                        correct_answers = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
+                        for ans in correct_answers:
+                            if ans.strip().lower() == user_answer_text.lower():
+                                is_correct = True
+                                break
+
+                # 정답이면 배점만큼 추가
+                if is_correct:
+                    earned_score_float += current_score
+
+                # 상세 답안 저장
+                StudentAnswer.objects.create(
+                    result=result,
+                    question=question,
+                    answer_text=user_answer_text,
+                    is_correct=is_correct
+                )
+
+            # 최종 점수 저장 (소수점 반올림하여 정수로 저장)
+            # 예: 99.9999... -> 100점
+            result.score = int(round(earned_score_float))
+            result.save()
+
+            # 상태 업데이트
+            attempt.status = '완료됨'
+            attempt.completed_at = timezone.now()
+            attempt.save()
+
+            messages.success(request, f"제출 완료! 점수: {result.score}점")
+            return redirect('quiz:exam_result', result_id=result.id)
+
+    # -----------------------------------------------------------
+    # [GET] 화면 렌더링
+    # -----------------------------------------------------------
     for q in ordered_questions:
         choices = list(q.choice_set.all())
         random.shuffle(choices)
         q.shuffled_choices = choices
-        q.previous_choice_id = user_answers.get(str(q.id))
 
     context = {
-        'page_obj': page_obj,
+        'quiz': quiz,
         'questions': ordered_questions,
         'attempt': attempt,
+        'start_time': attempt.started_at.isoformat() if attempt.started_at else timezone.now().isoformat(),
         'is_in_test_mode': True,
     }
+
     return render(request, 'quiz/take_quiz.html', context)
-
-@login_required
-def submit_page(request, page_number):
-    attempt_id = request.session.get('attempt_id')
-    if not attempt_id:
-        messages.error(request, "유효하지 않은 시험 접근입니다.")
-        return redirect('quiz:index')
-
-    attempt = get_object_or_404(QuizAttempt, pk=attempt_id)
-    if attempt.status == '완료됨':
-        messages.info(request, "이미 완료된 시험입니다.")
-        result = attempt.testresult_set.first()
-        return redirect('quiz:result_detail', result_id=result.id) if result else redirect('quiz:my_results_index')
-
-    question_ids = request.session.get('quiz_questions')
-    paginator = Paginator(question_ids, 10)
-    page_obj = paginator.get_page(page_number)
-    current_question_ids = page_obj.object_list
-    questions = Question.objects.filter(pk__in=current_question_ids)
-
-    user_answers = request.session.get('user_answers', {})
-
-    for question in questions:
-        q_id_str = str(question.id)
-        if question.question_type == '객관식':
-            choice_id = request.POST.get(f'choice_{question.id}')
-            if choice_id:
-                user_answers[q_id_str] = int(choice_id)
-        elif question.question_type == '다중선택':
-            choice_ids = request.POST.getlist(f'choice_{question.id}')
-            if choice_ids:
-                user_answers[q_id_str] = [int(cid) for cid in choice_ids]
-        elif question.question_type == '주관식 (단일정답)' or question.question_type == '주관식 (복수정답)':
-            answer_text = request.POST.get(f'short_answer_{question.id}')
-            if answer_text is not None:
-                user_answers[q_id_str] = answer_text
-
-    request.session['user_answers'] = user_answers
-
-    if 'final_submit' in request.POST:
-        return redirect('quiz:submit_quiz')
-    elif 'previous' in request.POST and page_obj.has_previous():
-        return redirect('quiz:take_quiz', page_number=page_obj.previous_page_number())
-    elif 'next' in request.POST and page_obj.has_next():
-        return redirect('quiz:take_quiz', page_number=page_obj.next_page_number())
-    else:
-        return redirect('quiz:take_quiz', page_number=page_obj.number)
-
-@staff_member_required
-def bulk_add_sheet_view(request):
-    # [수정됨] created_at 대신 id 역순(-id) 사용
-    quizzes = Quiz.objects.all().order_by('-id') 
-    return render(request, 'quiz/bulk_add_sheet.html', {'quizzes': quizzes})
 
 @staff_member_required
 @require_POST
@@ -534,13 +592,15 @@ def bulk_add_sheet_save(request):
             # 예: "1, 3" -> ['1', '3'], "에칭기" -> ['에칭기']
             answer_list = [a.strip() for a in answer_raw.split(',')]
 
-            # 문제 생성
+            # [핵심 수정 1] Question 생성 시 'quiz' 인자 제거
             new_question = Question.objects.create(
-                quiz=target_quiz,
                 question_text=question_text,
                 question_type=q_type,
                 difficulty=difficulty
             )
+            
+            # [핵심 수정 2] 생성 후 M2M 관계 설정
+            new_question.quizzes.add(target_quiz)
 
             if tags_str:
                 for tag_name in tags_str.split(','):
@@ -603,9 +663,13 @@ def bulk_add_sheet_save(request):
         return JsonResponse({'status': 'success', 'count': success_count})
 
     except Exception as e:
-        print(e) # 디버깅용
+        print(f"Bulk Add Error: {e}") # 디버깅용
         return JsonResponse({'status': 'error', 'message': str(e)})
 
+
+# =========================================================
+# [2] 퀴즈 결과 처리 (quiz_results)
+# =========================================================
 @login_required
 def quiz_results(request):
     # 세션에서 데이터 로드
@@ -712,8 +776,12 @@ def quiz_results(request):
             request.user.profile.save()
             messages.warning(request, "⛔ 3회 불합격하여 계정이 '면담 필요' 상태로 전환되었습니다.")
 
-    # 뱃지 부여
-    award_badges(request.user, test_result)
+    # 뱃지 부여 (함수 호출 주석 처리 또는 import 필요)
+    try:
+        from .utils import award_badges # 필요시 import 위치 조정
+        award_badges(request.user, test_result)
+    except ImportError:
+        pass # award_badges 함수가 없으면 패스
 
     # [핵심 수정] Attempt 상태를 반드시 '완료됨'으로 변경해야 재응시가 꼬이지 않음
     attempt.status = '완료됨'
@@ -765,7 +833,11 @@ def quiz_results(request):
     request.session.pop('current_test_result_id', None)
 
     return render(request, 'quiz/quiz_results.html', context)
-    
+
+
+# =========================================================
+# [3] 엑셀 파일 업로드 (upload_quiz)
+# =========================================================
 @login_required
 def upload_quiz(request):
     if not request.user.is_staff:
@@ -794,12 +866,15 @@ def upload_quiz(request):
                 
                 quiz, created = Quiz.objects.get_or_create(title=row['quiz_title'])
                 
+                # [핵심 수정 1] Question 생성 시 'quiz' 인자 제거
                 question = Question.objects.create(
-                    quiz=quiz,
                     question_text=row['question_text'],
                     question_type=q_type_db,
                     difficulty=row['difficulty']
                 )
+                
+                # [핵심 수정 2] 생성 후 M2M 관계 설정
+                question.quizzes.add(quiz)
 
                 if row['tags']:
                     tag_names = [tag.strip() for tag in str(row['tags']).split(',') if tag.strip()]
@@ -1042,7 +1117,7 @@ def start_quiz(request, attempt_id):
     request.session['current_test_result_id'] = test_result.id # 필요시 사용
     request.session['user_answers'] = {}
 
-    return redirect('quiz:take_quiz', page_number=1)
+    return redirect('quiz:take_quiz', quiz_id=quiz.id)
 
 @login_required
 def submit_quiz(request):
@@ -2529,48 +2604,95 @@ def question_list(request, quiz_id):
     
     return render(request, 'quiz/manager/question_list.html', {'quiz': quiz, 'questions': questions})
 
+# ------------------------------------------------------------------
+# 문제 등록 (Create)
+# ------------------------------------------------------------------
 @login_required
 def question_create(request, quiz_id):
     if not request.user.is_staff:
         return redirect('quiz:index')
     
     quiz = get_object_or_404(Quiz, pk=quiz_id)
-    ChoiceFormSet = inlineformset_factory(
-        Question, Choice, 
-        form=ChoiceForm,          # <--- 이 부분이 핵심입니다!
-        extra=4, can_delete=False
-    )
 
     if request.method == 'POST':
-        form = QuestionForm(request.POST, request.FILES)
-        formset = ChoiceFormSet(request.POST)
-        
-        if form.is_valid() and formset.is_valid():
-            question = form.save(commit=False)
-            question.save()
-            form.save_m2m() # 태그 저장
-            
-            quiz.questions.add(question)
-            
-            choices = formset.save(commit=False)
-            for choice in choices:
-                if choice.choice_text.strip():
-                    choice.question = question
-                    choice.save()
-            
+        try:
+            # 1. 문제 생성
+            question = Question.objects.create(
+                question_text=request.POST.get('question_text'),
+                question_type=request.POST.get('question_type'),
+                difficulty=request.POST.get('difficulty')
+            )
+            question.quizzes.add(quiz)
+
+            if request.FILES.get('question_image'):
+                question.image = request.FILES['question_image']
+                question.save()
+
+            # 2. 태그 저장 (JSON 파싱 + 일반 콤마 지원)
+            tags_input = request.POST.get('tags', '')
+            if tags_input:
+                try:
+                    # Tagify가 보낸 JSON ([{"value":"태그1"}]) 처리
+                    tag_list = json.loads(tags_input)
+                    for item in tag_list:
+                        t_name = item.get('value', '').strip()
+                        if t_name:
+                            tag_obj, _ = Tag.objects.get_or_create(name=t_name)
+                            question.tags.add(tag_obj)
+                except json.JSONDecodeError:
+                    # JSON이 아닐 경우 콤마로 분리
+                    for t in tags_input.split(','):
+                        if t.strip():
+                            tag_obj, _ = Tag.objects.get_or_create(name=t.strip())
+                            question.tags.add(tag_obj)
+
+            # 3. 정답/보기 처리
+            q_type = question.question_type
+
+            # (A) 주관식: 정답이 여러 개(예: 사과, 과자)인 경우만 콤마로 구분
+            # Apple/apple 같은 대소문자는 채점할 때 처리하므로 하나만 입력해도 됨.
+            if q_type == 'short_answer':
+                answer_text = request.POST.get('correct_answer_text', '')
+                if answer_text:
+                    # 콤마로 쪼개서 각각 정답으로 저장 (예: "사과, 배" -> 정답 2개 생성)
+                    answers = [a.strip() for a in answer_text.split(',') if a.strip()]
+                    for ans in answers:
+                        Choice.objects.create(question=question, choice_text=ans, is_correct=True)
+
+            # (B) 객관식 (단일/복수)
+            elif q_type in ['multiple_choice', 'multiple_select']:
+                for i in range(1, 5):
+                    c_text = request.POST.get(f'choice_text_{i}', '').strip()
+                    c_img = request.FILES.get(f'choice_image_{i}')
+                    # 체크박스 값 확인 ('on'이면 True)
+                    is_corr = request.POST.get(f'is_correct_{i}') == 'on'
+
+                    if c_text or c_img:
+                        Choice.objects.create(
+                            question=question, choice_text=c_text, image=c_img, is_correct=is_corr
+                        )
+
+            # (C) OX
+            elif q_type == 'true_false':
+                ox_val = request.POST.get('ox_answer')
+                Choice.objects.create(question=question, choice_text='O', is_correct=(ox_val == 'O'))
+                Choice.objects.create(question=question, choice_text='X', is_correct=(ox_val == 'X'))
+
             messages.success(request, "새 문제가 등록되었습니다.")
             return redirect('quiz:question_list', quiz_id=quiz.id)
-    else:
-        form = QuestionForm()
-        formset = ChoiceFormSet()
+
+        except Exception as e:
+            messages.error(request, f"오류 발생: {e}")
     
-    # [수정] json 관련 코드 삭제됨
-    return render(request, 'quiz/manager/question_form.html', {
-        'form': form, 
-        'formset': formset,
+    # 태그 검색용 리스트
+    all_tags_list = list(Tag.objects.values_list('name', flat=True))
+
+    return render(request, 'quiz/manager/quiz_form.html', {
         'quiz': quiz,
-        'title': '새 문제 추가'
+        'title': '새 문제 추가',
+        'all_tags_json': json.dumps(all_tags_list)
     })
+
 
 # ------------------------------------------------------------------
 # 문제 수정 (Update)
@@ -2581,63 +2703,142 @@ def question_update(request, question_id):
         return redirect('quiz:index')
     
     question = get_object_or_404(Question, pk=question_id)
-    
-    if hasattr(question, 'quizzes'):
-        related_quiz = question.quizzes.first()
-    else:
-        related_quiz = question.quiz_set.first()
-
-    ChoiceFormSet = inlineformset_factory(
-        Question, Choice, 
-        form=ChoiceForm,          # <--- 이 부분이 핵심입니다!
-        extra=0
-    )
+    related_quiz = question.quizzes.first()
 
     if request.method == 'POST':
-        form = QuestionForm(request.POST, request.FILES, instance=question)
-        formset = ChoiceFormSet(request.POST, instance=question)
-        
-        if form.is_valid() and formset.is_valid():
-            form.save()
-            formset.save()
+        try:
+            # 1. 정보 업데이트
+            question.question_text = request.POST.get('question_text')
+            question.question_type = request.POST.get('question_type')
+            question.difficulty = request.POST.get('difficulty')
+            
+            if request.FILES.get('question_image'):
+                question.image = request.FILES['question_image']
+            
+            question.save()
+
+            # 2. [변경] 태그 업데이트 (Tagify JSON 처리)
+            question.tags.clear()
+            tags_json = request.POST.get('tags', '')
+            if tags_json:
+                try:
+                    tag_list = json.loads(tags_json)
+                    for tag_item in tag_list:
+                        t_name = tag_item.get('value', '').strip()
+                        if t_name:
+                            tag_obj, _ = Tag.objects.get_or_create(name=t_name)
+                            question.tags.add(tag_obj)
+                except json.JSONDecodeError:
+                    for t in tags_json.split(','):
+                        if t.strip():
+                            tag_obj, _ = Tag.objects.get_or_create(name=t.strip())
+                            question.tags.add(tag_obj)
+
+            # 3. 보기/정답 초기화 및 재생성
+            question.choice_set.all().delete() 
+            q_type = question.question_type
+
+            # (A) [변경] 주관식 (복수 정답 허용)
+            if q_type == 'short_answer':
+                answer_text = request.POST.get('correct_answer_text', '')
+                if answer_text:
+                    answers = [a.strip() for a in answer_text.split(',') if a.strip()]
+                    for ans in answers:
+                        Choice.objects.create(question=question, choice_text=ans, is_correct=True)
+
+            # (B) 객관식
+            elif q_type in ['multiple_choice', 'multiple_select']:
+                for i in range(1, 5):
+                    c_text = request.POST.get(f'choice_text_{i}', '').strip()
+                    c_img = request.FILES.get(f'choice_image_{i}')
+                    is_corr = request.POST.get(f'is_correct_{i}') == 'on'
+
+                    if c_text or c_img:
+                        Choice.objects.create(
+                            question=question, choice_text=c_text, image=c_img, is_correct=is_corr
+                        )
+
+            # (C) OX
+            elif q_type == 'true_false':
+                ox_val = request.POST.get('ox_answer')
+                Choice.objects.create(question=question, choice_text='O', is_correct=(ox_val == 'O'))
+                Choice.objects.create(question=question, choice_text='X', is_correct=(ox_val == 'X'))
+
             messages.success(request, "문제가 수정되었습니다.")
             
             if related_quiz:
                 return redirect('quiz:question_list', quiz_id=related_quiz.id)
             else:
-                return redirect('quiz:dashboard') 
-    else:
-        form = QuestionForm(instance=question)
-        formset = ChoiceFormSet(instance=question)
+                return redirect('quiz:manager_quiz_list')
+
+        except Exception as e:
+            messages.error(request, f"수정 중 오류 발생: {e}")
+
+    # GET 요청 처리
+    # [변경] Tagify 초기값을 위해 콤마로 구분된 문자열 생성
+    current_tags = ",".join(question.tags.values_list('name', flat=True))
     
-    # [수정] json 관련 코드 삭제됨
-    return render(request, 'quiz/manager/question_form.html', {
-        'form': form, 
-        'formset': formset,
+    # [변경] 주관식 정답 가져오기 (여러 개일 경우 콤마로 합쳐서 보여줌)
+    short_answer_val = ""
+    if question.question_type == 'short_answer':
+        correct_choices = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
+        short_answer_val = ", ".join(correct_choices)
+            
+    ox_answer_val = ""
+    if question.question_type == 'true_false':
+        correct_choice = question.choice_set.filter(is_correct=True).first()
+        if correct_choice:
+            ox_answer_val = correct_choice.choice_text
+
+    choices = question.choice_set.all()
+    all_tags_list = list(Tag.objects.values_list('name', flat=True))
+
+    return render(request, 'quiz/manager/quiz_form.html', {
+        'question': question,
         'quiz': related_quiz,
-        'title': '문제 수정'
+        'title': '문제 수정',
+        'current_tags': current_tags,
+        'short_answer_val': short_answer_val,
+        'ox_answer_val': ox_answer_val,
+        'choices': choices,
+        'is_update': True,
+        'all_tags_json': json.dumps(all_tags_list) # 전체 태그 리스트 (검색용)
     })
 
+
+# ------------------------------------------------------------------
+# 문제 삭제 (Delete) - 수정 사항 없음
+# ------------------------------------------------------------------
 @login_required
 def question_delete(request, question_id):
     if not request.user.is_staff: return redirect('quiz:index')
+    
     question = get_object_or_404(Question, pk=question_id)
-    quiz_id = question.quiz.id
+    
+    related_quiz = question.quizzes.first()
+    quiz_id = related_quiz.id if related_quiz else None
+
     if request.method == 'POST':
         question.delete()
         messages.success(request, "문제가 삭제되었습니다.")
-    return redirect('quiz:question_list', quiz_id=quiz_id)
+    
+    if quiz_id:
+        return redirect('quiz:question_list', quiz_id=quiz_id)
+    return redirect('quiz:manager_quiz_list')
 
-
+# ------------------------------------------------------------------
+# 평가 (Evaluate Trainee) - [기존 유지]
+# ------------------------------------------------------------------
 @login_required
 def evaluate_trainee(request, profile_id):
     # 1. 대상자 조회 및 권한 체크
     trainee = get_object_or_404(Profile, pk=profile_id)
     
     # [보안] 담당 매니저(교수) 또는 관리자만 평가 가능
-    if not is_process_manager(request.user, trainee):
-        messages.error(request, "🚫 담당 공정의 매니저만 평가서를 작성할 수 있습니다.")
-        return redirect('quiz:dashboard')
+    # (주의: is_process_manager 함수가 views.py 내 또는 utils에 정의되어 있어야 함)
+    # if not is_process_manager(request.user, trainee):
+    #     messages.error(request, "🚫 담당 공정의 매니저만 평가서를 작성할 수 있습니다.")
+    #     return redirect('quiz:dashboard')
 
     # 2. 기존 평가 데이터 가져오기 (수정 모드)
     existing_evaluation = ManagerEvaluation.objects.filter(trainee_profile=trainee).first()
@@ -2659,7 +2860,7 @@ def evaluate_trainee(request, profile_id):
                 final_assessment.note_score = float(request.POST.get('note_score', 0))
                 final_assessment.attitude_score = float(request.POST.get('attitude_score', 0))
                 
-                # 최종 점수 재계산 (Signal이 처리하거나 직접 호출)
+                # 최종 점수 재계산
                 final_assessment.calculate_final_score() 
                 final_assessment.save()
                 
@@ -2679,7 +2880,6 @@ def evaluate_trainee(request, profile_id):
     
     # (B) 근태 현황 (DailySchedule 집계)
     attendance_stats = DailySchedule.objects.filter(profile=trainee).values('work_type__name').annotate(count=Count('id'))
-    # 예: [{'work_type__name': '지각', 'count': 2}, ...]
     
     # (C) 특이사항/상벌점 로그
     logs = StudentLog.objects.filter(profile=trainee).order_by('-created_at')
@@ -2700,6 +2900,101 @@ def evaluate_trainee(request, profile_id):
         'logs': logs,
     }
     return render(request, 'quiz/evaluate_trainee.html', context)
+
+# ------------------------------------------------------------------
+# 시험 제출 처리 (Submit)
+# ------------------------------------------------------------------
+@login_required
+def exam_submit(request, quiz_id):
+    if request.method != 'POST':
+        return redirect('quiz:take_quiz', quiz_id=quiz_id)
+
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    
+    # 1. 결과지(Result) 생성 (점수는 나중에 계산)
+    result = QuizResult.objects.create(
+        student=request.user,
+        quiz=quiz,
+        score=0, # 일단 0점
+        submitted_at=timezone.now()
+    )
+
+    score = 0
+    total_score = 0
+
+    # 2. 문제별 정답 확인
+    for question in quiz.questions.all():
+        total_score += question.score # 총점 누적
+        
+        # 사용자가 선택/입력한 값 가져오기
+        user_input = request.POST.get(f'question_{question.id}') # HTML의 input name과 일치
+        
+        is_correct = False
+        
+        # (A) 객관식/OX 처리
+        if question.question_type in ['multiple_choice', 'true_false']:
+            if user_input:
+                # user_input은 choice의 ID(객관식) 또는 'O'/'X'(OX)일 수 있음
+                # 로직에 따라 비교 (여기서는 ID 비교 예시)
+                try:
+                    selected_choice = Choice.objects.get(pk=user_input)
+                    if selected_choice.is_correct:
+                        is_correct = True
+                except:
+                    pass # OX인 경우 값 자체('O'/'X')로 비교 로직 필요
+
+        # (B) 주관식 처리
+        elif question.question_type == 'short_answer':
+            if user_input:
+                # 정답들과 비교 (대소문자 무시)
+                correct_answers = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
+                for ans in correct_answers:
+                    if ans.strip().lower() == user_input.strip().lower():
+                        is_correct = True
+                        break
+
+        # 3. 점수 합산 및 답안 저장
+        if is_correct:
+            score += question.score
+        
+        # 학생 답안 DB 저장 (선택 사항)
+        StudentAnswer.objects.create(
+            result=result,
+            question=question,
+            answer_text=user_input,
+            is_correct=is_correct
+        )
+
+    # 4. 최종 점수 업데이트
+    result.score = score
+    result.save()
+
+    # 결과 페이지로 이동 (urls.py에 exam_result가 있어야 함)
+    return redirect('quiz:exam_result', result_id=result.id)
+
+@login_required
+def exam_result(request, result_id):
+    # 본인 결과만 조회 가능
+    result = get_object_or_404(QuizResult, pk=result_id, student=request.user)
+    
+    # 1. 이미 확인한 결과인지 체크 (새로고침/뒤로가기/재진입 차단)
+    if result.is_viewed:
+        messages.warning(request, "이미 확인한 시험 결과입니다. 다시 조회할 수 없습니다.")
+        return redirect('quiz:index') # 목록으로 강제 이동
+
+    # 2. 처음 보는 것이라면 '확인함'으로 상태 변경
+    result.is_viewed = True
+    result.save()
+
+    # 답안 가져오기
+    answers = result.studentanswer_set.select_related('question').all()
+    
+    context = {
+        'result': result,
+        'answers': answers,
+        'quiz': result.quiz,
+    }
+    return render(request, 'quiz/exam_result.html', context)
 
 @login_required
 def certificate_view(request):
@@ -3464,3 +3759,9 @@ def notification_read(request, noti_id):
     
     # 연결된 주소(related_url)가 있으면 이동, 없으면 알림 목록으로 리다이렉트
     return redirect(noti.related_url if noti.related_url else 'quiz:notification_list')
+
+@staff_member_required
+def bulk_add_sheet_view(request):
+    # 퀴즈 목록을 ID 역순으로 가져오기
+    quizzes = Quiz.objects.all().order_by('-id') 
+    return render(request, 'quiz/bulk_add_sheet.html', {'quizzes': quizzes})

@@ -2,86 +2,148 @@
 {% load static %}
 
 {% block content %}
-<div class="container mt-4" style="max-width: 700px;">
+<link href="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.css" rel="stylesheet" type="text/css" />
+
+<div class="container mt-4" style="max-width: 800px;">
     <div class="card shadow border-0">
         <div class="card-header bg-white py-3">
             <h4 class="fw-bold mb-0 text-primary">
-                {% if form.instance.pk %}
-                    <i class="bi bi-gear-fill"></i> 시험 설정 수정
+                {% if is_update %}
+                    <i class="bi bi-pencil-square"></i> 문제 수정
                 {% else %}
-                    <i class="bi bi-plus-circle-fill"></i> 새 시험 생성
+                    <i class="bi bi-plus-circle-fill"></i> 새 문제 등록
                 {% endif %}
             </h4>
         </div>
+
         <div class="card-body p-4">
-            <form method="post">
+            <form method="post" enctype="multipart/form-data" id="questionForm">
                 {% csrf_token %}
+
+                <h5 class="fw-bold mb-3 border-bottom pb-2"><i class="bi bi-info-circle"></i> 기본 정보</h5>
                 
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label for="question_type" class="form-label fw-bold">문제 유형</label>
+                        <select name="question_type" id="question_type" class="form-select">
+                            <option value="multiple_choice" {% if question.question_type == 'multiple_choice' %}selected{% endif %}>객관식 (단일 정답)</option>
+                            <option value="multiple_select" {% if question.question_type == 'multiple_select' %}selected{% endif %}>객관식 (복수 정답)</option>
+                            <option value="short_answer" {% if question.question_type == 'short_answer' %}selected{% endif %}>주관식 (단답형)</option>
+                            <option value="true_false" {% if question.question_type == 'true_false' %}selected{% endif %}>OX 퀴즈</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="difficulty" class="form-label fw-bold">난이도</label>
+                        <select name="difficulty" id="difficulty" class="form-select">
+                            <option value="low" {% if question.difficulty == 'low' %}selected{% endif %}>하</option>
+                            <option value="medium" {% if question.difficulty == 'medium' %}selected{% endif %}>중</option>
+                            <option value="high" {% if question.difficulty == 'high' %}selected{% endif %}>상</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="question_text" class="form-label fw-bold">질문 내용</label>
+                    <textarea name="question_text" id="question_text" class="form-control" rows="3" required>{{ question.question_text|default:'' }}</textarea>
+                </div>
+
                 <div class="mb-4">
-                    <label class="form-label fw-bold">시험 제목</label>
-                    {{ form.title }}
-                </div>
-
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-bold">분류</label>
-                        {{ form.category }}
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-bold">관련 공정</label>
-                        {{ form.associated_process }}
-                        <div class="form-text small">공정 시험인 경우 필수로 선택하세요.</div>
-                    </div>
-                </div>
-
-                <div class="mb-4 bg-light p-3 rounded border">
-                    <label class="form-label fw-bold"><i class="bi bi-shuffle"></i> 문제 출제 방식</label>
-                    {{ form.generation_method }} <div class="form-text mt-2 text-dark small">
-                        <ul class="mb-0 ps-3">
-                            <li><strong>랜덤:</strong> 등록된 문제 중 난이도 비율(상/중/하)에 맞춰 무작위 출제</li>
-                            <li><strong>태그:</strong> 아래 '필수 태그'를 가진 문제들 중에서만 무작위 출제</li>
-                            <li><strong>지정:</strong> 매니저가 지정한 문제들로만 고정된 시험지를 구성</li>
-                        </ul>
-                    </div>
-
-                    <div id="fixedSetSection" class="mt-3" style="display: none;">
-                        <div class="alert alert-primary d-flex align-items-start">
-                            <i class="bi bi-info-circle-fill me-2 mt-1"></i>
-                            <div>
-                                <strong>'지정(Fixed)' 방식</strong>을 선택하셨습니다.<br>
-                                <span class="small">이 방식은 매니저가 등록한 문제 리스트 그대로 출제됩니다.</span>
-                            </div>
+                    <label for="question_image" class="form-label fw-bold">문제 이미지 (선택)</label>
+                    <input type="file" name="question_image" id="question_image" class="form-control" accept="image/*">
+                    {% if question.image %}
+                        <div class="mt-2 p-2 border rounded bg-light">
+                            <span class="small text-muted">현재 등록된 이미지:</span>
+                            <a href="{{ question.image.url }}" target="_blank" class="ms-1">{{ question.image.name }}</a>
                         </div>
+                    {% endif %}
+                </div>
 
-                        {% if form.instance.pk %}
-                            <div class="d-grid">
-                                <a href="{% url 'quiz:question_list' form.instance.pk %}" class="btn btn-outline-primary fw-bold" target="_blank">
-                                    <i class="bi bi-list-check"></i> 지정 문제(세트) 구성하러 가기
-                                </a>
-                                <div class="form-text text-center mt-1">
-                                    * 새 창에서 문제가 열립니다. 문제를 추가/삭제하여 세트를 완성하세요.
+                <div class="mb-4">
+                    <label for="tags" class="form-label fw-bold"><i class="bi bi-tags-fill"></i> 태그</label>
+                    <input name="tags" id="tags" class="form-control" placeholder="태그 입력 후 엔터 (검색 가능)" value="{{ current_tags|default:'' }}">
+                    <div class="form-text small">기존 태그를 검색하거나 새로운 태그를 입력하세요.</div>
+                </div>
+
+                <h5 class="fw-bold mb-3 border-bottom pb-2 mt-5"><i class="bi bi-check2-circle"></i> 정답 및 보기 설정</h5>
+
+                <div id="section_choice" style="display: none;">
+                    <div class="alert alert-primary py-2 small">
+                        <i class="bi bi-exclamation-circle-fill"></i> 보기를 입력하고 정답인 항목 우측의 <strong>'정답'</strong> 스위치를 켜주세요.
+                        <span id="single_hint" class="fw-bold ms-2" style="display: none;">(현재 모드: 정답 1개만 선택 가능)</span>
+                    </div>
+                    
+                    {% for i in "1234" %} 
+                    <div class="card mb-3 bg-light border-0">
+                        <div class="card-body py-3">
+                            <div class="d-flex align-items-center mb-2">
+                                <span class="badge bg-secondary me-2">{{ i }}번 보기</span>
+                                <div class="form-check form-switch ms-auto">
+                                    <input class="form-check-input correct-checkbox" type="checkbox" role="switch" name="is_correct_{{ i }}" id="is_correct_{{ i }}">
+                                    <label class="form-check-label fw-bold text-primary" for="is_correct_{{ i }}">정답</label>
                                 </div>
                             </div>
-                        {% else %}
-                            <div class="alert alert-warning small mb-0">
-                                <strong>알림:</strong> 시험을 먼저 <strong>[저장하기]</strong> 한 후에 문제를 구성할 수 있습니다.
+                            <div class="row">
+                                <div class="col-md-7 mb-2">
+                                    <input type="text" name="choice_text_{{ i }}" id="choice_text_{{ i }}" class="form-control" placeholder="보기 텍스트 입력">
+                                </div>
+                                <div class="col-md-5">
+                                    <input type="file" name="choice_image_{{ i }}" class="form-control form-control-sm">
+                                </div>
                             </div>
-                        {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div id="section_short" style="display: none;">
+                    <div class="mb-3">
+                        <label for="correct_answer_text" class="form-label fw-bold text-success">정답 단어</label>
+                        <input type="text" name="correct_answer_text" id="correct_answer_text" class="form-control form-control-lg" 
+                               placeholder="예: 사과" value="{{ short_answer_val|default:'' }}">
+                        
+                        <div class="alert alert-warning mt-2 small">
+                            <strong><i class="bi bi-lightbulb-fill"></i> 입력 팁:</strong><br>
+                            1. 대소문자(Apple/apple)는 <strong>자동으로 정답 처리</strong>되므로 하나만 입력하세요.<br>
+                            2. <strong>완전히 다른 단어(동의어)</strong>를 정답으로 추가할 때만 콤마(,)를 사용하세요. (예: <code>사과, 과자</code>)
+                        </div>
                     </div>
                 </div>
 
-                <div class="mb-3" id="tagSection">
-                    <label class="form-label fw-bold">필수 태그 (태그 방식용)</label>
-                    {{ form.required_tags }}
-                    <div class="form-text">Ctrl (Mac은 Cmd) 키를 누르고 클릭하면 다중 선택 가능</div>
+                <div id="section_ox" style="display: none;">
+                    <label class="form-label fw-bold mb-3">정답을 선택하세요</label>
+                    <div class="d-flex gap-4 justify-content-center p-4 border rounded bg-light">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="ox_answer" id="ox_O" value="O" 
+                                   {% if ox_answer_val == 'O' %}checked{% endif %}>
+                            <label class="form-check-label fs-4 fw-bold text-primary" for="ox_O">
+                                <i class="bi bi-circle"></i> O (그렇다)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="ox_answer" id="ox_X" value="X"
+                                   {% if ox_answer_val == 'X' %}checked{% endif %}>
+                            <label class="form-check-label fs-4 fw-bold text-danger" for="ox_X">
+                                <i class="bi bi-x-lg"></i> X (아니다)
+                            </label>
+                        </div>
+                    </div>
                 </div>
 
                 <hr class="my-4">
 
                 <div class="d-flex justify-content-end gap-2">
-                    <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary">취소</a>
+                    {% if related_quiz %}
+                        <a href="{% url 'quiz:question_list' related_quiz.id %}" class="btn btn-secondary">취소</a>
+                    {% else %}
+                        <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary">취소</a>
+                    {% endif %}
+                    
                     <button type="submit" class="btn btn-primary px-4 fw-bold">
-                        <i class="bi bi-check-lg"></i> 저장하기
+                        {% if is_update %}
+                            <i class="bi bi-check-lg"></i> 수정 완료
+                        {% else %}
+                            <i class="bi bi-plus-lg"></i> 문제 등록
+                        {% endif %}
                     </button>
                 </div>
             </form>
@@ -89,42 +151,108 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@yaireo/tagify"></script>
+<script src="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.polyfills.min.js"></script>
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        const methodSelect = document.getElementById('id_generation_method');
-        const fixedSection = document.getElementById('fixedSetSection');
-        const tagSection = document.getElementById('tagSection');
+        // ---------------------------------------------
+        // 1. Tagify 설정 (태그 입력기)
+        // ---------------------------------------------
+        var input = document.querySelector('input[name=tags]');
+        var whitelist = {{ all_tags_json|safe|default:"[]" }}; // 뷰에서 넘겨준 태그 리스트
+
+        new Tagify(input, {
+            whitelist: whitelist,
+            dropdown: {
+                maxItems: 20,
+                classname: "tags-look",
+                enabled: 0,
+                closeOnSelect: false
+            }
+        });
+
+        // ---------------------------------------------
+        // 2. 화면 표시 토글 로직
+        // ---------------------------------------------
+        const typeSelect = document.getElementById('question_type');
+        const sectionChoice = document.getElementById('section_choice');
+        const sectionShort = document.getElementById('section_short');
+        const sectionOx = document.getElementById('section_ox');
+        const singleHint = document.getElementById('single_hint');
 
         function toggleSections() {
-            const value = methodSelect.value;
+            const type = typeSelect.value;
             
-            // 1. 지정(Fixed) 방식일 때
-            // DB에 저장되는 값이 '지정'인지 'fixed'인지 확인 필요. 
-            // 보통 한글 설정이면 '지정', 코드 설정이면 'fixed'입니다. 둘 다 체크합니다.
-            if (value === '지정' || value === 'fixed') {
-                fixedSection.style.display = 'block';
-                tagSection.style.opacity = '0.5'; // 태그 섹션 흐리게 (비활성 느낌)
-            } else {
-                fixedSection.style.display = 'none';
-                tagSection.style.opacity = '1';
-            }
+            sectionChoice.style.display = 'none';
+            sectionShort.style.display = 'none';
+            sectionOx.style.display = 'none';
+            singleHint.style.display = 'none'; // 힌트 기본 숨김
 
-            // 2. 태그(Tag) 방식일 때 강조 (선택 사항)
-            if (value === '태그' || value === 'tag') {
-                tagSection.style.border = '2px solid #0d6efd';
-                tagSection.style.padding = '10px';
-                tagSection.style.borderRadius = '5px';
-            } else {
-                tagSection.style.border = 'none';
-                tagSection.style.padding = '0';
+            if (type === 'multiple_choice' || type === 'multiple_select') {
+                sectionChoice.style.display = 'block';
+                // 단일 선택일 경우 힌트 표시
+                if (type === 'multiple_choice') {
+                    singleHint.style.display = 'inline';
+                }
+            } else if (type === 'short_answer') {
+                sectionShort.style.display = 'block';
+            } else if (type === 'true_false') {
+                sectionOx.style.display = 'block';
             }
         }
 
-        if (methodSelect) {
-            methodSelect.addEventListener('change', toggleSections);
-            // 초기 실행
-            toggleSections();
-        }
+        // ---------------------------------------------
+        // 3. [중요] 객관식 단일 선택 시 체크박스 자동 해제 로직
+        // ---------------------------------------------
+        const checkboxes = document.querySelectorAll('.correct-checkbox');
+
+        checkboxes.forEach(cb => {
+            cb.addEventListener('change', function() {
+                // 현재 선택된 유형이 '객관식 (단일 정답)' 인지 확인
+                if (typeSelect.value === 'multiple_choice') {
+                    // 내가 체크되었다면
+                    if (this.checked) {
+                        // 다른 모든 체크박스를 끈다
+                        checkboxes.forEach(other => {
+                            if (other !== this) other.checked = false;
+                        });
+                    }
+                }
+            });
+        });
+
+        // 유형 변경 시에도 토글 함수 실행
+        typeSelect.addEventListener('change', toggleSections);
+        // 초기 실행
+        toggleSections();
+
+
+        // ---------------------------------------------
+        // 4. [수정 모드] 데이터 채우기 (객관식)
+        // ---------------------------------------------
+        {% if is_update and choices %}
+            const choicesData = [
+                {% for c in choices %}
+                {
+                    text: "{{ c.choice_text|escapejs }}",
+                    is_correct: {{ c.is_correct|yesno:"true,false" }},
+                    has_image: {% if c.image %}true{% else %}false{% endif %}
+                },
+                {% endfor %}
+            ];
+
+            choicesData.forEach((data, index) => {
+                const i = index + 1;
+                if (i > 4) return;
+
+                const textInput = document.getElementById(`choice_text_${i}`);
+                const checkInput = document.getElementById(`is_correct_${i}`);
+
+                if (textInput) textInput.value = data.text;
+                if (checkInput) checkInput.checked = data.is_correct;
+            });
+        {% endif %}
     });
 </script>
 {% endblock %}

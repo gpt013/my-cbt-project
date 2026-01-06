@@ -190,6 +190,10 @@ class QuizAttempt(models.Model):
 
     def __str__(self):
         return f"{self.user.username}의 '{self.quiz.title}' {self.attempt_number}차 요청 ({self.status})"
+    
+    started_at = models.DateTimeField(auto_now_add=True)
+
+    completed_at = models.DateTimeField(null=True, blank=True)
 
 
 # ------------------------------------------------------------------
@@ -289,3 +293,25 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"{self.recipient}에게: {self.message}"
+    
+# [1] 시험 결과 테이블 (점수, 제출시간 등)
+class QuizResult(models.Model):
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)
+    score = models.IntegerField(default=0)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+
+    is_viewed = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.student} - {self.quiz} ({self.score}점)"
+
+# [2] 학생이 제출한 답안 상세 (오답노트용)
+class StudentAnswer(models.Model):
+    result = models.ForeignKey(QuizResult, on_delete=models.CASCADE)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    answer_text = models.TextField(blank=True, null=True) # 사용자가 적은 답
+    is_correct = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.result} - {self.question.id}번 문제"

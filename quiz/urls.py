@@ -27,10 +27,13 @@ urlpatterns = [
     path('quiz/<int:quiz_id>/request/', views.request_quiz, name='request_quiz'),         
     path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'), 
     path('quiz/attempt/<int:attempt_id>/start/', views.start_quiz, name='start_quiz'),    
-    path('quiz/take/<int:page_number>/', views.take_quiz, name='take_quiz'),             
-    path('quiz/submit-page/<int:page_number>/', views.submit_page, name='submit_page'),   
-    path('quiz/submit-quiz/', views.submit_quiz, name='submit_quiz'),                     
+    path('quiz/take/<int:quiz_id>/', views.take_quiz, name='take_quiz'),
+    path('quiz/submit/<int:quiz_id>/', views.exam_submit, name='exam_submit'),
+    path('result/<int:result_id>/', views.exam_result, name='exam_result'),             
+    path('quiz/take/<int:quiz_id>/', views.take_quiz, name='take_quiz'),
     
+    path('quiz/submit-quiz/', views.submit_quiz, name='submit_quiz'),                     
+    path('bulk-add-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
     # 4. 결과 및 오답 노트
     path('quiz/results/', views.quiz_results, name='quiz_results'), 
     path('quiz/my-results/', views.my_results_index, name='my_results_index'), 
@@ -109,4 +112,6 @@ urlpatterns = [
     
     # 9. 전체 데이터 뷰
     path('manager/full-data-view/', views.admin_full_data_view, name='admin_full_data_view'),
+
+    
 ]
