@@ -1,4 +1,4 @@
-#!/workspaces/my-cbt-project/venv/bin/python3
+#!/workspaces/my-cbt-project/venv/bin/python3.12
 # -*- coding: utf-8 -*-
 import re
 import sys

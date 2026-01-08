@@ -2604,12 +2604,6 @@ def question_list(request, quiz_id):
     
     return render(request, 'quiz/manager/question_list.html', {'quiz': quiz, 'questions': questions})
 
-import json # [필수] json 모듈 import
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required
-from django.contrib import messages
-from .models import Quiz, Question, Choice, Tag
-
 # ------------------------------------------------------------------
 # 문제 등록 (Create)
 # ------------------------------------------------------------------
@@ -2628,13 +2622,13 @@ def question_create(request, quiz_id):
                 question_type=request.POST.get('question_type'),
                 difficulty=request.POST.get('difficulty')
             )
-            question.quizzes.add(quiz) # M2M 연결
+            question.quizzes.add(quiz)
 
             if request.FILES.get('question_image'):
                 question.image = request.FILES['question_image']
                 question.save()
 
-            # 2. 태그 저장 (Tagify JSON 파싱 + 일반 콤마 지원)
+            # 2. 태그 저장 (JSON 파싱 + 일반 콤마 지원)
             tags_input = request.POST.get('tags', '')
             if tags_input:
                 try:
@@ -2646,7 +2640,7 @@ def question_create(request, quiz_id):
                             tag_obj, _ = Tag.objects.get_or_create(name=t_name)
                             question.tags.add(tag_obj)
                 except json.JSONDecodeError:
-                    # JSON이 아닐 경우(일반 텍스트) 콤마로 분리
+                    # JSON이 아닐 경우 콤마로 분리
                     for t in tags_input.split(','):
                         if t.strip():
                             tag_obj, _ = Tag.objects.get_or_create(name=t.strip())
@@ -2656,6 +2650,7 @@ def question_create(request, quiz_id):
             q_type = question.question_type
 
             # (A) 주관식: 정답이 여러 개(예: 사과, 과자)인 경우만 콤마로 구분
+            # Apple/apple 같은 대소문자는 채점할 때 처리하므로 하나만 입력해도 됨.
             if q_type == 'short_answer':
                 answer_text = request.POST.get('correct_answer_text', '')
                 if answer_text:
@@ -2688,17 +2683,14 @@ def question_create(request, quiz_id):
 
         except Exception as e:
             messages.error(request, f"오류 발생: {e}")
-            # 에러 발생 시 입력 데이터 유지를 위해 아래 render로 넘어감 (필요 시 context 보강)
-
-    # 태그 검색용 리스트 (HTML의 tags_whitelist 변수와 매칭)
+    
+    # 태그 검색용 리스트
     all_tags_list = list(Tag.objects.values_list('name', flat=True))
 
-    # [수정] 템플릿 경로를 'question_form.html'로 지정해야 합니다.
-    return render(request, 'quiz/manager/question_form.html', {
+    return render(request, 'quiz/manager/quiz_form.html', {
         'quiz': quiz,
         'title': '새 문제 추가',
-        # [수정] HTML에서 이 이름(tags_whitelist)으로 기다리고 있습니다.
-        'tags_whitelist': json.dumps(all_tags_list) 
+        'all_tags_json': json.dumps(all_tags_list)
     })
 
 
@@ -2725,19 +2717,19 @@ def question_update(request, question_id):
             
             question.save()
 
-            # 2. 태그 업데이트 (기존 태그 지우고 재등록)
+            # 2. [변경] 태그 업데이트 (Tagify JSON 처리)
             question.tags.clear()
-            tags_input = request.POST.get('tags', '')
-            if tags_input:
+            tags_json = request.POST.get('tags', '')
+            if tags_json:
                 try:
-                    tag_list = json.loads(tags_input)
+                    tag_list = json.loads(tags_json)
                     for tag_item in tag_list:
                         t_name = tag_item.get('value', '').strip()
                         if t_name:
                             tag_obj, _ = Tag.objects.get_or_create(name=t_name)
                             question.tags.add(tag_obj)
                 except json.JSONDecodeError:
-                    for t in tags_input.split(','):
+                    for t in tags_json.split(','):
                         if t.strip():
                             tag_obj, _ = Tag.objects.get_or_create(name=t.strip())
                             question.tags.add(tag_obj)
@@ -2746,7 +2738,7 @@ def question_update(request, question_id):
             question.choice_set.all().delete() 
             q_type = question.question_type
 
-            # (A) 주관식
+            # (A) [변경] 주관식 (복수 정답 허용)
             if q_type == 'short_answer':
                 answer_text = request.POST.get('correct_answer_text', '')
                 if answer_text:
@@ -2783,10 +2775,10 @@ def question_update(request, question_id):
             messages.error(request, f"수정 중 오류 발생: {e}")
 
     # GET 요청 처리
-    # Tagify 초기값을 위해 콤마로 구분된 문자열 생성
+    # [변경] Tagify 초기값을 위해 콤마로 구분된 문자열 생성
     current_tags = ",".join(question.tags.values_list('name', flat=True))
     
-    # 주관식 정답 가져오기
+    # [변경] 주관식 정답 가져오기 (여러 개일 경우 콤마로 합쳐서 보여줌)
     short_answer_val = ""
     if question.question_type == 'short_answer':
         correct_choices = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
@@ -2801,8 +2793,7 @@ def question_update(request, question_id):
     choices = question.choice_set.all()
     all_tags_list = list(Tag.objects.values_list('name', flat=True))
 
-    # [수정] 템플릿 경로 question_form.html로 통일
-    return render(request, 'quiz/manager/question_form.html', {
+    return render(request, 'quiz/manager/quiz_form.html', {
         'question': question,
         'quiz': related_quiz,
         'title': '문제 수정',
@@ -2811,8 +2802,7 @@ def question_update(request, question_id):
         'ox_answer_val': ox_answer_val,
         'choices': choices,
         'is_update': True,
-        # [수정] HTML 변수명(tags_whitelist)과 일치시킴
-        'tags_whitelist': json.dumps(all_tags_list) 
+        'all_tags_json': json.dumps(all_tags_list) # 전체 태그 리스트 (검색용)
     })
 
 
