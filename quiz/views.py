@@ -266,7 +266,7 @@ def index(request):
     # -------------------------------------------------------
     # [3] '나의 공정' 퀴즈 목록
     # -------------------------------------------------------
-    my_process_condition = Q(associated_process=user_process) | permission_query
+    my_process_condition = Q(related_process=user_process) | permission_query
     
     if user_process is None:
         my_process_condition = permission_query
@@ -2554,7 +2554,7 @@ def manager_quiz_list(request):
     return render(request, 'quiz/manager/quiz_list.html', {'quizzes': quizzes})
 
 # ==================================================================
-# 1. 시험 생성 함수 (Create)
+# 1. 시험 생성 함수 (Create) - 수동 처리 방식
 # ==================================================================
 @login_required
 def quiz_create(request):
@@ -2563,6 +2563,7 @@ def quiz_create(request):
         messages.error(request, "관리자 권한이 필요합니다.")
         return redirect('quiz:index')
 
+    # [POST 요청] 데이터 저장
     if request.method == 'POST':
         try:
             # (1) 텍스트 데이터 가져오기
@@ -2573,53 +2574,60 @@ def quiz_create(request):
             # [수정 1] 공정 ID를 받아서 실제 Process 객체로 변환
             process_id = request.POST.get('related_process')
             process_instance = None
-            if process_id:
-                # ID가 있다면 DB에서 해당 공정 객체를 가져옴
+            
+            # 공정이 선택되었고, 빈 문자열이 아닐 경우에만 DB 조회
+            if process_id and process_id.strip():
                 process_instance = Process.objects.filter(id=process_id).first()
 
-            # (2) 숫자 데이터 처리 (값이 없으면 기본값 설정)
-            q_count = request.POST.get('question_count')
-            p_score = request.POST.get('pass_score')
-            t_limit = request.POST.get('time_limit')
-
-            q_count = int(q_count) if q_count and q_count.isdigit() else 25
-            p_score = int(p_score) if p_score and p_score.isdigit() else 80
-            t_limit = int(t_limit) if t_limit and t_limit.isdigit() else 30
+            # (2) 숫자 데이터 처리 (빈 값일 경우 기본값 설정)
+            # HTML input에서 값이 넘어오지 않을 경우를 대비해 default 값 지정
+            q_count = request.POST.get('question_count') or 25
+            p_score = request.POST.get('pass_score') or 80
+            t_limit = request.POST.get('time_limit') or 30
 
             # (3) DB에 저장 (Quiz 객체 생성)
             new_quiz = Quiz.objects.create(
                 title=title,
                 description=description,
                 category=category,
-                related_process=process_instance, # [핵심] 문자열(ID)이 아닌 객체를 저장
-                question_count=q_count,
-                pass_score=p_score,
-                time_limit=t_limit,
+                related_process=process_instance,  # 객체 저장 (없으면 None)
+                question_count=int(q_count),
+                pass_score=int(p_score),
+                time_limit=int(t_limit),
                 created_by=request.user
             )
 
             messages.success(request, f"새 시험 '{title}'이(가) 생성되었습니다.")
+            # 생성 후 문제 목록(관리) 화면으로 이동
             return redirect('quiz:question_list', quiz_id=new_quiz.id)
 
         except Exception as e:
             print(f"Quiz Create Error: {e}")
-            messages.error(request, "시험 생성 중 오류가 발생했습니다.")
+            messages.error(request, "시험 생성 중 오류가 발생했습니다. 입력값을 확인해주세요.")
 
-    # [수정 2] GET 요청 시 공정 목록(processes)을 함께 전달 (드롭다운 표시용)
+    # [GET 요청] 생성 화면 표시
+    # [수정 2] 공정 목록(processes)을 전달하여 드롭다운(<select>) 구성
     processes = Process.objects.all()
-    return render(request, 'quiz/manager/quiz_form.html', {'title': '새 시험 생성', 'processes': processes})
+    
+    return render(request, 'quiz/manager/quiz_form.html', {
+        'title': '새 시험 생성', 
+        'processes': processes
+    })
 
 
 # ==================================================================
-# 2. 시험 수정 함수 (Update)
+# 2. 시험 수정 함수 (Update) - 수동 처리 방식
 # ==================================================================
 @login_required
 def quiz_update(request, quiz_id):
+    # 관리자 권한 체크
     if not request.user.is_staff:
+        messages.error(request, "권한이 없습니다.")
         return redirect('quiz:index')
     
     quiz = get_object_or_404(Quiz, pk=quiz_id)
 
+    # [POST 요청] 데이터 수정
     if request.method == 'POST':
         try:
             # (1) 기본 정보 업데이트
@@ -2629,19 +2637,20 @@ def quiz_update(request, quiz_id):
             
             # [수정 1] 공정 객체 업데이트 로직
             process_id = request.POST.get('related_process')
-            if process_id:
+            if process_id and process_id.strip():
                 quiz.related_process = Process.objects.filter(id=process_id).first()
             else:
+                # '선택 안함'인 경우 연결 해제
                 quiz.related_process = None
 
             # (2) 숫자 데이터 업데이트
-            q_count = request.POST.get('question_count')
-            p_score = request.POST.get('pass_score')
-            t_limit = request.POST.get('time_limit')
+            q_count = request.POST.get('question_count') or 25
+            p_score = request.POST.get('pass_score') or 80
+            t_limit = request.POST.get('time_limit') or 30
 
-            quiz.question_count = int(q_count) if q_count and q_count.isdigit() else 25
-            quiz.pass_score = int(p_score) if p_score and p_score.isdigit() else 80
-            quiz.time_limit = int(t_limit) if t_limit and t_limit.isdigit() else 30
+            quiz.question_count = int(q_count)
+            quiz.pass_score = int(p_score)
+            quiz.time_limit = int(t_limit)
 
             # (3) 저장
             quiz.save()
@@ -2653,11 +2662,13 @@ def quiz_update(request, quiz_id):
             print(f"Quiz Update Error: {e}")
             messages.error(request, "수정 중 오류가 발생했습니다.")
 
-    # [수정 2] 수정 화면에서도 공정 목록을 선택할 수 있어야 함
+    # [GET 요청] 수정 화면 표시
+    # [수정 2] 기존 데이터(quiz)와 공정 목록(processes) 함께 전달
     processes = Process.objects.all()
+    
     return render(request, 'quiz/manager/quiz_form.html', {
         'quiz': quiz,
-        'title': '시험 수정',
+        'title': '시험 설정 수정',
         'processes': processes
     })
 

@@ -57,17 +57,21 @@ class QuizWizardForm(forms.ModelForm):
 class QuizForm(forms.ModelForm):
     class Meta:
         model = Quiz
-        # [수정] 모델의 모든 필드 반영 (설명, 문항수, 점수, 시간 등)
+        # 사용자님 코드의 모든 필드 유지
         fields = [
             'title', 'description', 'category', 'related_process', 
             'generation_method', 'question_count', 'pass_score', 'time_limit',
             'required_tags', 'questions', 'allowed_groups', 'allowed_users'
         ]
+        
         widgets = {
-            'title': forms.TextInput(attrs={'class': 'form-control'}),
-            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '시험 설명'}),
-            'category': forms.Select(attrs={'class': 'form-select'}),
-            'related_process': forms.Select(attrs={'class': 'form-select'}),
+            'title': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '시험 제목을 입력하세요'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '시험에 대한 설명을 입력하세요'}),
+            
+            # [핵심 수정 1] 자바스크립트 제어를 위해 id 속성 추가
+            'category': forms.Select(attrs={'class': 'form-select', 'id': 'id_category'}),
+            'related_process': forms.Select(attrs={'class': 'form-select', 'id': 'id_related_process'}),
+            
             'generation_method': forms.Select(attrs={'class': 'form-select'}),
             
             # 숫자 입력 필드
@@ -75,24 +79,48 @@ class QuizForm(forms.ModelForm):
             'pass_score': forms.NumberInput(attrs={'class': 'form-control', 'min': 0, 'max': 100}),
             'time_limit': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
 
-            # M2M 필드 (높이 조절)
+            # M2M 필드 (높이 조절 및 다중 선택)
             'required_tags': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 150px;'}),
             'questions': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 200px;'}),
             'allowed_groups': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 100px;'}),
             'allowed_users': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 100px;'}),
         }
+        
+        labels = {
+            'title': '시험 제목',
+            'category': '퀴즈 분류',
+            'related_process': '관련 공정',
+            'generation_method': '출제 방식',
+            'question_count': '문항 수',
+            'pass_score': '합격 점수',
+            'time_limit': '제한 시간(분)',
+            'required_tags': '필수 포함 태그',
+            'questions': '지정 문제 선택',
+            'allowed_groups': '응시 허용 그룹',
+            'allowed_users': '응시 허용 사용자',
+        }
 
     def clean(self):
         cleaned_data = super().clean()
-        method = cleaned_data.get('generation_method')
+        
+        # 데이터 가져오기
+        category = cleaned_data.get('category')
+        related_process = cleaned_data.get('related_process')
+        generation_method = cleaned_data.get('generation_method')
         questions = cleaned_data.get('questions')
         required_tags = cleaned_data.get('required_tags')
 
-        if method == 'fixed' and not questions:
+        # [핵심 수정 2] 분류가 '공정'인데 관련 공정을 선택하지 않은 경우 에러
+        if category in ['공정', 'process'] and not related_process:
+            self.add_error('related_process', "분류가 '공정'인 경우, 반드시 관련 공정을 선택해야 합니다.")
+
+        # [기존 로직 유지] 출제 방식에 따른 유효성 검사
+        # models.py의 Choices 값에 따라 '지정'/'fixed' 등 값 확인 필요 (여기서는 한글 기준 작성)
+        if generation_method in ['지정', 'fixed'] and not questions:
             self.add_error('questions', "지정 출제 방식을 선택한 경우, 문제를 하나 이상 선택해야 합니다.")
         
-        if method == 'random' and not required_tags:
-            self.add_error('required_tags', "랜덤 출제 방식을 선택한 경우, 태그를 하나 이상 선택해야 합니다.")
+        if generation_method in ['태그', 'tag'] and not required_tags:
+            self.add_error('required_tags', "태그 출제 방식을 선택한 경우, 태그를 하나 이상 선택해야 합니다.")
             
         return cleaned_data
 

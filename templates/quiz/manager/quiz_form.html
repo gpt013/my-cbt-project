@@ -35,29 +35,31 @@
                               placeholder="응시자에게 보여질 시험 안내사항이나 범위를 입력하세요.">{{ quiz.description|default:'' }}</textarea>
                 </div>
 
-                <div class="row g-4 mb-4">
+                <div class="row g-4 mb-4 bg-light p-3 rounded mx-0 border">
                     <div class="col-md-6">
-                        <label for="category" class="form-label fw-bold">분류</label>
+                        <label for="category" class="form-label fw-bold text-primary">분류 <span class="text-danger">*</span></label>
                         <select name="category" id="category" class="form-select">
                             <option value="common" {% if quiz.category == 'common' %}selected{% endif %}>공통</option>
                             <option value="process" {% if quiz.category == 'process' %}selected{% endif %}>공정</option>
                             <option value="safety" {% if quiz.category == 'safety' %}selected{% endif %}>안전</option>
                             <option value="etc" {% if quiz.category == 'etc' %}selected{% endif %}>기타</option>
                         </select>
+                        <div class="form-text small text-muted">*'공정' 선택 시 우측 공정 지정 필수</div>
                     </div>
                     
                     <div class="col-md-6">
-    <label for="related_process" class="form-label fw-bold">관련 공정</label>
-    <select name="related_process" id="related_process" class="form-select">
-        <option value="">-- 공정 선택 안함 --</option>
-        {% for process in processes %}
-            <option value="{{ process.id }}" 
-                {% if quiz.related_process_id == process.id %}selected{% endif %}>
-                {{ process.name }}
-            </option>
-        {% endfor %}
-    </select>
-</div>
+                        <label for="related_process" class="form-label fw-bold">관련 공정</label>
+                        <select name="related_process" id="related_process" class="form-select">
+                            <option value="">-- 공정 선택 안함 --</option>
+                            {% for process in processes %}
+                                <option value="{{ process.id }}" 
+                                    {% if quiz.related_process_id == process.id %}selected{% endif %}>
+                                    {{ process.name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
 
                 <div class="d-flex align-items-center mb-4 border-bottom pb-2 mt-5">
                     <h5 class="fw-bold text-secondary mb-0">
@@ -131,7 +133,39 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // 설정 잠금/해제 로직
+        
+        // =========================================================
+        // 1. [핵심] 분류(Category) <-> 공정(Process) 연동 로직
+        // =========================================================
+        const categorySelect = document.getElementById('category');
+        const processSelect = document.getElementById('related_process');
+
+        function toggleProcess() {
+            const val = categorySelect.value;
+            // value가 'process' 또는 '공정'인 경우에만 활성화
+            if (val === 'process' || val === '공정') {
+                processSelect.disabled = false;
+                processSelect.setAttribute('required', 'required'); // 필수값으로 변경
+                processSelect.classList.add('bg-white');
+                processSelect.classList.remove('bg-light');
+            } else {
+                processSelect.disabled = true;
+                processSelect.removeAttribute('required'); // 필수 해제
+                processSelect.value = ''; // 값 초기화
+                processSelect.classList.add('bg-light');
+                processSelect.classList.remove('bg-white');
+            }
+        }
+
+        if (categorySelect && processSelect) {
+            categorySelect.addEventListener('change', toggleProcess);
+            toggleProcess(); // 페이지 로드 시 초기 상태 적용
+        }
+
+
+        // =========================================================
+        // 2. 기본 설정(Settings) 잠금/해제 로직
+        // =========================================================
         const toggleSwitch = document.getElementById('use_default_settings');
         const inputs = [
             document.getElementById('question_count'),
@@ -143,6 +177,8 @@
         const defaults = [25, 80, 30];
 
         function updateSettingsState() {
+            if (!toggleSwitch) return; // 요소가 없으면 실행 중단
+
             const isLocked = toggleSwitch.checked;
             
             inputs.forEach((input, index) => {
@@ -159,11 +195,10 @@
             });
         }
 
-        // 스위치 클릭 시 실행
-        toggleSwitch.addEventListener('change', updateSettingsState);
-
-        // 페이지 로드 시 최초 1회 실행 (초기 상태 적용)
-        updateSettingsState();
+        if (toggleSwitch) {
+            toggleSwitch.addEventListener('change', updateSettingsState);
+            updateSettingsState(); // 페이지 로드 시 초기 상태 적용
+        }
     });
 </script>
 {% endblock %}
