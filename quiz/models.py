@@ -36,11 +36,11 @@ class Question(models.Model):
     
     question_text = models.TextField(verbose_name="문제 내용")
     question_type = models.CharField(
-        max_length=20,
-        choices=QuestionType.choices,
-        default=QuestionType.SINGLE_CHOICE,
-        verbose_name="문제 유형"
-    )
+    max_length=50,  # [수정] 20 -> 50으로 변경 (넉넉하게 잡아야 안전합니다)
+    choices=QuestionType.choices,
+    default=QuestionType.SINGLE_CHOICE,
+    verbose_name="문제 유형"
+)
     difficulty = models.CharField(
         max_length=2,
         choices=Difficulty.choices,
