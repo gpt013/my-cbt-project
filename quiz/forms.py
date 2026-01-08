@@ -2,7 +2,7 @@ from django import forms
 from accounts.models import ManagerEvaluation, EvaluationItem, Cohort, Process, Company, Profile
 from .models import Quiz, Question, Choice, StudentLog, Tag
 
-# [1] 평가 폼 (유지)
+# [1] 평가 폼 (기존 유지)
 class EvaluationForm(forms.ModelForm):
     selected_items = forms.ModelMultipleChoiceField(
         queryset=EvaluationItem.objects.all(),
@@ -20,43 +20,83 @@ class EvaluationForm(forms.ModelForm):
             }),
         }
 
-# [2] 필터 폼 (유지)
+# [2] 필터 폼 (기존 유지)
 class TraineeFilterForm(forms.Form):
-    cohort = forms.ModelChoiceField(queryset=Cohort.objects.all(), required=False, label="기수", widget=forms.Select(attrs={'class': 'form-select form-select-sm'}))
-    process = forms.ModelChoiceField(queryset=Process.objects.all(), required=False, label="공정", widget=forms.Select(attrs={'class': 'form-select form-select-sm'}))
-    status = forms.ChoiceField(choices=[('', '전체 상태')] + Profile.STATUS_CHOICES, required=False, label="상태", widget=forms.Select(attrs={'class': 'form-select form-select-sm'}))
-    search = forms.CharField(required=False, label="검색", widget=forms.TextInput(attrs={'class': 'form-control form-select-sm', 'placeholder': '이름, 사번, ID 검색'}))
+    cohort = forms.ModelChoiceField(
+        queryset=Cohort.objects.all(), required=False, label="기수", 
+        widget=forms.Select(attrs={'class': 'form-select form-select-sm'})
+    )
+    process = forms.ModelChoiceField(
+        queryset=Process.objects.all(), required=False, label="공정", 
+        widget=forms.Select(attrs={'class': 'form-select form-select-sm'})
+    )
+    status = forms.ChoiceField(
+        choices=[('', '전체 상태')] + Profile.STATUS_CHOICES, required=False, label="상태", 
+        widget=forms.Select(attrs={'class': 'form-select form-select-sm'})
+    )
+    search = forms.CharField(
+        required=False, label="검색", 
+        widget=forms.TextInput(attrs={'class': 'form-control form-select-sm', 'placeholder': '이름, 사번, ID 검색'})
+    )
 
-# [3] 퀴즈 마법사 & 폼 (유지)
+# [3] 퀴즈 마법사 (간편 생성용)
 class QuizWizardForm(forms.ModelForm):
     class Meta:
         model = Quiz
-        fields = ['title', 'category', 'associated_process', 'generation_method', 'required_tags']
+        # [수정] associated_process -> related_process 변경
+        fields = ['title', 'category', 'related_process', 'generation_method', 'required_tags']
         widgets = {
-            'title': forms.TextInput(attrs={'class': 'form-control'}),
+            'title': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '시험 제목'}),
             'category': forms.Select(attrs={'class': 'form-select'}),
-            'associated_process': forms.Select(attrs={'class': 'form-select'}),
+            'related_process': forms.Select(attrs={'class': 'form-select'}),
             'generation_method': forms.Select(attrs={'class': 'form-select'}),
-            'required_tags': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 100px;'}),
+            'required_tags': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 150px;'}),
         }
 
+# [4] 퀴즈 전체 폼 (상세 설정용)
 class QuizForm(forms.ModelForm):
     class Meta:
         model = Quiz
-        fields = ['title', 'category', 'associated_process', 'generation_method', 'required_tags', 'allowed_groups', 'allowed_users']
+        # [수정] 모델의 모든 필드 반영 (설명, 문항수, 점수, 시간 등)
+        fields = [
+            'title', 'description', 'category', 'related_process', 
+            'generation_method', 'question_count', 'pass_score', 'time_limit',
+            'required_tags', 'questions', 'allowed_groups', 'allowed_users'
+        ]
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control'}),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '시험 설명'}),
             'category': forms.Select(attrs={'class': 'form-select'}),
-            'associated_process': forms.Select(attrs={'class': 'form-select'}),
+            'related_process': forms.Select(attrs={'class': 'form-select'}),
             'generation_method': forms.Select(attrs={'class': 'form-select'}),
-            'required_tags': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 100px;'}),
+            
+            # 숫자 입력 필드
+            'question_count': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
+            'pass_score': forms.NumberInput(attrs={'class': 'form-control', 'min': 0, 'max': 100}),
+            'time_limit': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
+
+            # M2M 필드 (높이 조절)
+            'required_tags': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 150px;'}),
+            'questions': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 200px;'}),
             'allowed_groups': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 100px;'}),
             'allowed_users': forms.SelectMultiple(attrs={'class': 'form-control', 'style': 'height: 100px;'}),
         }
 
-# -----------------------------------------------------------
-# [4] 문제 생성 폼 (여기를 사진처럼 수정)
-# -----------------------------------------------------------
+    def clean(self):
+        cleaned_data = super().clean()
+        method = cleaned_data.get('generation_method')
+        questions = cleaned_data.get('questions')
+        required_tags = cleaned_data.get('required_tags')
+
+        if method == 'fixed' and not questions:
+            self.add_error('questions', "지정 출제 방식을 선택한 경우, 문제를 하나 이상 선택해야 합니다.")
+        
+        if method == 'random' and not required_tags:
+            self.add_error('required_tags', "랜덤 출제 방식을 선택한 경우, 태그를 하나 이상 선택해야 합니다.")
+            
+        return cleaned_data
+
+# [5] 문제 생성 폼 (요청하신 대로 태그 SelectMultiple 적용)
 class QuestionForm(forms.ModelForm):
     class Meta:
         model = Question
@@ -66,42 +106,42 @@ class QuestionForm(forms.ModelForm):
             'question_type': forms.Select(attrs={'class': 'form-select'}),
             'difficulty': forms.Select(attrs={'class': 'form-select'}),
             
-            # [수정] 사진처럼 목록 상자(SelectMultiple)로 변경 + 높이 지정
+            # [핵심] 태그를 목록 상자로 표시하고 높이 지정
             'tags': forms.SelectMultiple(attrs={
                 'class': 'form-control', 
-                'style': 'height: 150px;' # 사진처럼 길게 보이도록 설정
+                'style': 'height: 150px;' 
             }),
             
             'image': forms.FileInput(attrs={'class': 'form-control'}),
         }
-    
-    # 복잡한 save 로직 제거 (기본 동작 사용)
 
-# [5] 로그 폼 (유지)
-class StudentLogForm(forms.ModelForm):
-    class Meta:
-        model = StudentLog
-        fields = ['log_type', 'reason', 'action_taken']
-        widgets = {
-            'log_type': forms.Select(attrs={'class': 'form-select'}),
-            'reason': forms.Textarea(attrs={'class': 'form-control', 'rows': 4}),
-            'action_taken': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
-        }
-
+# [6] 보기 생성 폼 (이미지 추가됨)
 class ChoiceForm(forms.ModelForm):
     class Meta:
         model = Choice
-        fields = ['choice_text', 'is_correct']
+        fields = ['choice_text', 'is_correct', 'image']
         widgets = {
-            # 여기서 Textarea 위젯을 사용하여 크기를 키웁니다.
             'choice_text': forms.Textarea(attrs={
                 'class': 'form-control',
-                'rows': 3,                 # 높이: 3줄 정도로 키움 (원하는 크기로 숫자 조절 가능)
-                'style': 'resize: vertical;', # 사용자가 마우스로 크기 조절 가능하게 함
-                'placeholder': '보기 내용을 입력하세요'
+                'rows': 2,
+                'style': 'resize: vertical;',
+                'placeholder': '보기 내용'
             }),
             'is_correct': forms.CheckboxInput(attrs={
-                'class': 'form-check-input ms-2', # 체크박스 디자인
-                'style': 'transform: scale(1.2);' # 체크박스도 약간 키움
-            })
+                'class': 'form-check-input ms-2',
+                'style': 'transform: scale(1.2);'
+            }),
+            'image': forms.FileInput(attrs={'class': 'form-control form-control-sm'}),
+        }
+
+# [7] 학생 로그 폼
+class StudentLogForm(forms.ModelForm):
+    class Meta:
+        model = StudentLog
+        fields = ['log_type', 'reason', 'is_resolved', 'action_taken']
+        widgets = {
+            'log_type': forms.Select(attrs={'class': 'form-select'}),
+            'reason': forms.Textarea(attrs={'class': 'form-control', 'rows': 4}),
+            'is_resolved': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'action_taken': forms.Textarea(attrs={'class': 'form-control', 'rows': 2}),
         }

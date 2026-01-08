@@ -1,4 +1,6 @@
 {% extends 'base.html' %}
+{% load static %}
+
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -13,6 +15,7 @@
             <a href="{% url 'quiz:upload_quiz' %}" class="btn btn-outline-success">
                 <i class="bi bi-file-earmark-arrow-up"></i> 엑셀로 시험 생성
             </a>
+            
             <a href="{% url 'quiz:quiz_create' %}" class="btn btn-primary">
                 <i class="bi bi-plus-lg"></i> 직접 만들기
             </a>
@@ -28,7 +31,7 @@
                             <th class="ps-4">시험 제목</th>
                             <th>분류</th>
                             <th>관련 공정</th>
-                            <th>출제 방식</th>
+                            <th>출제 설정</th>
                             <th>등록된 문제</th>
                             <th class="text-end pe-4">관리</th>
                         </tr>
@@ -37,37 +40,57 @@
                         {% for quiz in quizzes %}
                         <tr>
                             <td class="ps-4 fw-bold text-dark">{{ quiz.title }}</td>
+                            
                             <td>
-                                {% if quiz.category == '공통' %}
+                                {% if quiz.category == 'common' %}
                                     <span class="badge bg-secondary">공통</span>
-                                {% else %}
+                                {% elif quiz.category == 'process' %}
                                     <span class="badge bg-info text-dark">공정</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ quiz.associated_process.name|default:"-" }}</td>
-                            <td>
-                                {% if quiz.generation_method == '랜덤' %}
-                                    <span class="badge bg-light text-dark border">🎲 난이도 랜덤</span>
-                                {% elif quiz.generation_method == '태그' %}
-                                    <span class="badge bg-warning text-dark">🏷️ 태그 조합</span>
+                                {% elif quiz.category == 'safety' %}
+                                    <span class="badge bg-success">안전</span>
                                 {% else %}
-                                    <span class="badge bg-success">📌 고정 세트</span>
+                                    <span class="badge bg-light text-dark border">기타</span>
                                 {% endif %}
                             </td>
+                            
                             <td>
-                                <span class="fw-bold text-primary">{{ quiz.question_set.count }}</span> 문제
+                                {% if quiz.related_process %}
+                                    <span class="fw-bold text-primary">{{ quiz.related_process.name }}</span>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
                             </td>
+                            
+                            <td>
+                                <span class="badge bg-light text-dark border me-1">
+                                    <i class="bi bi-file-text"></i> {{ quiz.question_count }}문항
+                                </span>
+                                <span class="badge bg-light text-dark border">
+                                    <i class="bi bi-clock"></i> {{ quiz.time_limit }}분
+                                </span>
+                            </td>
+                            
+                            <td>
+                                <span class="fw-bold text-primary">{{ quiz.questions.count }}</span> 문제
+                            </td>
+                            
                             <td class="text-end pe-4">
                                 <div class="btn-group">
-                                    <a href="{% url 'quiz:question_list' quiz.id %}" class="btn btn-sm btn-outline-primary">
+                                    <a href="{% url 'quiz:quiz_update' quiz.id %}" class="btn btn-sm btn-outline-secondary" title="설정 수정">
+                                        <i class="bi bi-gear-fill"></i>
+                                    </a>
+
+                                    <a href="{% url 'quiz:question_list' quiz.id %}" class="btn btn-sm btn-outline-primary" title="문제 목록 관리">
                                         <i class="bi bi-list-check"></i> 문제 관리
                                     </a>
-                                    <a href="{% url 'quiz:quiz_update' quiz.id %}" class="btn btn-sm btn-outline-secondary">
-                                        문제 추가
+
+                                    <a href="{% url 'quiz:question_create' quiz.id %}" class="btn btn-sm btn-outline-success" title="새 문제 추가">
+                                        <i class="bi bi-plus-circle"></i> 문제 추가
                                     </a>
+
                                     <form action="{% url 'quiz:quiz_delete' quiz.id %}" method="POST" class="d-inline" onsubmit="return confirm('정말 삭제하시겠습니까?\n포함된 모든 문제와 기록이 삭제됩니다!');">
                                         {% csrf_token %}
-                                        <button type="submit" class="btn btn-sm btn-outline-danger" style="border-top-left-radius: 0; border-bottom-left-radius: 0;">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="시험 삭제" style="border-top-left-radius: 0; border-bottom-left-radius: 0;">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                     </form>

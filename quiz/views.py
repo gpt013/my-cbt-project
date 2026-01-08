@@ -2532,52 +2532,134 @@ def manage_interviews(request, profile_id):
 @login_required
 def manager_quiz_list(request):
     """매니저용 시험 목록 관리"""
-    if not request.user.is_staff: return redirect('quiz:index')
+    if not request.user.is_staff: 
+        return redirect('quiz:index')
     
-    # 관리자는 전체, 매니저는 (공통 + 자기공정)
+    # 관리자는 전체 보기
     if request.user.is_superuser:
         quizzes = Quiz.objects.all().order_by('-id')
+
+    # 매니저는 (공통 + 자기공정) 보기
     elif hasattr(request.user, 'profile') and request.user.profile.process:
         my_process = request.user.profile.process
         quizzes = Quiz.objects.filter(
-            Q(category=Quiz.Category.COMMON) | Q(associated_process=my_process)
+            # [수정] associated_process -> related_process 로 변경
+            Q(category=Quiz.Category.COMMON) | Q(related_process=my_process)
         ).distinct().order_by('-id')
+
     else:
-        # 공정 없는 매니저는 공통만
+        # 공정 정보가 없는 매니저는 공통만 보기
         quizzes = Quiz.objects.filter(category=Quiz.Category.COMMON).order_by('-id')
 
     return render(request, 'quiz/manager/quiz_list.html', {'quizzes': quizzes})
 
+# ==================================================================
+# 1. 시험 생성 함수 (Create)
+# ==================================================================
 @login_required
 def quiz_create(request):
-    if not request.user.is_staff: return redirect('quiz:index')
-    
-    if request.method == 'POST':
-        form = QuizForm(request.POST)
-        if form.is_valid():
-            quiz = form.save()
-            messages.success(request, f"시험 '{quiz.title}'이(가) 생성되었습니다.")
-            return redirect('quiz:manager_quiz_list')
-    else:
-        form = QuizForm()
-    
-    return render(request, 'quiz/manager/quiz_form.html', {'form': form, 'title': '새 시험 만들기'})
+    # 관리자 권한 체크
+    if not request.user.is_staff:
+        messages.error(request, "관리자 권한이 필요합니다.")
+        return redirect('quiz:index')
 
+    if request.method == 'POST':
+        try:
+            # (1) 텍스트 데이터 가져오기
+            title = request.POST.get('title')
+            description = request.POST.get('description')
+            category = request.POST.get('category')
+            
+            # [수정 1] 공정 ID를 받아서 실제 Process 객체로 변환
+            process_id = request.POST.get('related_process')
+            process_instance = None
+            if process_id:
+                # ID가 있다면 DB에서 해당 공정 객체를 가져옴
+                process_instance = Process.objects.filter(id=process_id).first()
+
+            # (2) 숫자 데이터 처리 (값이 없으면 기본값 설정)
+            q_count = request.POST.get('question_count')
+            p_score = request.POST.get('pass_score')
+            t_limit = request.POST.get('time_limit')
+
+            q_count = int(q_count) if q_count and q_count.isdigit() else 25
+            p_score = int(p_score) if p_score and p_score.isdigit() else 80
+            t_limit = int(t_limit) if t_limit and t_limit.isdigit() else 30
+
+            # (3) DB에 저장 (Quiz 객체 생성)
+            new_quiz = Quiz.objects.create(
+                title=title,
+                description=description,
+                category=category,
+                related_process=process_instance, # [핵심] 문자열(ID)이 아닌 객체를 저장
+                question_count=q_count,
+                pass_score=p_score,
+                time_limit=t_limit,
+                created_by=request.user
+            )
+
+            messages.success(request, f"새 시험 '{title}'이(가) 생성되었습니다.")
+            return redirect('quiz:question_list', quiz_id=new_quiz.id)
+
+        except Exception as e:
+            print(f"Quiz Create Error: {e}")
+            messages.error(request, "시험 생성 중 오류가 발생했습니다.")
+
+    # [수정 2] GET 요청 시 공정 목록(processes)을 함께 전달 (드롭다운 표시용)
+    processes = Process.objects.all()
+    return render(request, 'quiz/manager/quiz_form.html', {'title': '새 시험 생성', 'processes': processes})
+
+
+# ==================================================================
+# 2. 시험 수정 함수 (Update)
+# ==================================================================
 @login_required
 def quiz_update(request, quiz_id):
-    if not request.user.is_staff: return redirect('quiz:index')
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+    
     quiz = get_object_or_404(Quiz, pk=quiz_id)
-    
+
     if request.method == 'POST':
-        form = QuizForm(request.POST, instance=quiz)
-        if form.is_valid():
-            form.save()
-            messages.success(request, "시험 정보가 수정되었습니다.")
+        try:
+            # (1) 기본 정보 업데이트
+            quiz.title = request.POST.get('title')
+            quiz.description = request.POST.get('description')
+            quiz.category = request.POST.get('category')
+            
+            # [수정 1] 공정 객체 업데이트 로직
+            process_id = request.POST.get('related_process')
+            if process_id:
+                quiz.related_process = Process.objects.filter(id=process_id).first()
+            else:
+                quiz.related_process = None
+
+            # (2) 숫자 데이터 업데이트
+            q_count = request.POST.get('question_count')
+            p_score = request.POST.get('pass_score')
+            t_limit = request.POST.get('time_limit')
+
+            quiz.question_count = int(q_count) if q_count and q_count.isdigit() else 25
+            quiz.pass_score = int(p_score) if p_score and p_score.isdigit() else 80
+            quiz.time_limit = int(t_limit) if t_limit and t_limit.isdigit() else 30
+
+            # (3) 저장
+            quiz.save()
+            
+            messages.success(request, "시험 설정이 수정되었습니다.")
             return redirect('quiz:manager_quiz_list')
-    else:
-        form = QuizForm(instance=quiz)
-    
-    return render(request, 'quiz/manager/quiz_form.html', {'form': form, 'title': '시험 수정'})
+
+        except Exception as e:
+            print(f"Quiz Update Error: {e}")
+            messages.error(request, "수정 중 오류가 발생했습니다.")
+
+    # [수정 2] 수정 화면에서도 공정 목록을 선택할 수 있어야 함
+    processes = Process.objects.all()
+    return render(request, 'quiz/manager/quiz_form.html', {
+        'quiz': quiz,
+        'title': '시험 수정',
+        'processes': processes
+    })
 
 @login_required
 def quiz_delete(request, quiz_id):
@@ -2687,11 +2769,7 @@ def question_create(request, quiz_id):
     # 태그 검색용 리스트
     all_tags_list = list(Tag.objects.values_list('name', flat=True))
 
-    return render(request, 'quiz/manager/quiz_form.html', {
-        'quiz': quiz,
-        'title': '새 문제 추가',
-        'all_tags_json': json.dumps(all_tags_list)
-    })
+    return render(request, 'quiz/manager/question_form.html', {'quiz': quiz})
 
 
 # ------------------------------------------------------------------
@@ -2793,14 +2871,14 @@ def question_update(request, question_id):
     choices = question.choice_set.all()
     all_tags_list = list(Tag.objects.values_list('name', flat=True))
 
-    return render(request, 'quiz/manager/quiz_form.html', {
+    return render(request, 'quiz/manager/question_form.html', {
         'question': question,
         'quiz': related_quiz,
         'title': '문제 수정',
         'current_tags': current_tags,
         'short_answer_val': short_answer_val,
         'ox_answer_val': ox_answer_val,
-        'choices': choices,
+        'choices': question.choice_set.all(),
         'is_update': True,
         'all_tags_json': json.dumps(all_tags_list) # 전체 태그 리스트 (검색용)
     })

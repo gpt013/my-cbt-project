@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Quiz, Question, Choice, TestResult, UserAnswer, QuizAttempt, Tag, ExamSheet,StudentLog
+from .models import Quiz, Question, Choice, TestResult, UserAnswer, QuizAttempt, Tag, ExamSheet, StudentLog
 from django.urls import reverse
 from django.utils.html import format_html
 from django.db.models import Count
@@ -21,16 +21,13 @@ class ChoiceInline(admin.TabularInline):
                 return 1
         return None
 
-# (QuestionInline은 Question이 Quiz에 종속되지 않게 바뀌었으므로 삭제되었습니다. 
-#  대신 QuizAdmin에서 questions M2M 필드로 관리합니다.)
-
 
 # --- 2. 모델별 관리자 화면 클래스 정의 ---
 
 class ExamSheetAdmin(admin.ModelAdmin):
     list_display = ('name', 'quiz', 'question_count')
-    # [수정] ExamSheet도 독립적인 문제 구성을 가질 수 있도록 수정
-    filter_horizontal = ('questions',) 
+    # ExamSheet도 독립적인 문제 구성을 가질 수 있도록 설정
+    filter_horizontal = ('questions',)
     
     def question_count(self, obj):
         return obj.questions.count()
@@ -38,37 +35,36 @@ class ExamSheetAdmin(admin.ModelAdmin):
 
 
 class QuizAdmin(admin.ModelAdmin):
-    list_display = ('title', 'category', 'generation_method', 'associated_process', 'question_count')
-    list_filter = ('generation_method', 'category', 'associated_process') 
+    # 이제 question_count, pass_score 등이 모델의 실제 필드이므로 list_display에서 바로 사용 가능합니다.
+    list_display = ('title', 'category', 'related_process', 'question_count', 'pass_score', 'time_limit', 'created_at')
     
-    # [핵심] questions(문제은행), required_tags, allowed_xxx 등 M2M 필드 관리
-    filter_horizontal = ('questions', 'required_tags', 'allowed_groups', 'allowed_users')
+    list_filter = ('category', 'related_process', 'created_at')
+    search_fields = ('title', 'description', 'related_process')
+    
+    # M2M 필드 선택 위젯
+    filter_horizontal = ('questions', 'required_tags') 
     
     fieldsets = (
         ('기본 정보', {
-            'fields': ('title', 'category', 'associated_process')
+            'fields': ('title', 'description', 'category', 'related_process', 'created_by')
         }),
-        ('응시 권한 설정 (그룹 또는 개인)', {
-            'fields': ('allowed_groups', 'allowed_users'),
-            'description': '그룹에 속해있거나, 개별 인원으로 지정된 사람은 시험을 볼 수 있습니다.'
+        ('시험 설정 (규칙)', {
+            'fields': ('question_count', 'pass_score', 'time_limit'),
+            'description': '문항 수(기본 25), 합격 점수(기본 80), 제한 시간(기본 30분)'
         }),
-        ('문제 출제 설정', {
+        ('문제 구성', {
             'fields': ('generation_method', 'required_tags', 'questions'),
-            'description': "랜덤 출제 시 '태그', 지정 출제 시 '포함된 문제들(Questions)'을 선택하세요."
         }),
     )
-    
-    # 구버전 ExamSheet 호환 (필요 시 주석 해제)
-    # def formfield_for_foreignkey ... (생략: 새 구조에서는 questions M2M 직접 사용 권장)
 
-    def question_count(self, obj):
-        # M2M 필드 카운트
-        return obj.questions.count()
-    question_count.short_description = '지정 문제 수'
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
 
 class QuestionAdmin(admin.ModelAdmin):
-    # [수정] 'quiz' 필드가 삭제되었으므로 list_display 및 list_filter에서 제거
+    # 'quiz' 필드가 삭제되었으므로 list_display 및 list_filter에서 제거
     list_display = ('question_text', 'question_type', 'difficulty', 'created_at')
     list_filter = ('question_type', 'difficulty', 'tags')
     inlines = [ChoiceInline]
@@ -187,8 +183,9 @@ class UserAnswerAdmin(admin.ModelAdmin):
     @admin.display(description='교육생', ordering='test_result__user__username')
     def get_user(self, obj):
         return obj.test_result.user.username
-    
-@admin.register(StudentLog)
+
+
+# [수정] 따옴표 오류 수정 및 데코레이터 제거 (하단에서 일괄 등록)
 class StudentLogAdmin(admin.ModelAdmin):
     list_display = ('get_type_display', 'profile', 'reason', 'created_by', 'created_at', 'is_resolved')
     list_filter = ('log_type', 'is_resolved', 'created_at')
@@ -200,6 +197,7 @@ class StudentLogAdmin(admin.ModelAdmin):
 
 
 # --- 4. 최종 등록 ---
+# 중복 등록 오류(AlreadyRegistered) 방지를 위해 여기서만 등록합니다.
 admin.site.register(Quiz, QuizAdmin)
 admin.site.register(Question, QuestionAdmin)
 admin.site.register(Tag, TagAdmin)
@@ -207,3 +205,4 @@ admin.site.register(ExamSheet, ExamSheetAdmin)
 admin.site.register(UserAnswer, UserAnswerAdmin)
 admin.site.register(TestResult, TestResultAdmin)
 admin.site.register(QuizAttempt, QuizAttemptAdmin)
+admin.site.register(StudentLog, StudentLogAdmin)

@@ -9,32 +9,26 @@ urlpatterns = [
     # ==========================================
     
     # 1. 메인 & 마이페이지
-    path('', views.index, name='index'), # 교육생 센터 홈 (시험 목록)
+    path('', views.index, name='index'), # 교육생 센터 홈
     path('student/', views.my_page, name='my_page'), # 마이페이지
     
-    # 2. 알림 및 로그 (학생용)
+    # 2. 알림 및 로그
     path('notifications/', views.notification_list, name='notification_list'),
     path('notifications/<int:noti_id>/read/', views.notification_read, name='notification_read'),
-    
-    # [수정 완료] 템플릿 오류 해결을 위해 'my_notifications' 이름 복구
     path('my-page/notifications/', views.notification_list, name='my_notifications'), 
     
-    # 학생이 상담 요청(로그 생성)
     path('student/log/create/', views.student_create_counseling_log, name='student_create_counseling_log'),
     path('student/log/<int:log_id>/', views.student_log_detail, name='student_log_detail'),
     
-    # 3. 시험 응시 프로세스
+    # 3. 시험 응시 프로세스 (신청 -> 대기 -> 시작 -> 응시 -> 제출 -> 결과)
     path('quiz/<int:quiz_id>/request/', views.request_quiz, name='request_quiz'),         
     path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'), 
     path('quiz/attempt/<int:attempt_id>/start/', views.start_quiz, name='start_quiz'),    
     path('quiz/take/<int:quiz_id>/', views.take_quiz, name='take_quiz'),
     path('quiz/submit/<int:quiz_id>/', views.exam_submit, name='exam_submit'),
     path('result/<int:result_id>/', views.exam_result, name='exam_result'),             
-    path('quiz/take/<int:quiz_id>/', views.take_quiz, name='take_quiz'),
     
-    path('quiz/submit-quiz/', views.submit_quiz, name='submit_quiz'),                     
-    path('bulk-add-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
-    # 4. 결과 및 오답 노트
+    # 4. 결과 조회 및 오답 노트
     path('quiz/results/', views.quiz_results, name='quiz_results'), 
     path('quiz/my-results/', views.my_results_index, name='my_results_index'), 
     path('quiz/my-results/<int:quiz_id>/', views.my_results_by_quiz, name='my_results_by_quiz'), 
@@ -87,24 +81,42 @@ urlpatterns = [
     path('manager/requests/', views.manager_exam_requests, name='manager_exam_requests'),
     path('manager/requests/approve/<int:attempt_id>/', views.approve_attempt, name='approve_attempt'),
 
-    # 6. 시험(Quiz) 관리
+    # ------------------------------------------
+    # 6. 시험(Quiz) 관리 [핵심 수정 구간]
+    # ------------------------------------------
+    # 시험 목록
     path('manager/quizzes/', views.manager_quiz_list, name='manager_quiz_list'),
-    path('manager/quiz/create-ui/', views.quiz_create, name='quiz_create'),
+    
+    # 새 시험 생성 (기존 중복 경로 통합)
+    path('manager/quiz/create/', views.quiz_create, name='quiz_create'),
+    
+    # 시험 수정
     path('manager/quiz/<int:quiz_id>/update/', views.quiz_update, name='quiz_update'),
+    
+    # 시험 삭제
     path('manager/quiz/<int:quiz_id>/delete/', views.quiz_delete, name='quiz_delete'),
     
-    # 7. 문제(Question) 관리
+    # ------------------------------------------
+    # 7. 문제(Question) 관리 [핵심 수정 구간]
+    # ------------------------------------------
+    # 특정 시험의 문제 목록 보기
     path('manager/quiz/<int:quiz_id>/questions/', views.question_list, name='question_list'),
-    path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
-    path('manager/quiz/<int:quiz_id>/manage-questions/', views.quiz_question_manager, name='quiz_question_manager'),
     
+    # 특정 시험에 새 문제 추가
+    path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
+    
+    # 문제 수정
+    path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
+    
+    # 문제 삭제
+    path('manager/question/<int:question_id>/delete/', views.question_delete, name='question_delete'),
+
+    # 기존 문제 은행에서 가져오기/제거 (M2M)
+    path('manager/quiz/<int:quiz_id>/manage-questions/', views.quiz_question_manager, name='quiz_question_manager'),
     path('manager/quiz/action/add-question/', views.add_question_to_quiz, name='add_question_to_quiz'),
     path('manager/quiz/action/remove-question/', views.remove_question_from_quiz, name='remove_question_from_quiz'),
 
-    path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
-    path('manager/question/<int:question_id>/delete/', views.question_delete, name='question_delete'),
-
-    # 8. 엑셀 업로드/다운로드
+    # 8. 엑셀 및 기타 기능
     path('manager/quiz/upload-excel/', views.upload_quiz, name='upload_quiz'),
     path('manager/quiz/bulk-sheet/', views.bulk_add_sheet_view, name='bulk_add_sheet_view'),
     path('manager/quiz/bulk-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
@@ -113,5 +125,7 @@ urlpatterns = [
     # 9. 전체 데이터 뷰
     path('manager/full-data-view/', views.admin_full_data_view, name='admin_full_data_view'),
 
-    
+    path('manager/quiz/create/', views.quiz_create, name='quiz_create'),
+    path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
+    path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
 ]
