@@ -128,4 +128,6 @@ urlpatterns = [
     path('manager/quiz/create/', views.quiz_create, name='quiz_create'),
     path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
     path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
+    path('manager/quiz/bulk-upload/', views.bulk_upload_file, name='bulk_upload_file'),
+    
 ]

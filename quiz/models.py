@@ -252,26 +252,26 @@ class UserAnswer(models.Model):
 class StudentLog(models.Model):
     LOG_TYPES = [
         ('warning', '⚠️ 경고'),
-        ('warning_letter', '📜 경고장'),
-        ('counseling', '💬 면담/알림'),
-        ('praise', '👏 칭찬'),
-        ('system', '🔔 시스템'),
+        ('warning_letter', '🚫 경고장'),
+        ('counseling', '💬 면담'),
+        ('compliment', '👏 칭찬'),
+        ('etc', '📝 기타'),
+        ('exam_fail', '❌ 시험 불합격'),
     ]
-
-    profile = models.ForeignKey('accounts.Profile', on_delete=models.CASCADE, related_name='logs')
-    log_type = models.CharField(max_length=20, choices=LOG_TYPES, default='system')
-    reason = models.TextField(verbose_name="내용")
+    # accounts 앱의 Profile 모델과 연결
+    profile = models.ForeignKey('accounts.Profile', on_delete=models.CASCADE, related_name='student_logs')
+    recorder = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    log_type = models.CharField(max_length=20, choices=LOG_TYPES, default='counseling')
+    reason = models.TextField()
+    action_taken = models.TextField(blank=True, null=True)
+    
+    # 시험과 연결 (기존에 있었던 필드)
+    related_quiz = models.ForeignKey('Quiz', on_delete=models.SET_NULL, null=True, blank=True)
+    stage = models.IntegerField(default=1) # 몇 차 경고인지
     
     is_resolved = models.BooleanField(default=False)
-    action_taken = models.TextField(blank=True, null=True, verbose_name="조치 사항")
-
-    class Meta:
-        ordering = ['-created_at']
-        verbose_name = '학생 기록/알림'
-        verbose_name_plural = '학생 기록/알림 목록'
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"[{self.get_log_type_display()}] {self.profile.name}"

@@ -4,11 +4,11 @@
 {% block content %}
 <link href="https://cdnjs.cloudflare.com/ajax/libs/tagify/4.17.9/tagify.min.css" rel="stylesheet" type="text/css" />
 
-<div class="container mt-4" style="max-width: 800px;">
+<div class="container mt-4" style="max-width: 900px;">
     <div class="card shadow border-0">
-        <div class="card-header bg-white py-3">
-            <h4 class="fw-bold mb-0 text-primary">
-                {% if is_update %}
+        <div class="card-header bg-white py-3 border-bottom">
+            <h4 class="mb-0 fw-bold text-primary">
+                {% if question %}
                     <i class="bi bi-pencil-square"></i> 문제 수정
                 {% else %}
                     <i class="bi bi-plus-circle-fill"></i> 새 문제 등록
@@ -19,12 +19,12 @@
         <div class="card-body p-4">
             <form method="post" enctype="multipart/form-data" id="questionForm">
                 {% csrf_token %}
-
+                
                 {% if quiz %}
                     <input type="hidden" name="quiz_id" value="{{ quiz.id }}">
                 {% endif %}
 
-                <h5 class="fw-bold mb-3 border-bottom pb-2"><i class="bi bi-info-circle"></i> 기본 정보</h5>
+                <h6 class="fw-bold text-secondary mb-3"><i class="bi bi-info-circle"></i> 기본 정보</h6>
                 
                 <div class="row mb-3">
                     <div class="col-md-4">
@@ -48,167 +48,85 @@
 
                 <div class="mb-3">
                     <label for="question_text" class="form-label fw-bold">질문 내용 <span class="text-danger">*</span></label>
-                    <textarea name="question_text" id="question_text" class="form-control" rows="3" required>{{ question.question_text|default:'' }}</textarea>
+                    <textarea name="question_text" id="question_text" class="form-control" rows="3" required placeholder="질문을 입력하세요">{{ question.question_text|default:'' }}</textarea>
                 </div>
 
                 <div class="mb-4">
                     <label for="question_image" class="form-label fw-bold">문제 이미지 (선택)</label>
-                    <input type="file" name="question_image" id="question_image" class="form-control" accept="image/*">
+                    <input type="file" name="image" id="question_image" class="form-control" accept="image/*">
                     {% if question.image %}
-                        <div class="mt-2 p-2 border rounded bg-light">
-                            <span class="small text-muted">현재 등록된 이미지:</span>
-                            <a href="{{ question.image.url }}" target="_blank" class="ms-1 fw-bold">{{ question.image.name }}</a>
+                        <div class="mt-2 p-2 border rounded bg-light d-flex align-items-center">
+                            <i class="bi bi-image me-2 text-primary"></i>
+                            <span class="small text-muted me-2">현재 파일:</span>
+                            <a href="{{ question.image.url }}" target="_blank" class="fw-bold text-decoration-none">{{ question.image.name }}</a>
                         </div>
                     {% endif %}
                 </div>
 
-                <div class="mb-4">
+                <div class="mb-5">
                     <label for="tags" class="form-label fw-bold"><i class="bi bi-tags-fill"></i> 태그</label>
                     <input name="tags" id="tags" class="form-control" 
-                           placeholder="태그 입력 후 엔터 (검색 가능)" 
-                           value="{{ current_tags|default:'' }}"
-                           autocomplete="off">
+                           placeholder="태그 입력 후 엔터" 
+                           value="{% for tag in question.tags.all %}{{ tag.name }}{% if not forloop.last %},{% endif %}{% endfor %}">
                     <div class="form-text small">기존 태그를 검색하거나 새로운 태그를 입력하세요.</div>
                 </div>
 
-                <h5 class="fw-bold mb-3 border-bottom pb-2 mt-5"><i class="bi bi-check2-circle"></i> 정답 및 보기 설정</h5>
+                <h6 class="fw-bold text-secondary mb-3 border-top pt-4"><i class="bi bi-check2-circle"></i> 정답 및 보기 설정</h6>
 
-                <div id="section_choice" style="display: none;">
-                    <div id="choice-msg" class="alert alert-primary py-2 small">
-                        <i class="bi bi-exclamation-circle-fill"></i> 보기를 입력하고 정답인 항목 우측의 <strong>'정답'</strong> 스위치를 켜주세요.
+                <div id="ui_choice" class="type-ui">
+                    <div id="choice_msg" class="alert alert-primary py-2 small mb-3">
+                        <i class="bi bi-info-circle-fill"></i> 보기를 입력하고 정답을 체크해주세요.
                     </div>
-                    
-                    <div class="vstack">
-                        {% if choices %}
-                            {% for choice in choices %}
-                                <div class="card mb-3 bg-light border-0 choice-card">
-                                    <div class="card-body py-3">
-                                        <div class="d-flex align-items-center mb-2">
-                                            <span class="badge bg-secondary me-2">{{ forloop.counter }}번 보기</span>
-                                            <div class="form-check form-switch ms-auto">
-                                                <input class="form-check-input correct-checkbox" type="checkbox" role="switch" 
-                                                       name="is_correct_{{ forloop.counter }}" id="is_correct_{{ forloop.counter }}" 
-                                                       {% if choice.is_correct %}checked{% endif %}>
-                                                <label class="form-check-label fw-bold text-primary" for="is_correct_{{ forloop.counter }}">정답</label>
-                                            </div>
-                                        </div>
-                                        <div class="row">
-                                            <div class="col-md-7 mb-2">
-                                                <input type="text" name="choice_text_{{ forloop.counter }}" class="form-control" value="{{ choice.choice_text }}" placeholder="보기 텍스트 입력">
-                                            </div>
-                                            <div class="col-md-5">
-                                                <input type="file" name="choice_image_{{ forloop.counter }}" class="form-control form-control-sm">
-                                                {% if choice.image %}
-                                                    <div class="small text-muted mt-1 text-end">
-                                                        <i class="bi bi-image"></i> <a href="{{ choice.image.url }}" target="_blank">이미지 확인</a>
-                                                    </div>
-                                                {% endif %}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            {% endfor %}
-                            
-                            {% if choices|length < 4 %}
-                                {% with start=choices|length|add:"1" %}
-                                    {% for i in "x"|rjust:"4"|make_list %}
-                                        {% if forloop.counter >= start %}
-                                            <div class="card mb-3 bg-light border-0 choice-card">
-                                                <div class="card-body py-3">
-                                                    <div class="d-flex align-items-center mb-2">
-                                                        <span class="badge bg-secondary me-2">{{ forloop.counter }}번 보기</span>
-                                                        <div class="form-check form-switch ms-auto">
-                                                            <input class="form-check-input correct-checkbox" type="checkbox" role="switch" 
-                                                                   name="is_correct_{{ forloop.counter }}" id="is_correct_{{ forloop.counter }}">
-                                                            <label class="form-check-label fw-bold text-primary" for="is_correct_{{ forloop.counter }}">정답</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="row">
-                                                        <div class="col-md-7 mb-2">
-                                                            <input type="text" name="choice_text_{{ forloop.counter }}" class="form-control" placeholder="보기 텍스트 입력">
-                                                        </div>
-                                                        <div class="col-md-5">
-                                                            <input type="file" name="choice_image_{{ forloop.counter }}" class="form-control form-control-sm">
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        {% endif %}
-                                    {% endfor %}
-                                {% endwith %}
-                            {% endif %}
-
-                        {% else %}
-                            {% for i in "1234" %} 
-                            <div class="card mb-3 bg-light border-0 choice-card">
-                                <div class="card-body py-3">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <span class="badge bg-secondary me-2">{{ i }}번 보기</span>
-                                        <div class="form-check form-switch ms-auto">
-                                            <input class="form-check-input correct-checkbox" type="checkbox" role="switch" name="is_correct_{{ i }}" id="is_correct_{{ i }}">
-                                            <label class="form-check-label fw-bold text-primary" for="is_correct_{{ i }}">정답</label>
-                                        </div>
-                                    </div>
-                                    <div class="row">
-                                        <div class="col-md-7 mb-2">
-                                            <input type="text" name="choice_text_{{ i }}" class="form-control" placeholder="보기 텍스트 입력">
-                                        </div>
-                                        <div class="col-md-5">
-                                            <input type="file" name="choice_image_{{ i }}" class="form-control form-control-sm">
-                                        </div>
-                                    </div>
-                                </div>
+                    {% for i in "1234" %}
+                    <div class="input-group mb-3 align-items-center bg-light p-2 rounded">
+                        <span class="input-group-text fw-bold border-0 bg-transparent" style="width: 80px;">{{ forloop.counter }}번 보기</span>
+                        <input type="text" class="form-control ui-choice-text" data-index="{{ forloop.counter }}" placeholder="보기 내용을 입력하세요">
+                        <div class="input-group-text bg-transparent border-0">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input ui-choice-correct" type="checkbox" data-index="{{ forloop.counter }}" id="ui_check_{{ forloop.counter }}">
+                                <label class="form-check-label fw-bold text-primary" for="ui_check_{{ forloop.counter }}">정답</label>
                             </div>
-                            {% endfor %}
-                        {% endif %}
-                    </div>
-                </div>
-
-                <div id="section_short" style="display: none;">
-                    <div class="mb-3">
-                        <label for="correct_answer_text" class="form-label fw-bold text-success">정답 단어</label>
-                        <input type="text" name="correct_answer_text" id="correct_answer_text" class="form-control form-control-lg" 
-                               placeholder="예: 사과" value="{{ short_answer_val|default:'' }}">
-                        
-                        <div class="alert alert-warning mt-2 small">
-                            <strong><i class="bi bi-lightbulb-fill"></i> 입력 팁:</strong><br>
-                            1. 대소문자(Apple/apple)는 <strong>자동으로 정답 처리</strong>되므로 하나만 입력하세요.<br>
-                            2. <strong>완전히 다른 단어(동의어)</strong>를 정답으로 추가할 때만 콤마(,)를 사용하세요. (예: <code>사과, 과자</code>)
                         </div>
                     </div>
+                    {% endfor %}
                 </div>
 
-                <div id="section_ox" style="display: none;">
+                <div id="ui_short" class="type-ui" style="display: none;">
+                    <label class="form-label fw-bold text-success">정답 단어</label>
+                    <input type="text" id="ui_short_input" class="form-control form-control-lg mb-3" placeholder="예: 사과">
+                    
+                    <div class="alert alert-warning border-warning text-dark">
+                        <i class="bi bi-lightbulb-fill text-warning"></i> <strong>입력 팁:</strong><br>
+                        <small>1. 대소문자(Apple/apple)는 자동으로 정답 처리됩니다.<br>
+                        2. 완전히 다른 단어(동의어)를 정답으로 추가할 때만 콤마(,)를 사용하세요. (예: 사과, apple)</small>
+                    </div>
+                </div>
+
+                <div id="ui_ox" class="type-ui" style="display: none;">
                     <label class="form-label fw-bold mb-3">정답을 선택하세요</label>
                     <div class="d-flex gap-4 justify-content-center p-4 border rounded bg-light">
                         <div class="form-check">
-                            <input class="form-check-input" type="radio" name="ox_answer" id="ox_O" value="O" 
-                                   {% if ox_answer_val == 'O' %}checked{% endif %}>
-                            <label class="form-check-label fs-4 fw-bold text-primary" for="ox_O">
-                                <i class="bi bi-circle"></i> O (그렇다)
-                            </label>
+                            <input class="form-check-input" type="radio" name="ui_ox_radio" id="ui_ox_o" value="O" style="transform: scale(1.5);">
+                            <label class="form-check-label fs-4 fw-bold text-primary ms-2" for="ui_ox_o">O (그렇다)</label>
                         </div>
                         <div class="form-check">
-                            <input class="form-check-input" type="radio" name="ox_answer" id="ox_X" value="X"
-                                   {% if ox_answer_val == 'X' %}checked{% endif %}>
-                            <label class="form-check-label fs-4 fw-bold text-danger" for="ox_X">
-                                <i class="bi bi-x-lg"></i> X (아니다)
-                            </label>
+                            <input class="form-check-input" type="radio" name="ui_ox_radio" id="ui_ox_x" value="X" style="transform: scale(1.5);">
+                            <label class="form-check-label fs-4 fw-bold text-danger ms-2" for="ui_ox_x">X (아니다)</label>
                         </div>
                     </div>
                 </div>
 
-                <hr class="my-4">
+                <div id="hidden_payload" class="d-none">
+                    {% for i in "1234" %}
+                        <input type="hidden" name="choice_text_{{ forloop.counter }}" id="h_text_{{ forloop.counter }}">
+                        <input type="checkbox" name="is_correct_{{ forloop.counter }}" id="h_correct_{{ forloop.counter }}">
+                    {% endfor %}
+                </div>
 
-                <div class="d-flex justify-content-end gap-2">
-                    {% if related_quiz %}
-                        <a href="{% url 'quiz:question_list' related_quiz.id %}" class="btn btn-secondary">취소</a>
-                    {% else %}
-                        <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary">취소</a>
-                    {% endif %}
-                    
+                <div class="d-flex justify-content-end gap-2 mt-5 border-top pt-3">
+                    <a href="{% url 'quiz:manager_quiz_list' %}" class="btn btn-secondary px-4">취소</a>
                     <button type="submit" class="btn btn-primary px-4 fw-bold">
-                        {% if is_update %}
+                        {% if question %}
                             <i class="bi bi-check-lg"></i> 수정 완료
                         {% else %}
                             <i class="bi bi-plus-lg"></i> 문제 등록
@@ -223,121 +141,162 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tagify/4.17.9/tagify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tagify/4.17.9/tagify.polyfills.min.js"></script>
 
+<script id="server-choices" type="application/json">
+[
+    {% for choice in question.choice_set.all %}
+    { "text": "{{ choice.choice_text|escapejs }}", "is_correct": {{ choice.is_correct|yesno:"true,false" }} }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+]
+</script>
+
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        
-        // --------------------------------------------------------
-        // 1. Tagify 설정 (태그 에러 방지)
-        // --------------------------------------------------------
-        try {
-            var input = document.querySelector('input[name=tags]');
-            if (input) {
-                // [수정] 데이터가 없어도 빈 배열([])이 들어가도록 escapejs 필터 사용
-                var whitelistStr = '{{ tags_whitelist|default:"[]"|escapejs }}';
-                var whitelist = [];
-                if (whitelistStr && whitelistStr !== 'None') {
-                    try { whitelist = JSON.parse(whitelistStr); } catch(e) {}
-                }
-                
-                new Tagify(input, {
-                    whitelist: whitelist,
-                    maxTags: 10,
-                    dropdown: { maxItems: 20, classname: "tags-look", enabled: 0, closeOnSelect: false }
-                });
-            }
-        } catch (e) {
-            console.error("Tagify Init Error:", e);
-        }
-
-        // --------------------------------------------------------
-        // 2. 화면 전환 로직
-        // --------------------------------------------------------
-        const typeSelect = document.getElementById('question_type');
-        const sections = {
-            'choice': document.getElementById('section_choice'),
-            'short': document.getElementById('section_short'),
-            'ox': document.getElementById('section_ox')
-        };
-        const choiceMsg = document.getElementById('choice-msg');
-
-        function updateForm() {
-            const val = typeSelect.value;
-            Object.values(sections).forEach(el => el.style.display = 'none'); 
-
-            if (val === 'multiple_choice' || val === 'multiple_select') {
-                sections['choice'].style.display = 'block';
-                
-                if (val === 'multiple_choice') {
-                    if(choiceMsg) choiceMsg.innerHTML = '<i class="bi bi-exclamation-circle-fill text-primary"></i> <strong>단일 정답</strong> 모드: 정답을 1개만 선택할 수 있습니다.';
-                    // 유형을 바꾸자마자 중복 체크가 있으면 해제
-                    enforceSingleChoice(null); 
-                } else {
-                    if(choiceMsg) choiceMsg.innerHTML = '<i class="bi bi-info-circle-fill text-success"></i> <strong>복수 정답</strong> 모드: 정답을 2개 이상 선택할 수 있습니다.';
-                }
-            } else if (val === 'short_answer') {
-                sections['short'].style.display = 'block';
-            } else if (val === 'true_false') {
-                sections['ox'].style.display = 'block';
-            }
-        }
-        
-        if (typeSelect) {
-            updateForm();
-            typeSelect.addEventListener('change', updateForm);
-        }
-
-        // --------------------------------------------------------
-        // 3. [핵심 수정] 정답 스위치 제어 (단일 선택 시 중복 방지)
-        // --------------------------------------------------------
-        // 모든 체크박스를 가져옵니다 (수정 모드, 신규 모드 상관없이 class="correct-checkbox" 사용)
-        const allCheckboxes = document.querySelectorAll('.correct-checkbox');
-
-        function enforceSingleChoice(clickedInput) {
-            const currentType = typeSelect.value;
-            
-            // "객관식(단일 정답)"일 때만 작동
-            if (currentType === 'multiple_choice') {
-                // 클릭된 체크박스가 켜진(checked) 상태라면?
-                if (clickedInput && clickedInput.checked) {
-                    allCheckboxes.forEach(chk => {
-                        // 내가 방금 누른 게 아닌 다른 모든 체크박스는 끈다
-                        if (chk !== clickedInput) {
-                            chk.checked = false; 
-                        }
-                    });
-                } 
-                // (유형 변경 등으로 호출된 경우) 켜진 게 여러 개라면 첫 번째만 남기고 다 끔
-                else if (!clickedInput) {
-                    let firstFound = false;
-                    allCheckboxes.forEach(chk => {
-                        if (chk.checked) {
-                            if (!firstFound) firstFound = true; // 첫 번째 발견! 놔둠
-                            else chk.checked = false; // 두 번째부터는 끔
-                        }
-                    });
-                }
-            }
-        }
-
-        // 체크박스에 이벤트 리스너 연결
-        allCheckboxes.forEach(chk => {
-            chk.addEventListener('change', function() {
-                enforceSingleChoice(this);
-            });
+document.addEventListener('DOMContentLoaded', function() {
+    // --------------------------------------------------------
+    // 1. Tagify 초기화 (태그 기능)
+    // --------------------------------------------------------
+    var input = document.querySelector('input[name=tags]');
+    if (input) {
+        new Tagify(input, {
+            maxTags: 10,
+            dropdown: { maxItems: 20, classname: "tags-look", enabled: 0, closeOnSelect: false }
         });
-    });
+    }
 
-    // 4. 스위치 영역(div) 클릭 시 체크박스 토글 함수 (HTML onclick="toggleCheckbox(this)" 용)
-    function toggleCheckbox(div) {
-        if (event.target.type === 'checkbox') return;
+    // --------------------------------------------------------
+    // 2. UI 전환 및 로직
+    // --------------------------------------------------------
+    const typeSelect = document.getElementById('question_type');
+    const uiBlocks = {
+        'multiple_choice': document.getElementById('ui_choice'),
+        'multiple_select': document.getElementById('ui_choice'),
+        'short_answer': document.getElementById('ui_short'),
+        'true_false': document.getElementById('ui_ox')
+    };
+    
+    // 초기 데이터 로드 (수정 모드)
+    const savedChoices = JSON.parse(document.getElementById('server-choices').textContent || '[]');
+
+    function updateUI() {
+        const type = typeSelect.value;
         
-        const chk = div.querySelector('input[type="checkbox"]');
-        if (chk) {
-            chk.checked = !chk.checked;
-            // 강제로 change 이벤트를 발생시켜야 위의 enforceSingleChoice가 작동함
-            const event = new Event('change');
-            chk.dispatchEvent(event);
+        // 1. 모든 UI 숨기기
+        Object.values(uiBlocks).forEach(el => el.style.display = 'none');
+        
+        // 2. 선택된 UI 보이기
+        if (uiBlocks[type]) uiBlocks[type].style.display = 'block';
+
+        // 3. 객관식 메시지 및 라디오 동작 설정
+        if (type === 'multiple_choice') {
+            document.getElementById('choice_msg').innerHTML = '<i class="bi bi-exclamation-circle-fill"></i> <strong>단일 정답</strong> 모드: 정답을 1개만 선택하세요.';
+            enforceRadioBehavior();
+        } else if (type === 'multiple_select') {
+            document.getElementById('choice_msg').innerHTML = '<i class="bi bi-info-circle-fill text-success"></i> <strong>복수 정답</strong> 모드: 정답을 2개 이상 선택하세요.';
+            removeRadioBehavior();
         }
     }
+
+    // [체크박스 제어] 하나만 선택되게 하기
+    function enforceRadioBehavior() {
+        const checks = document.querySelectorAll('.ui-choice-correct');
+        checks.forEach(chk => {
+            chk.onclick = function() {
+                if (this.checked) {
+                    checks.forEach(c => { if (c !== this) c.checked = false; });
+                }
+            };
+        });
+    }
+    // [체크박스 제어] 여러개 선택 가능하게 하기
+    function removeRadioBehavior() {
+        const checks = document.querySelectorAll('.ui-choice-correct');
+        checks.forEach(chk => chk.onclick = null);
+    }
+
+    // --------------------------------------------------------
+    // 3. 기존 데이터 불러오기 (수정 모드일 때 UI 채우기)
+    // --------------------------------------------------------
+    if (savedChoices.length > 0) {
+        const currentType = typeSelect.value;
+        
+        if (currentType === 'short_answer') {
+            if (savedChoices[0]) document.getElementById('ui_short_input').value = savedChoices[0].text;
+        
+        } else if (currentType === 'true_false') {
+            const correctChoice = savedChoices.find(c => c.is_correct);
+            if (correctChoice) {
+                if (correctChoice.text === 'O') document.getElementById('ui_ox_o').checked = true;
+                if (correctChoice.text === 'X') document.getElementById('ui_ox_x').checked = true;
+            }
+        
+        } else {
+            // 객관식
+            const textInputs = document.querySelectorAll('.ui-choice-text');
+            const checkInputs = document.querySelectorAll('.ui-choice-correct');
+            savedChoices.forEach((c, idx) => {
+                if (idx < 4) {
+                    textInputs[idx].value = c.text;
+                    checkInputs[idx].checked = c.is_correct;
+                }
+            });
+        }
+    }
+
+    // --------------------------------------------------------
+    // 4. 폼 제출 시 데이터 동기화 (UI -> Hidden Fields)
+    // --------------------------------------------------------
+    document.getElementById('questionForm').addEventListener('submit', function(e) {
+        const type = typeSelect.value;
+        
+        // 숨겨진 필드 일단 초기화
+        for(let i=1; i<=4; i++) {
+            document.getElementById(`h_text_${i}`).value = '';
+            document.getElementById(`h_correct_${i}`).checked = false;
+        }
+
+        if (type === 'short_answer') {
+            // [주관식] 입력값 -> 1번 보기에 저장
+            const val = document.getElementById('ui_short_input').value.trim();
+            if(!val) { alert('정답 단어를 입력하세요!'); e.preventDefault(); return; }
+            
+            document.getElementById('h_text_1').value = val;
+            document.getElementById('h_correct_1').checked = true;
+
+        } else if (type === 'true_false') {
+            // [OX] O/X 선택 -> 1번(O), 2번(X) 보기에 분배 저장
+            const o = document.getElementById('ui_ox_o').checked;
+            const x = document.getElementById('ui_ox_x').checked;
+            if (!o && !x) { alert('O 또는 X 중 정답을 선택하세요!'); e.preventDefault(); return; }
+
+            document.getElementById('h_text_1').value = 'O';
+            document.getElementById('h_correct_1').checked = o;
+            
+            document.getElementById('h_text_2').value = 'X';
+            document.getElementById('h_correct_2').checked = x;
+
+        } else {
+            // [객관식/다중] UI 입력값 -> 1~4번 보기에 그대로 저장
+            const texts = document.querySelectorAll('.ui-choice-text');
+            const checks = document.querySelectorAll('.ui-choice-correct');
+            let checkedCount = 0;
+
+            texts.forEach((input, idx) => {
+                const hiddenText = document.getElementById(`h_text_${idx+1}`);
+                const hiddenCheck = document.getElementById(`h_correct_${idx+1}`);
+                
+                hiddenText.value = input.value.trim();
+                hiddenCheck.checked = checks[idx].checked;
+                
+                if (checks[idx].checked) checkedCount++;
+            });
+
+            if (checkedCount === 0) { alert('정답을 최소 1개 이상 선택해야 합니다.'); e.preventDefault(); return; }
+            if (type === 'multiple_choice' && checkedCount > 1) { alert('객관식(단일)은 정답이 1개여야 합니다.'); e.preventDefault(); return; }
+        }
+    });
+
+    // 이벤트 리스너 시작
+    typeSelect.addEventListener('change', updateUI);
+    updateUI(); // 초기 실행
+});
 </script>
 {% endblock %}

@@ -15,6 +15,7 @@ from .forms import CustomUserCreationForm, ProfileForm, EmailVerificationForm, P
 # models.py에서 정의한 모델들 import
 from .models import PartLeader, Profile, EmailVerification
 
+from quiz.models import TestResult        # 결과는 quiz 앱에서           # 로그는
 
 # ---------------------------------------------------
 # [Helper] 이메일 발송 내부 함수 (성공 여부 반환)
@@ -257,6 +258,8 @@ def load_part_leaders(request):
     except Exception as e:
         print(f"❌ AJAX Error: {e}")
         return JsonResponse({'error': '데이터 로드 중 오류 발생'}, status=500)
+
+
 
 # 안내 페이지들
 def counseling_required(request): return render(request, 'accounts/counseling_required.html')

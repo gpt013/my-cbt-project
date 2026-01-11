@@ -564,6 +564,18 @@ def take_quiz(request, quiz_id):
 
     return render(request, 'quiz/take_quiz.html', context)
 
+# ==================================================================
+# 1. 엑셀 등록 화면 (View)
+# ==================================================================
+@staff_member_required
+def bulk_add_sheet_view(request):
+    quizzes = Quiz.objects.all().order_by('-id')
+    return render(request, 'quiz/bulk_add_sheet.html', {'quizzes': quizzes})
+
+
+# ==================================================================
+# 2. 데이터 저장 처리 (Save) - 수정됨
+# ==================================================================
 @staff_member_required
 @require_POST
 def bulk_add_sheet_save(request):
@@ -573,99 +585,82 @@ def bulk_add_sheet_save(request):
         raw_data = body.get('data', [])
         
         if not quiz_id:
-            return JsonResponse({'status': 'error', 'message': '시험(Quiz)이 선택되지 않았습니다.'})
+            return JsonResponse({'status': 'error', 'message': '선택된 시험(Quiz)이 없습니다.'})
 
-        target_quiz = Quiz.objects.get(id=quiz_id)
+        try:
+            target_quiz = Quiz.objects.get(id=quiz_id)
+        except Quiz.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': '존재하지 않는 시험입니다.'})
+
         success_count = 0
 
         for row in raw_data:
-            # [0:문제, 1:유형, 2:난이도, 3:태그, 4:보기1, 5:보기2, 6:보기3, 7:보기4, 8:정답]
+            # [0:문제, 1:유형, 2:난이도, 3:태그, 4~7:보기, 8:정답]
             question_text = str(row[0] or '').strip()
-            if not question_text: continue
+            if not question_text: continue 
 
-            q_type = str(row[1] or '객관식').strip()
-            difficulty = str(row[2] or '하').strip()
+            q_type_raw = str(row[1] or '객관식').strip()
+            difficulty = str(row[2] or '중').strip()
             tags_str = str(row[3] or '').strip()
-            
-            # 정답 값 (쉼표로 분리하여 리스트로 만듦)
             answer_raw = str(row[8] or '').strip()
-            # 예: "1, 3" -> ['1', '3'], "에칭기" -> ['에칭기']
-            answer_list = [a.strip() for a in answer_raw.split(',')]
 
-            # [핵심 수정 1] Question 생성 시 'quiz' 인자 제거
+            q_type_map = {
+                '객관식': '객관식',
+                '다중선택': '다중선택', '다중': '다중선택',
+                'OX': 'OX', 'ox': 'OX',
+                '주관식': '주관식 (단일정답)', '단답형': '주관식 (단일정답)'
+            }
+            final_q_type = q_type_map.get(q_type_raw, '객관식')
+
+            # [수정된 부분] created_by=request.user 삭제
             new_question = Question.objects.create(
                 question_text=question_text,
-                question_type=q_type,
+                question_type=final_q_type,
                 difficulty=difficulty
+                # created_by 필드가 모델에 없으므로 삭제했습니다.
             )
-            
-            # [핵심 수정 2] 생성 후 M2M 관계 설정
-            new_question.quizzes.add(target_quiz)
+
+            target_quiz.questions.add(new_question)
 
             if tags_str:
-                for tag_name in tags_str.split(','):
+                for tag_name in tags_str.replace(',', ' ').split():
                     if tag_name.strip():
                         tag, _ = Tag.objects.get_or_create(name=tag_name.strip())
                         new_question.tags.add(tag)
 
-            # --- [핵심] 정답 처리 로직 (복수 정답 지원) ---
-            
-            # (A) 주관식 (단일/복수 모두 쉼표로 구분해서 저장)
-            if '주관식' in q_type:
-                if answer_raw:
-                    # 주관식 복수 정답은 하나의 Choice에 몰아넣지 않고, 여러 Choice를 정답으로 등록하거나
-                    # 편의상 쉼표로 구분된 텍스트 자체를 정답 처리할 수도 있습니다.
-                    # 여기서는 '복수 정답' 타입이라면 각각을 정답 보기로 등록합니다.
-                    for ans in answer_list:
-                        Choice.objects.create(
-                            question=new_question,
-                            choice_text=ans,
-                            is_correct=True
-                        )
-            
-            # (B) 객관식/다중선택
-            else:
-                choices_raw = [row[4], row[5], row[6], row[7]]
-                
-                has_correct_marked = False
+            # 정답 및 보기 처리
+            answer_list = [a.strip() for a in answer_raw.replace(',', ' ').split() if a.strip()]
 
-                for i, choice_text in enumerate(choices_raw):
-                    choice_text = str(choice_text or '').strip()
-                    
-                    if choice_text:
+            if final_q_type == 'OX':
+                user_ans = answer_raw.upper().strip()
+                Choice.objects.create(question=new_question, choice_text='O', is_correct=(user_ans == 'O'))
+                Choice.objects.create(question=new_question, choice_text='X', is_correct=(user_ans == 'X'))
+
+            elif final_q_type == '주관식 (단일정답)':
+                if answer_raw:
+                    Choice.objects.create(question=new_question, choice_text=answer_raw, is_correct=True)
+
+            else: # 객관식/다중선택
+                options_raw = [row[4], row[5], row[6], row[7]]
+                for idx, opt_text in enumerate(options_raw, start=1):
+                    opt_text = str(opt_text or '').strip()
+                    if opt_text:
                         is_correct = False
+                        # 번호 매칭 ('1') 또는 텍스트 매칭 ('사과')
+                        if str(idx) in answer_list: is_correct = True
+                        elif opt_text in answer_list: is_correct = True
                         
-                        # 1. 번호 매칭 (예: 정답칸에 '1,3' -> 인덱스 0, 2번이 정답)
-                        # 현재 보기 번호(1~4)가 정답 리스트에 들어있는지 확인
-                        if str(i + 1) in answer_list:
-                            is_correct = True
-                            
-                        # 2. 텍스트 매칭 (예: 정답칸에 '사과,배' -> 보기가 '사과'면 정답)
-                        elif choice_text in answer_list:
-                            is_correct = True
-                        
-                        Choice.objects.create(
-                            question=new_question,
-                            choice_text=choice_text,
-                            is_correct=is_correct
-                        )
-                        
-                        if is_correct: has_correct_marked = True
-                
-                # (안전장치) 번호/텍스트 매칭 실패 시 입력값을 그대로 정답 보기로 추가
-                if not has_correct_marked and answer_raw:
-                     # 다중선택인데 매칭 안된 경우, 쉼표로 연결된 전체를 하나의 보기로 넣지 않고 경고하거나
-                     # 여기서는 단순하게 첫 번째 값만이라도 추가합니다.
-                     pass 
+                        Choice.objects.create(question=new_question, choice_text=opt_text, is_correct=is_correct)
 
             success_count += 1
 
         return JsonResponse({'status': 'success', 'count': success_count})
 
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'message': '잘못된 데이터 형식입니다.'})
     except Exception as e:
-        print(f"Bulk Add Error: {e}") # 디버깅용
-        return JsonResponse({'status': 'error', 'message': str(e)})
-
+        print(f"Bulk Save Error: {e}")
+        return JsonResponse({'status': 'error', 'message': f'오류 발생: {str(e)}'})
 
 # =========================================================
 # [2] 퀴즈 결과 처리 (quiz_results)
@@ -1994,16 +1989,24 @@ def manager_trainee_list(request):
 
 @login_required
 def manager_trainee_detail(request, profile_id):
-    if not request.user.is_staff: return redirect('quiz:index')
-    profile = get_object_or_404(Profile, pk=profile_id)
-    results = TestResult.objects.filter(user=profile.user).order_by('-completed_at')
-    # [수정] StudentLog 사용
-    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
-    
-    return render(request, 'quiz/manager/trainee_detail.html', {
-        'profile': profile, 'results': results, 'logs': logs, 'badges': profile.badges.all()
-    })
+    if not request.user.is_staff: 
+        return redirect('quiz:index')
 
+    profile = get_object_or_404(Profile, pk=profile_id)
+
+    # 1. 시험 결과
+    results = TestResult.objects.filter(user=profile.user).order_by('-completed_at')
+
+    # 2. 로그 내역
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
+
+    # [중요] 기존 파일명 'trainee_detail.html' 사용
+    return render(request, 'quiz/manager/trainee_detail.html', {
+        'profile': profile, 
+        'results': results, 
+        'logs': logs, 
+        'badges': profile.badges.all()
+    })
 # -----------------------------------------------------------
 # [핵심] 특이사항/경고/징계 로직 (1~4단계 자동화)
 # -----------------------------------------------------------
@@ -2011,7 +2014,8 @@ def manager_trainee_detail(request, profile_id):
 def manage_student_logs(request, profile_id):
     if not request.user.is_staff: return redirect('quiz:index')
     profile = get_object_or_404(Profile, pk=profile_id)
-    logs = profile.logs.all()
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
+    
 
     if request.method == 'POST':
         form = StudentLogForm(request.POST)
@@ -3164,7 +3168,9 @@ def pl_report_view(request):
 def manage_student_logs(request, profile_id):
     if not request.user.is_staff: return redirect('quiz:index')
     profile = get_object_or_404(Profile, pk=profile_id)
-    logs = profile.logs.all()
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
+    
+
 
     if request.method == 'POST':
         form = StudentLogForm(request.POST)
@@ -3849,8 +3855,5 @@ def notification_read(request, noti_id):
     # 연결된 주소(related_url)가 있으면 이동, 없으면 알림 목록으로 리다이렉트
     return redirect(noti.related_url if noti.related_url else 'quiz:notification_list')
 
-@staff_member_required
-def bulk_add_sheet_view(request):
-    # 퀴즈 목록을 ID 역순으로 가져오기
-    quizzes = Quiz.objects.all().order_by('-id') 
-    return render(request, 'quiz/bulk_add_sheet.html', {'quizzes': quizzes})
+def bulk_upload_file(request):
+    return render(request, 'base.html', {'message': '기능 복구 중'})

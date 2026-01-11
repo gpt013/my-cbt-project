@@ -169,6 +169,8 @@ class FinalAssessment(models.Model):
         )
         self.save()
 
+
+
 # (기존) 일반 평가 기록
 class EvaluationRecord(models.Model):
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, verbose_name="프로필")
