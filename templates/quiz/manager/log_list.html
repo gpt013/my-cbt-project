@@ -1,0 +1,176 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4 mb-5" style="max-width: 1200px;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="fw-bold text-danger">
+            <i class="bi bi-shield-exclamation"></i> 특이사항 및 경고 관리
+        </h3>
+        <a href="{% url 'quiz:manager_trainee_detail' profile.id %}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> 상세 페이지로
+        </a>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body d-flex align-items-center justify-content-between">
+            <div>
+                <h4 class="fw-bold d-inline-block me-2">{{ profile.name }}</h4>
+                {% if profile.status == 'attending' %}
+                    <span class="badge bg-success">재직 (정상)</span>
+                {% elif profile.status == 'counseling' %}
+                    <span class="badge bg-danger">관리/잠금</span>
+                {% else %}
+                    <span class="badge bg-secondary">{{ profile.get_status_display }}</span>
+                {% endif %}
+            </div>
+            <div class="text-end">
+                <small class="text-muted d-block">누적 경고</small>
+                <h3 class="fw-bold text-danger m-0">{{ profile.warning_count }} <span class="fs-6 text-muted">회</span></h3>
+            </div>
+        </div>
+        <div class="progress rounded-0" style="height: 10px;">
+            <div class="progress-bar bg-danger" role="progressbar" style="width: {% widthratio profile.warning_count 4 100 %}%"></div>
+        </div>
+        <div class="d-flex justify-content-between px-2 small text-muted bg-light border-top">
+            <span>0회 (정상)</span>
+            <span>2회 (1차 경고장/잠금)</span>
+            <span>3회 (2차 경고장/PL면담)</span>
+            <span>4회 (퇴소)</span>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-4 mb-4">
+            <div class="card shadow-sm border-0 border-top border-3 border-primary">
+                <div class="card-header bg-primary text-white fw-bold">
+                    <i class="bi bi-pencil-square"></i> 새 기록 작성
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">기록 유형</label>
+                            <select name="log_type" id="logTypeSelect" class="form-select" onchange="toggleUnlockOption()">
+                                <option value="counseling">💬 면담 (Counseling)</option>
+                                <option value="warning">⚠️ 경고 (Warning)</option>
+                                <option value="warning_letter">🚫 경고장 (Letter)</option>
+                                <option value="exam_fail">❌ 시험 불합격 (Exam Fail)</option>
+                                <option value="compliment">👏 칭찬 (Compliment)</option>
+                                <option value="etc">📝 기타 (Etc)</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">사유 및 내용 <span class="text-danger">*</span></label>
+                            <textarea name="reason" class="form-control" rows="5" required placeholder="구체적인 사유를 작성해주세요."></textarea>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">조치 사항 (Action Taken)</label>
+                            <textarea name="action_taken" class="form-control" rows="3" placeholder="합의 내용이나 부여된 벌칙 등을 기록하세요."></textarea>
+                        </div>
+
+                        <div id="unlockOptionBox" class="card bg-warning-subtle border-warning mb-3">
+                            <div class="card-body p-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="is_unlocked" id="unlockCheck">
+                                    <label class="form-check-label fw-bold text-dark" for="unlockCheck">
+                                        🔓 조치 완료 및 잠금 해제
+                                    </label>
+                                </div>
+                                <div class="small text-muted mt-1 ms-4">
+                                    체크 시 계정 상태가 '정상(재직)'으로 변경됩니다.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary fw-bold">
+                                <i class="bi bi-download"></i> 기록 저장하기
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <h5 class="fw-bold mb-3"><i class="bi bi-clock-history"></i> 기록 히스토리</h5>
+            
+            <div class="vstack gap-3">
+                {% for log in logs %}
+                <div class="card border-0 shadow-sm border-start border-4 
+                    {% if log.log_type == 'warning' %}border-warning
+                    {% elif log.log_type == 'warning_letter' %}border-danger
+                    {% elif log.log_type == 'exam_fail' %}border-danger
+                    {% elif log.log_type == 'counseling' %}border-success
+                    {% else %}border-secondary{% endif %}">
+                    
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="badge rounded-pill 
+                                {% if log.log_type == 'warning' %}bg-warning text-dark
+                                {% elif log.log_type == 'warning_letter' %}bg-danger
+                                {% elif log.log_type == 'exam_fail' %}bg-danger
+                                {% elif log.log_type == 'counseling' %}bg-success
+                                {% else %}bg-secondary{% endif %}">
+                                {{ log.get_log_type_display }}
+                            </span>
+                            <small class="text-muted">{{ log.created_at|date:"Y-m-d H:i" }}</small>
+                        </div>
+                        
+                        <div class="mb-2">
+                            <strong>내용:</strong><br>
+                            {{ log.reason|linebreaksbr }}
+                        </div>
+
+                        {% if log.action_taken %}
+                        <div class="mb-2 text-muted small">
+                            <strong>- 조치:</strong> {{ log.action_taken }}
+                        </div>
+                        {% endif %}
+
+                        <div class="d-flex justify-content-between align-items-center mt-3 pt-2 border-top">
+                            <small class="text-muted"><i class="bi bi-pencil"></i> 기록자: {{ log.recorder.profile.name|default:"시스템" }}</small>
+                            {% if log.is_resolved %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                    <i class="bi bi-check-all"></i> 조치 완료
+                                </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-center text-muted py-5">
+                    기록된 내역이 없습니다.
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // [핵심 로직] 선택된 유형에 따라 '잠금 해제 옵션' 보이기/숨기기
+    function toggleUnlockOption() {
+        const select = document.getElementById('logTypeSelect');
+        const unlockBox = document.getElementById('unlockOptionBox');
+        const value = select.value;
+
+        // 면담(counseling), 경고(warning), 경고장(warning_letter), 시험불합격(exam_fail) 일 때 보임
+        if (['counseling', 'warning', 'warning_letter', 'exam_fail'].includes(value)) {
+            unlockBox.style.display = 'block';
+        } else {
+            unlockBox.style.display = 'none';
+            // 숨길 때 체크박스 해제 (실수 방지)
+            document.getElementById('unlockCheck').checked = false;
+        }
+    }
+
+    // 페이지 로드 시 초기 상태 실행
+    document.addEventListener('DOMContentLoaded', toggleUnlockOption);
+</script>
+{% endblock %}

@@ -205,7 +205,7 @@ def student_create_counseling_log(request):
         # 2. DB에 로그(StudentLog) 저장
         StudentLog.objects.create(
             profile=request.user.profile,
-            created_by=request.user, 
+            recorder=request.user, 
             log_type='counseling',
             reason=final_reason,
             is_resolved=False 
@@ -1987,143 +1987,409 @@ def manager_trainee_list(request):
         'total_count': profiles.count()
     })
 
+# =========================================================
+# 1. 교육생 상세 정보 (신호등/Stepper 포함)
+# =========================================================
 @login_required
 def manager_trainee_detail(request, profile_id):
+    """
+    교육생의 시험 결과, 로그(신호등 데이터), 전체 히스토리를 보여주는 뷰
+    """
     if not request.user.is_staff: 
         return redirect('quiz:index')
 
     profile = get_object_or_404(Profile, pk=profile_id)
 
-    # 1. 시험 결과
-    results = TestResult.objects.filter(user=profile.user).order_by('-completed_at')
+    # 1. 시험 결과 가져오기 (쿼리셋 준비)
+    # [핵심 수정 1] list()로 감싸서 즉시 실행(DB 조회)하여 메모리에 리스트로 저장합니다.
+    # 이렇게 해야 아래 for문에서 추가한 속성(log_1st 등)이 HTML까지 살아있습니다.
+    results = list(TestResult.objects.filter(user=profile.user).select_related('quiz').order_by('-completed_at'))
 
-    # 2. 로그 내역
+    # [핵심 로직] 각 시험 결과(result)에 '단계별 로그' 붙이기
+    for result in results:
+        # 이 학생 & 이 시험에 해당하는 로그들만 필터링 (최신순 정렬 추가)
+        quiz_logs = StudentLog.objects.filter(profile=profile, related_quiz=result.quiz).order_by('-created_at')
+        
+        # 1차, 2차, 퇴소 로그를 각각 찾아 result 객체에 할당
+        # (리스트로 변환했기 때문에 이 값이 HTML까지 안전하게 전달됩니다)
+        result.log_1st = quiz_logs.filter(stage=1).first()
+        result.log_2nd = quiz_logs.filter(stage=2).first()
+        result.log_final = quiz_logs.filter(stage=3).first()
+
+    # 2. 전체 로그 내역 (히스토리 탭용)
     logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
 
-    # [중요] 기존 파일명 'trainee_detail.html' 사용
     return render(request, 'quiz/manager/trainee_detail.html', {
         'profile': profile, 
-        'results': results, 
+        'results': results,  # 이제 수정된 리스트가 넘어갑니다.
         'logs': logs, 
         'badges': profile.badges.all()
     })
-# -----------------------------------------------------------
-# [핵심] 특이사항/경고/징계 로직 (1~4단계 자동화)
-# -----------------------------------------------------------
+
+
+# =========================================================
+# 2. AJAX 로그 저장 (모달 창에서 '저장' 클릭 시 호출)
+# =========================================================
+@login_required
+@require_POST
+def manager_create_log_ajax(request, profile_id):
+    if not request.user.is_staff: 
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+    
+    try:
+        profile = get_object_or_404(Profile, pk=profile_id)
+        
+        # 데이터 수신
+        content = request.POST.get('content')
+        opinion = request.POST.get('opinion')
+        is_passed = request.POST.get('is_passed') == 'on'
+        
+        # ------------------------------------------------------------------
+        # [핵심 수정] stage를 반드시 '숫자(int)'로 변환해야 합니다!
+        # 문자로 저장되면 나중에 filter(stage=1)에서 못 찾습니다.
+        # ------------------------------------------------------------------
+        quiz_id = request.POST.get('quiz_id')
+        raw_stage = request.POST.get('stage')
+        
+        try:
+            stage = int(raw_stage) # 문자를 숫자로 강제 변환
+        except (ValueError, TypeError):
+            stage = 1 # 에러나면 기본값 1
+
+        # 관련 시험 객체 찾기
+        related_quiz = None
+        if quiz_id:
+            related_quiz = get_object_or_404(Quiz, pk=quiz_id)
+
+        # 로그 타입 결정
+        current_log_type = 'counseling' if is_passed else 'warning'
+
+        # DB 저장
+        StudentLog.objects.create(
+            profile=profile, 
+            recorder=request.user,
+            log_type=current_log_type,
+            reason=content, 
+            action_taken=opinion, 
+            is_resolved=is_passed,
+            related_quiz=related_quiz,
+            stage=stage # [확인] 숫자로 변환된 값을 저장
+        )
+
+        # 프로필 상태 업데이트 로직
+        if is_passed:
+            if profile.status == 'counseling':
+                profile.status = 'attending'
+        else:
+            profile.warning_count += 1
+        
+        profile.save()
+        
+        return JsonResponse({'status': 'success', 'message': '저장되었습니다.'})
+
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+# =========================================================
+# 3. 특이사항/경고/징계 관리 페이지 (히스토리 탭의 폼 처리)
+# =========================================================
 @login_required
 def manage_student_logs(request, profile_id):
-    if not request.user.is_staff: return redirect('quiz:index')
+    """
+    별도 페이지에서 경고/징계/면담 로직을 상세 처리하는 뷰 (경고 누적 로직 포함)
+    """
+    if not request.user.is_staff: 
+        return redirect('quiz:index')
+        
     profile = get_object_or_404(Profile, pk=profile_id)
+    
+    # [POST 요청 처리] 기록 저장 및 경고 로직 실행
+    if request.method == 'POST':
+        log_type = request.POST.get('log_type')
+        reason = request.POST.get('reason')
+        action_taken = request.POST.get('action_taken')
+        is_unlocked = request.POST.get('is_unlocked') == 'on' # 잠금 해제 체크
+
+        # 기본 로그 생성 객체 준비
+        log = StudentLog(
+            profile=profile,
+            recorder=request.user,  # created_by 대신 recorder 사용
+            log_type=log_type,
+            reason=reason,
+            action_taken=action_taken,
+            is_resolved=is_unlocked
+        )
+
+        # ---------------------------------------------------
+        # [A] 일반 경고 (Warning) - 단계별 누적 로직
+        # ---------------------------------------------------
+        if log_type == 'warning':
+            profile.warning_count += 1
+            log.save() # 현재 로그 저장
+            
+            # 2회 누적: 1차 경고장 자동 발부 -> 잠금
+            if profile.warning_count == 2:
+                StudentLog.objects.create(
+                    profile=profile, 
+                    recorder=request.user, 
+                    log_type='warning_letter',
+                    reason="[시스템 자동] 경고 2회 누적 -> 1차 경고장 발부",
+                    action_taken="계정 잠금 (매니저 면담 필요)"
+                )
+                profile.status = 'counseling'
+                messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 발부되고 계정이 잠겼습니다.")
+
+            # 3회 누적: 2차 경고장 자동 발부 -> 잠금 (PL 면담 필수)
+            elif profile.warning_count == 3:
+                StudentLog.objects.create(
+                    profile=profile, 
+                    recorder=request.user, 
+                    log_type='warning_letter',
+                    reason="[시스템 자동] 경고 3회 누적 -> 2차 경고장 발부",
+                    action_taken="계정 잠금 (PL 면담 필수)"
+                )
+                profile.status = 'counseling'
+                messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다. (PL 면담 필수)")
+
+            # 4회 이상: 퇴소
+            elif profile.warning_count >= 4:
+                profile.status = 'dropout'
+                messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
+            
+            # 1회: 주의
+            else:
+                profile.status = 'caution'
+                messages.info(request, "일반 경고가 등록되었습니다. (상태: 주의)")
+
+        # ---------------------------------------------------
+        # [B] 경고장 즉시 발부 (Warning Letter)
+        # ---------------------------------------------------
+        elif log_type == 'warning_letter':
+            # 경고장은 최소 2회차 급으로 취급하여 카운트 조정
+            if profile.warning_count < 2: 
+                profile.warning_count = 2
+            else: 
+                profile.warning_count += 1
+            
+            profile.status = 'counseling'
+            if profile.warning_count >= 4: 
+                profile.status = 'dropout'
+            
+            log.save()
+            messages.warning(request, f"⛔ 경고장이 즉시 발부되었습니다. (현재 누적: {profile.warning_count}회)")
+
+        # ---------------------------------------------------
+        # [C] 면담 및 조치 (Counseling/Fail) - 잠금 해제 로직
+        # ---------------------------------------------------
+        elif log_type == 'counseling' or log_type == 'exam_fail': 
+            log.save()
+
+            if is_unlocked:
+                log.is_resolved = True
+                log.save()
+
+                if profile.warning_count >= 4:
+                    profile.status = 'dropout'
+                    messages.warning(request, "퇴소 대상자는 잠금을 해제할 수 없습니다.")
+                else:
+                    profile.status = 'attending'
+                    messages.success(request, "✅ 조치가 완료되어 계정이 정상화되었습니다.")
+            else:
+                messages.success(request, "면담 기록이 저장되었습니다.")
+
+        # ---------------------------------------------------
+        # [D] 기타 일반 로그
+        # ---------------------------------------------------
+        else:
+            log.save()
+            messages.success(request, "기록되었습니다.")
+
+        profile.save()
+        return redirect('quiz:manage_student_logs', profile_id=profile.id)
+
+    # [GET 요청] 화면 렌더링
     logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
     
-
-    if request.method == 'POST':
-        form = StudentLogForm(request.POST)
-        if form.is_valid():
-            log = form.save(commit=False)
-            log.profile = profile
-            log.created_by = request.user  # <--- recorder 아님! created_by로 수정
-            
-            # [A] 일반 경고 (누적 로직)
-            if log.log_type == 'warning':
-                profile.warning_count += 1
-                log.save()
-                
-                # 2회: 1차 경고장 (자동) -> 잠금
-                if profile.warning_count == 2:
-                    StudentLog.objects.create(
-                        profile=profile, recorder=request.user, log_type='warning_letter', 
-                        reason="[시스템 자동] 경고 2회 누적 -> 1차 경고장 발부",
-                        action_taken="계정 잠금 (매니저 면담 필요)"
-                    )
-                    profile.status = 'counseling'
-                    messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 발부되고 계정이 잠겼습니다.")
-
-                # 3회: 2차 경고장 (자동) -> 잠금 (PL 면담 필수)
-                elif profile.warning_count == 3:
-                    StudentLog.objects.create(
-                        profile=profile, recorder=request.user, log_type='warning_letter', 
-                        reason="[시스템 자동] 경고 3회 누적 -> 2차 경고장 발부",
-                        action_taken="계정 잠금 (PL 면담 필수)"
-                    )
-                    profile.status = 'counseling'
-                    messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다. (PL 면담 필수)")
-
-                # 4회 이상: 퇴소
-                elif profile.warning_count >= 4:
-                    profile.status = 'dropout'
-                    messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
-                
-                # 1회: 주의
-                else:
-                    profile.status = 'caution'
-                    messages.info(request, "일반 경고가 등록되었습니다. (상태: 주의)")
-
-            # [B] 경고장 즉시 발부 (중대 과실 - 점프)
-            elif log.log_type == 'warning_letter':
-                if profile.warning_count < 2: profile.warning_count = 2
-                else: profile.warning_count += 1
-                
-                profile.status = 'counseling'
-                if profile.warning_count >= 4: profile.status = 'dropout'
-                
-                log.save()
-                messages.warning(request, f"⛔ 경고장이 즉시 발부되었습니다. (현재 누적: {profile.warning_count}회)")
-
-            # [C] 면담 및 조치 (잠금 해제)
-            elif log.log_type == 'counseling':
-                is_resolve = request.POST.get('resolve_lock') == 'on'
-                pl_check = request.POST.get('pl_check') == 'on'
-                
-                if is_resolve:
-                    # 3회 누적자(2차 경고장)는 PL 체크 필수
-                    if profile.warning_count == 3 and not pl_check:
-                         messages.error(request, "🚫 3회 누적자는 'PL 면담 확인'을 체크해야 잠금이 해제됩니다.")
-                         return redirect('quiz:manage_student_logs', profile_id=profile.id)
-
-                    log.is_resolved = True
-                    if profile.warning_count >= 4:
-                        profile.status = 'dropout'
-                        messages.warning(request, "퇴소 대상자는 잠금을 해제할 수 없습니다.")
-                    else:
-                        profile.status = 'attending'
-                        messages.success(request, "✅ 조치가 완료되어 계정이 정상화되었습니다.")
-                
-                log.save()
-
-            else:
-                log.save()
-                messages.success(request, "기록되었습니다.")
-
-            profile.save()
-            return redirect('quiz:manage_student_logs', profile_id=profile.id)
-    else:
-        form = StudentLogForm()
-
-    return render(request, 'quiz/manager/manage_student_logs.html', {
-        'profile': profile, 'logs': logs, 'form': form
+    return render(request, 'quiz/manager/log_list.html', {
+        'profile': profile, 
+        'logs': logs
     })
+
+
+# =========================================================
+# 4. 최종 평가서 작성 (데이터 통계 포함)
+# =========================================================
+@login_required
+def manager_trainee_report(request, profile_id):
+    profile = get_object_or_404(Profile, pk=profile_id)
+    
+    # 1. 통계 데이터 계산 (왼쪽 사이드바용)
+    results = TestResult.objects.filter(user=profile.user)
+    
+    # 평균 점수
+    avg_score = results.aggregate(Avg('score'))['score__avg']
+    avg_score = round(avg_score, 1) if avg_score else 0
+    
+    # 재시험(불합격) 횟수
+    fail_count = results.filter(is_pass=False).count()
+    
+    # 최근 특이사항 로그 (최신 5개)
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')[:5]
+
+    # 2. 저장(POST) 처리
+    if request.method == 'POST':
+        # (여기에 평가 저장 로직 구현 가능)
+        messages.success(request, f"{profile.name}님의 최종 평가가 저장되었습니다.")
+        return redirect('quiz:manager_trainee_detail', profile_id=profile.id)
+
+    # 3. 화면 렌더링
+    return render(request, 'quiz/manager/final_report.html', {
+        'profile': profile,
+        'avg_score': avg_score,
+        'fail_count': fail_count,
+        'logs': logs,
+    })
+
+# =========================================================
+# 3. 최종 평가서 작성 (데이터 채워넣기)
+# =========================================================
+@login_required
+def manager_trainee_report(request, profile_id):
+    profile = get_object_or_404(Profile, pk=profile_id)
+    
+    # 1. 통계 데이터 계산 (왼쪽 사이드바용)
+    results = TestResult.objects.filter(user=profile.user)
+    
+    # 평균 점수
+    avg_score = results.aggregate(Avg('score'))['score__avg']
+    avg_score = round(avg_score, 1) if avg_score else 0
+    
+    # 재시험(불합격) 횟수
+    fail_count = results.filter(is_pass=False).count()
+    
+    # 최근 특이사항 로그 (최신 5개)
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')[:5]
+
+    # 2. 저장(POST) 처리
+    if request.method == 'POST':
+        # (여기에 평가 저장 로직 구현 가능)
+        messages.success(request, f"{profile.name}님의 최종 평가가 저장되었습니다.")
+        return redirect('quiz:manager_trainee_detail', profile_id=profile.id)
+
+    # 3. 화면 렌더링
+    return render(request, 'quiz/manager/final_report.html', {
+        'profile': profile,
+        'avg_score': avg_score,
+        'fail_count': fail_count,
+        'logs': logs,
+    })
+
+
+# =========================================================
+# 4. [AJAX] 상세페이지 모달용 로그 저장
+# =========================================================
+@login_required
+@require_POST
+def manager_create_log_ajax(request, profile_id):
+    if not request.user.is_staff: 
+        return JsonResponse({'status': 'error', 'message': '권한 없음'}, status=403)
+    
+    try:
+        profile = get_object_or_404(Profile, pk=profile_id)
+        
+        # 데이터 수신
+        content = request.POST.get('content')
+        opinion = request.POST.get('opinion')
+        is_passed = request.POST.get('is_passed') == 'on'
+        quiz_id = request.POST.get('quiz_id')
+        stage = request.POST.get('stage')
+
+        related_quiz = None
+        if quiz_id:
+            related_quiz = get_object_or_404(Quiz, pk=quiz_id)
+
+        # 로그 저장
+        StudentLog.objects.create(
+            profile=profile,
+            recorder=request.user,  # [수정] recorder 사용
+            log_type='counseling' if is_passed else 'warning',
+            reason=content,
+            action_taken=opinion,
+            is_resolved=is_passed,
+            related_quiz=related_quiz,
+            stage=stage if stage else 1
+        )
+
+        # 상태 업데이트
+        if is_passed:
+            if profile.status == 'counseling': profile.status = 'attending'
+        else:
+            profile.warning_count += 1
+        
+        profile.save()
+        return JsonResponse({'status': 'success', 'message': '저장되었습니다.'})
+
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
 
 # [매니저 모달용 간편 작성]
 @login_required
 @require_POST
 def manager_create_counseling_log(request, profile_id):
-    if not request.user.is_staff: return JsonResponse({'status': 'error'}, status=403)
+    # 1. 권한 체크
+    if not request.user.is_staff: 
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+    
     try:
         profile = get_object_or_404(Profile, pk=profile_id)
-        content = request.POST.get('content')
-        opinion = request.POST.get('opinion')
-        is_passed = request.POST.get('is_passed') == 'on'
         
+        # 2. 데이터 수신 (기존 항목 + 신규 항목)
+        content = request.POST.get('content')       # 면담 내용
+        opinion = request.POST.get('opinion')       # 조치 의견
+        is_passed = request.POST.get('is_passed') == 'on' # 잠금 해제 여부
+        
+        # [신규 추가] 신호등 연동을 위한 데이터
+        quiz_id = request.POST.get('quiz_id') 
+        stage = request.POST.get('stage')
+
+        # 3. 관련 시험 객체 찾기 (시험 관련 경고일 경우)
+        related_quiz = None
+        if quiz_id:
+            related_quiz = get_object_or_404(Quiz, pk=quiz_id)
+
+        # 4. 로그 타입 결정 (잠금 해제 체크 안 했으면 '경고'로 간주)
+        # 체크(on) -> counseling(일반/해제), 체크안함 -> warning(경고)
+        current_log_type = 'counseling' if is_passed else 'warning'
+
+        # 5. DB 저장 (누락된 related_quiz, stage 추가)
         StudentLog.objects.create(
-            profile=profile, recorder=request.user, log_type='counseling',
-            reason=content, action_taken=opinion, is_resolved=is_passed
+            profile=profile, 
+            recorder=request.user, 
+            log_type=current_log_type,
+            reason=content, 
+            action_taken=opinion, 
+            is_resolved=is_passed,
+            related_quiz=related_quiz,  # [중요] 시험 연결
+            stage=stage if stage else 1 # [중요] 단계 연결
         )
-        if is_passed and profile.status == 'counseling':
-            profile.status = 'attending'; profile.save()
+
+        # 6. 프로필 상태 업데이트 (경고 카운트 로직 추가)
+        if is_passed:
+            # '조치 완료' 체크 시 -> 잠금 해제
+            if profile.status == 'counseling':
+                profile.status = 'attending'
+        else:
+            # '조치 완료' 체크 안 함 -> 경고 횟수 증가
+            profile.warning_count += 1
+            # (선택사항) 경고 2회 이상 시 상태 변경 로직이 필요하면 여기에 추가
+            # if profile.warning_count >= 2: profile.status = 'counseling'
+        
+        profile.save()
         
         return JsonResponse({'status': 'success', 'message': '저장되었습니다.'})
-    except Exception as e: return JsonResponse({'status': 'error', 'message': str(e)})
+
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
 
 
 # --- (기타 액션 함수들: 가입승인, 비번초기화 등 기존 유지) ---
@@ -2598,7 +2864,7 @@ def quiz_create(request):
                 question_count=int(q_count),
                 pass_score=int(p_score),
                 time_limit=int(t_limit),
-                created_by=request.user
+                recorder=request.user
             )
 
             messages.success(request, f"새 시험 '{title}'이(가) 생성되었습니다.")
@@ -3177,7 +3443,7 @@ def manage_student_logs(request, profile_id):
         if form.is_valid():
             log = form.save(commit=False)
             log.profile = profile
-            log.created_by = request.user  # <--- recorder 아님! created_by로 수정
+            log.recorder = request.user  # <--- recorder 아님! created_by로 수정
             
             # [A] 일반 경고 (누적 로직)
             if log.log_type == 'warning':
@@ -3496,7 +3762,7 @@ def manager_create_counseling_log(request, profile_id):
         # 로그 저장 (StudentLog 사용)
         log = StudentLog.objects.create(
             profile=profile,
-            created_by=request.user,  # <--- 여기 수정됨
+            recorder=request.user,  # <--- 여기 수정됨
             log_type='counseling',
             reason=content, 
             action_taken=opinion, 
@@ -3809,7 +4075,7 @@ def student_log_create(request, student_id):
             
             # [수정 완료] 모델 필드명(created_by)과 정확히 일치시킴
             log.profile = target_profile    
-            log.created_by = request.user   # recorder (X) -> created_by (O)
+            log.recorder = request.user   # recorder (X) -> created_by (O)
             
             log.save()
             messages.success(request, "기록이 저장되었습니다.")

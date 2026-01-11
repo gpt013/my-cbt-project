@@ -129,5 +129,11 @@ urlpatterns = [
     path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
     path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
     path('manager/quiz/bulk-upload/', views.bulk_upload_file, name='bulk_upload_file'),
+    path('manager/log/create/<int:profile_id>/', views.manager_create_log_ajax, name='manager_create_log_ajax'),
+    # [3] (신규 연결) 최종 평가서 작성 페이지
+    path('manager/report/create/<int:profile_id>/', views.manager_trainee_report, name='manager_trainee_report'),
+
+    # [4] (신규 연결) 특이사항/경고 관리(히스토리) 페이지
+    path('manager/logs/<int:profile_id>/', views.manage_student_logs, name='manage_student_logs'),
     
 ]
