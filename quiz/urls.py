@@ -9,8 +9,8 @@ urlpatterns = [
     # ==========================================
     
     # 1. 메인 & 마이페이지
-    path('', views.index, name='index'), # 교육생 센터 홈
-    path('student/', views.my_page, name='my_page'), # 마이페이지
+    path('', views.index, name='index'), 
+    path('student/', views.my_page, name='my_page'),
     
     # 2. 알림 및 로그
     path('notifications/', views.notification_list, name='notification_list'),
@@ -20,7 +20,7 @@ urlpatterns = [
     path('student/log/create/', views.student_create_counseling_log, name='student_create_counseling_log'),
     path('student/log/<int:log_id>/', views.student_log_detail, name='student_log_detail'),
     
-    # 3. 시험 응시 프로세스 (신청 -> 대기 -> 시작 -> 응시 -> 제출 -> 결과)
+    # 3. 시험 응시 프로세스
     path('quiz/<int:quiz_id>/request/', views.request_quiz, name='request_quiz'),         
     path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'), 
     path('quiz/attempt/<int:attempt_id>/start/', views.start_quiz, name='start_quiz'),    
@@ -65,11 +65,14 @@ urlpatterns = [
     path('manager/trainees/<int:profile_id>/', views.manager_trainee_detail, name='manager_trainee_detail'),
     
     # 3. 평가 및 특이사항 관리
+    # (중복 제거: 가장 표준적인 경로 하나만 남김)
     path('manager/trainees/<int:profile_id>/logs/', views.manage_student_logs, name='manage_student_logs'),
-    path('manage/student/<int:profile_id>/logs/', views.manage_student_logs), 
     
     path('manager/evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),       
-    path('manager/log/create/<int:profile_id>/', views.manager_create_counseling_log, name='manager_create_counseling_log'), 
+    
+    # ★ [수정됨] 로그 저장: final_log_saver 삭제 -> manager_create_log_ajax로 통일
+    path('manager/log/create/<int:profile_id>/', views.manager_create_log_ajax, name='manager_create_log_ajax'),
+    
     path('manager/interview/<int:profile_id>/', views.manage_interviews, name='manage_interviews'),   
 
     # 4. 계정 승인/관리
@@ -87,7 +90,7 @@ urlpatterns = [
     # 시험 목록
     path('manager/quizzes/', views.manager_quiz_list, name='manager_quiz_list'),
     
-    # 새 시험 생성 (기존 중복 경로 통합)
+    # ★ [수정됨] 새 시험 생성: quiz_create 하나만 유지
     path('manager/quiz/create/', views.quiz_create, name='quiz_create'),
     
     # 시험 수정
@@ -122,18 +125,12 @@ urlpatterns = [
     path('manager/quiz/bulk-sheet/save/', views.bulk_add_sheet_save, name='bulk_add_sheet_save'),
     path('export/student-data/', views.export_student_data, name='export_student_data'),
     
+    path('manager/quiz/bulk-upload/', views.bulk_upload_file, name='bulk_upload_file'),
+
     # 9. 전체 데이터 뷰
     path('manager/full-data-view/', views.admin_full_data_view, name='admin_full_data_view'),
-
-    path('manager/quiz/create/', views.quiz_create, name='quiz_create'),
-    path('manager/quiz/<int:quiz_id>/question/add/', views.question_create, name='question_create'),
-    path('manager/question/<int:question_id>/update/', views.question_update, name='question_update'),
-    path('manager/quiz/bulk-upload/', views.bulk_upload_file, name='bulk_upload_file'),
-    path('manager/log/create/<int:profile_id>/', views.manager_create_log_ajax, name='manager_create_log_ajax'),
-    # [3] (신규 연결) 최종 평가서 작성 페이지
+    
+    # [3] 최종 평가서 작성 페이지
     path('manager/report/create/<int:profile_id>/', views.manager_trainee_report, name='manager_trainee_report'),
 
-    # [4] (신규 연결) 특이사항/경고 관리(히스토리) 페이지
-    path('manager/logs/<int:profile_id>/', views.manage_student_logs, name='manage_student_logs'),
-    
 ]

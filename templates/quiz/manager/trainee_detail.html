@@ -10,14 +10,17 @@
     
     /* 신호등 점 색상 정의 */
     .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
-    .dot-gray { background-color: #e9ecef; border: 1px solid #ced4da; } /* 대기 */
-    .dot-red  { background-color: #dc3545; }   /* 위험/작성필요 */
-    .dot-blue { background-color: #0d6efd; }   /* 작성완료/확인 */
-    .dot-green{ background-color: #198754; }   /* 합격 */
-    .dot-black{ background-color: #212529; }   /* 퇴소 */
+    .dot-gray { background-color: #e9ecef; border: 1px solid #ced4da; } 
+    .dot-red  { background-color: #dc3545; }   
+    .dot-blue { background-color: #0d6efd; }   
+    .dot-green{ background-color: #198754; }   
+    .dot-black{ background-color: #212529; }   
 
     /* 버튼 스타일 미세 조정 */
     .btn-xs { padding: 1px 6px; font-size: 0.7rem; margin-left: 4px; border-radius: 4px; }
+    
+    /* 비활성 단계 스타일 */
+    .step-locked { opacity: 0.4; cursor: not-allowed; background-color: #e9ecef; }
 </style>
 
 <div class="container-fluid mt-4 pb-5">
@@ -114,15 +117,14 @@
                                                 <th>응시일</th>
                                             </tr>
                                         </thead>
+                                        
                                         <tbody>
     {% for r in results %}
     <tr>
         <td class="fw-bold">{{ r.quiz.title }}</td>
         
-        <td class="text-center">
-            <span class="{% if r.is_pass %}text-success{% else %}text-danger{% endif %} fw-bold">
-                {{ r.score }}점
-            </span>
+        <td class="fw-bold text-center {% if r.score >= 80 %}text-success{% else %}text-danger{% endif %}">
+            {{ r.score }}점
         </td>
 
         <td class="text-center">
@@ -132,63 +134,30 @@
                 <span class="badge bg-danger">불합격</span>
             {% endif %}
         </td>
-
+        
         <td>
             <div class="step-container d-flex align-items-center gap-2">
                 
                 <div class="step-item p-1 border rounded {% if r.log_1st %}bg-light border-primary{% endif %}">
                     <div class="d-flex align-items-center gap-1">
-                        <span class="status-dot 
-                            {% if r.log_1st %}dot-blue
-                            {% elif r.is_pass %}dot-green
-                            {% elif not r.is_pass %}dot-red
-                            {% else %}dot-gray{% endif %}"
-                            style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;">
-                        </span>
+                        <span class="status-dot {% if r.log_1st %}dot-blue{% elif r.is_pass %}dot-green{% else %}dot-red{% endif %}"></span>
                         <span class="small fw-bold">1차</span>
-
+                        
                         {% if r.log_1st %}
-                            <button class="btn btn-secondary btn-sm py-0 px-2" 
-                                    style="font-size: 0.75rem;" 
-                                    onclick="viewLog('{{ r.log_1st.reason|escapejs }}', '{{ r.log_1st.created_at|date:'Y-m-d' }}')">
-                                <i class="bi bi-eye"></i> 내용
+                            <button class="btn btn-sm btn-secondary py-0 px-2" 
+                                    onclick="viewLog('{{ r.log_1st.reason|escapejs }}', '{{ r.log_1st.action_taken|default:''|escapejs }}', '{{ r.log_1st.created_at|date:'Y-m-d' }}')">
+                                내용
                             </button>
                         {% elif not r.is_pass %}
-                            <button class="btn btn-danger btn-sm py-0 px-2 open-manager-modal"
-                                    style="font-size: 0.75rem;"
+                            <button type="button" 
+                                    class="btn btn-sm btn-danger py-0 px-2 open-manager-modal"
                                     data-id="{{ profile.id }}"
                                     data-title="{{ r.quiz.title }}"
                                     data-score="{{ r.score }}"
-                                    
-                                    data-quizid="{{ r.quiz.id }}"   data-stage="1"                  data-bs-toggle="modal" data-bs-target="#managerCounselModal">
-                                <i class="bi bi-pencil"></i> 작성
-                            </button>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <i class="bi bi-chevron-right text-muted small"></i>
-
-                <div class="step-item p-1 border rounded {% if r.log_2nd %}bg-light border-primary{% endif %}">
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="status-dot {% if r.log_2nd %}dot-blue{% else %}dot-gray{% endif %}"
-                              style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
-                        <span class="small fw-bold">2차</span>
-
-                        {% if r.log_2nd %}
-                            <button class="btn btn-secondary btn-sm py-0 px-2" 
-                                    style="font-size: 0.75rem;" 
-                                    onclick="viewLog('{{ r.log_2nd.reason|escapejs }}', '{{ r.log_2nd.created_at|date:'Y-m-d' }}')">
-                                <i class="bi bi-eye"></i> 내용
-                            </button>
-                        {% elif r.log_1st and not r.is_pass %}
-                            <button class="btn btn-danger btn-sm py-0 px-2 open-manager-modal"
-                                    style="font-size: 0.75rem;"
-                                    data-id="{{ profile.id }}"
-                                    data-title="{{ r.quiz.title }}"
-                                    data-score="{{ r.score }}"
-                                    
-                                    data-quizid="{{ r.quiz.id }}"   data-stage="2"                  data-bs-toggle="modal" data-bs-target="#managerCounselModal">
+                                    data-quizid="{{ r.quiz.id }}"
+                                    data-stage="1"
+                                    data-bs-toggle="modal" 
+                                    data-bs-target="#managerCounselModal">
                                 작성
                             </button>
                         {% endif %}
@@ -197,24 +166,33 @@
 
                 <i class="bi bi-chevron-right text-muted small"></i>
 
-                <div class="step-item p-1 border rounded {% if r.log_final %}bg-dark text-white{% endif %}">
+                <div class="step-item p-1 border rounded {% if r.log_2nd %}bg-light border-primary{% else %}opacity-50{% endif %}">
+                    <div class="d-flex align-items-center gap-1">
+                        <span class="status-dot {% if r.log_2nd %}dot-blue{% else %}dot-gray{% endif %}"></span>
+                        <span class="small fw-bold {% if not r.log_2nd %}text-muted{% endif %}">2차</span>
+                        
+                        {% if r.log_2nd %}
+                            <button class="btn btn-sm btn-secondary py-0 px-2" 
+                                    onclick="viewLog('{{ r.log_2nd.reason|escapejs }}', '{{ r.log_2nd.action_taken|default:''|escapejs }}', '{{ r.log_2nd.created_at|date:'Y-m-d' }}')">
+                                내용
+                            </button>
+                        {% else %}
+                            <span class="small text-muted ms-1">대기</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <i class="bi bi-chevron-right text-muted small"></i>
+
+                <div class="step-item p-1 border rounded {% if r.log_final %}bg-dark text-white{% else %}opacity-50{% endif %}">
                      <div class="d-flex align-items-center gap-1">
-                        <span class="status-dot {% if r.log_final %}dot-black{% else %}dot-gray{% endif %}"
-                              style="width: 10px; height: 10px; border-radius: 50%; display: inline-block;"></span>
-                        <span class="small fw-bold">퇴소</span>
+                        <span class="status-dot {% if r.log_final %}dot-black{% else %}dot-gray{% endif %}"></span>
+                        <span class="small fw-bold {% if not r.log_final %}text-muted{% endif %}">퇴소</span>
                         
                         {% if r.log_final %}
                              <span class="badge bg-light text-dark" style="font-size: 0.7rem;">처리됨</span>
-                        {% elif r.log_2nd and not r.is_pass %}
-                            <button class="btn btn-dark btn-sm py-0 px-2 open-manager-modal"
-                                    style="font-size: 0.75rem;"
-                                    data-id="{{ profile.id }}"
-                                    data-title="{{ r.quiz.title }}"
-                                    data-score="{{ r.score }}"
-                                    
-                                    data-quizid="{{ r.quiz.id }}"   data-stage="3"                  data-bs-toggle="modal" data-bs-target="#managerCounselModal">
-                                처리
-                            </button>
+                        {% else %}
+                             <span class="small text-muted ms-1">대기</span>
                         {% endif %}
                     </div>
                 </div>
@@ -330,67 +308,61 @@
 </div>
 
 <script>
-    // [기능 1] 내용 보기 (Alert)
-    function viewLog(reason, date) {
-        alert("📝 작성된 기록 (" + date + ")\n\n" + reason);
+    // [수정된 기능 1] 내용 + 조치 의견까지 모두 보여주기
+    function viewLog(reason, opinion, date) {
+        let msg = "📅 작성일: " + date + "\n\n";
+        msg += "📝 [면담 내용]\n" + reason + "\n\n";
+        msg += "💡 [조치 의견]\n" + (opinion ? opinion : "(기록 없음)");
+        
+        alert(msg);
     }
 
     document.addEventListener('DOMContentLoaded', function() {
         
-        // [기능 2] 모달 열릴 때 '시험ID'와 '단계'를 버튼에서 뽑아오기
+        // [기능 2] 모달 열릴 때 데이터 바인딩
         const btns = document.querySelectorAll('.open-manager-modal');
         btns.forEach(btn => {
             btn.addEventListener('click', function() {
-                // 1. 버튼에 적힌 데이터 가져오기
                 const pid = this.getAttribute('data-id');
                 const title = this.getAttribute('data-title');
                 const score = this.getAttribute('data-score');
-                
-                // [중요] 여기서 quizid와 stage를 못 가져오면 꽝입니다.
                 const qid = this.getAttribute('data-quizid'); 
-                const stage = this.getAttribute('data-stage');
+                const stage = this.getAttribute('data-stage'); 
                 
-                // [디버깅] F12 개발자 도구 콘솔에 이 값이 찍혀야 합니다!
-                console.log("전송할 데이터 확인 -> QuizID:", qid, " / Stage:", stage);
-
-                // 2. 모달의 숨겨진 Input(hidden)에 값 채워넣기
                 document.getElementById('targetProfileId').value = pid;
-                
-                // ★ 여기가 비어있으면 안됩니다!
                 document.getElementById('targetQuizId').value = qid; 
                 document.getElementById('targetStage').value = stage; 
 
-                // 3. 화면 텍스트 세팅
                 document.getElementById('mgrModalTitle').innerText = title;
                 document.getElementById('mgrModalScore').innerText = score + "점";
+                
+                // 모달을 열 때 기본 텍스트 세팅
                 document.getElementById('mgrContent').value = `[${stage}차 경고/면담]\n- 과목: ${title}\n- 점수: ${score}점\n`;
+                // 조치 의견 칸은 비워둠
+                document.getElementById('mgrOpinion').value = "";
+                document.getElementById('mgrIsPassed').checked = false;
             });
         });
 
-        // [기능 3] 저장 버튼 누를 때 (전송)
+        // [기능 3] 저장 (AJAX)
         document.getElementById('managerCounselForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
-            // 숨겨진 Input에서 값 꺼내오기
             const pid = document.getElementById('targetProfileId').value;
-            const qid = document.getElementById('targetQuizId').value; // ★ 확인
-            const stage = document.getElementById('targetStage').value; // ★ 확인
+            const qid = document.getElementById('targetQuizId').value; 
+            const stage = document.getElementById('targetStage').value; 
             
             const content = document.getElementById('mgrContent').value;
             const opinion = document.getElementById('mgrOpinion').value;
             const isPassed = document.getElementById('mgrIsPassed').checked ? 'on' : '';
 
-            // 폼 데이터 포장
             const formData = new FormData();
             formData.append('content', content);
             formData.append('opinion', opinion);
             formData.append('is_passed', isPassed);
-            
-            // [필수] 서버로 quiz_id와 stage를 꼭 보내야 합니다!
             formData.append('quiz_id', qid); 
             formData.append('stage', stage);
 
-            // 전송 시작
             fetch(`/quiz/manager/log/create/${pid}/`, {
                 method: 'POST',
                 headers: {'X-CSRFToken': '{{ csrf_token }}'},
@@ -400,7 +372,7 @@
             .then(data => {
                 if(data.status === 'success') {
                     alert("✅ 저장되었습니다!");
-                    location.reload(); // 새로고침해야 색깔이 바뀝니다.
+                    location.reload(); 
                 } else {
                     alert("오류 발생: " + data.message);
                 }

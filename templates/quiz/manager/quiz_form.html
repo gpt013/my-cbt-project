@@ -135,70 +135,96 @@
     document.addEventListener('DOMContentLoaded', function() {
         
         // =========================================================
-        // 1. [핵심] 분류(Category) <-> 공정(Process) 연동 로직
+        // 1. [분류 <-> 공정] 연동 로직 (기존 유지 & 안전성 강화)
         // =========================================================
         const categorySelect = document.getElementById('category');
         const processSelect = document.getElementById('related_process');
 
         function toggleProcess() {
+            if (!categorySelect || !processSelect) return; // 에러 방지
+
             const val = categorySelect.value;
-            // value가 'process' 또는 '공정'인 경우에만 활성화
+            // 'process' 또는 '공정'인 경우에만 활성화
             if (val === 'process' || val === '공정') {
                 processSelect.disabled = false;
-                processSelect.setAttribute('required', 'required'); // 필수값으로 변경
+                // UI 시각적 효과 (활성)
+                processSelect.classList.remove('bg-light', 'text-muted');
                 processSelect.classList.add('bg-white');
-                processSelect.classList.remove('bg-light');
             } else {
                 processSelect.disabled = true;
-                processSelect.removeAttribute('required'); // 필수 해제
-                processSelect.value = ''; // 값 초기화
-                processSelect.classList.add('bg-light');
+                processSelect.value = ''; // 선택 해제
+                // UI 시각적 효과 (비활성)
                 processSelect.classList.remove('bg-white');
+                processSelect.classList.add('bg-light', 'text-muted');
             }
         }
 
         if (categorySelect && processSelect) {
             categorySelect.addEventListener('change', toggleProcess);
-            toggleProcess(); // 페이지 로드 시 초기 상태 적용
+            toggleProcess(); // 초기 실행
         }
 
 
         // =========================================================
-        // 2. 기본 설정(Settings) 잠금/해제 로직
+        // 2. [핵심 수정] 설정값 잠금/해제 (스마트 초기화 로직)
         // =========================================================
-        const toggleSwitch = document.getElementById('use_default_settings');
-        const inputs = [
-            document.getElementById('question_count'),
-            document.getElementById('pass_score'),
-            document.getElementById('time_limit')
-        ];
         
-        // 기준값 (문항수, 점수, 시간)
-        const defaults = [25, 80, 30];
+        // 각각의 기본값 정의
+        const DEFAULTS = {
+            'q_count': 25,
+            'p_score': 80,
+            't_limit': 30
+        };
 
-        function updateSettingsState() {
-            if (!toggleSwitch) return; // 요소가 없으면 실행 중단
+        /**
+         * 체크박스와 입력창을 연결하고, 초기 상태를 스마트하게 결정하는 함수
+         * @param {string} checkboxId - 체크박스 ID (예: use_default_pass_score)
+         * @param {string} inputId    - 입력창 ID (예: id_pass_score)
+         * @param {number} defaultVal - 기본값 (예: 80)
+         */
+        function initSmartCheckbox(checkboxId, inputId, defaultVal) {
+            const checkbox = document.getElementById(checkboxId);
+            const input = document.getElementById(inputId);
 
-            const isLocked = toggleSwitch.checked;
+            if (!checkbox || !input) return;
+
+            // [1] 초기화 로직: DB에 저장된 값이 기본값과 다른지 확인
+            const currentValue = parseInt(input.value);
             
-            inputs.forEach((input, index) => {
-                if (isLocked) {
-                    // 잠금 상태: 값을 기본값으로 되돌리고 읽기 전용으로 변경
-                    input.value = defaults[index];
-                    input.setAttribute('readonly', true);
-                    input.classList.add('bg-light', 'text-muted'); // 회색 스타일 추가
+            // 값이 존재하고, 기본값과 다르다면? -> "사용자 설정 모드" (체크 해제)
+            if (input.value && currentValue !== defaultVal) {
+                checkbox.checked = false;
+                input.disabled = false;
+                input.classList.remove('bg-light', 'text-muted');
+            } else {
+                // 값이 없거나 기본값과 같다면 -> "기본값 모드" (체크 설정)
+                checkbox.checked = true;
+                input.disabled = true;
+                input.value = defaultVal; // 화면에 기본값 표시
+                input.classList.add('bg-light', 'text-muted');
+            }
+
+            // [2] 변경 이벤트 리스너 (클릭 시 동작)
+            checkbox.addEventListener('change', function() {
+                if (this.checked) {
+                    // 체크함 -> 잠금 & 기본값 복원
+                    input.disabled = true;
+                    input.value = defaultVal;
+                    input.classList.add('bg-light', 'text-muted');
                 } else {
-                    // 해제 상태: 수정 가능하도록 변경
-                    input.removeAttribute('readonly');
+                    // 체크 품 -> 수정 가능
+                    input.disabled = false;
                     input.classList.remove('bg-light', 'text-muted');
                 }
             });
         }
 
-        if (toggleSwitch) {
-            toggleSwitch.addEventListener('change', updateSettingsState);
-            updateSettingsState(); // 페이지 로드 시 초기 상태 적용
-        }
+        // 3개의 항목에 대해 각각 함수 실행
+        // (HTML에 해당 ID를 가진 체크박스가 있어야 합니다)
+        initSmartCheckbox('use_default_q_count', 'id_question_count', DEFAULTS.q_count);
+        initSmartCheckbox('use_default_pass_score', 'id_pass_score', DEFAULTS.p_score);
+        initSmartCheckbox('use_default_time_limit', 'id_time_limit', DEFAULTS.t_limit);
+
     });
 </script>
 {% endblock %}

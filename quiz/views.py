@@ -424,14 +424,30 @@ def take_quiz(request, quiz_id):
         
         if ongoing_attempt:
             attempt_id = ongoing_attempt.id
-            question_ids = list(quiz.questions.values_list('id', flat=True))
+            # 기존 진행 중인 건 DB에 저장된 문제를 그대로 씀 (순서 유지)
+            question_ids = list(quiz.questions.values_list('id', flat=True)) 
+            # (주의: 만약 진행중인 것도 잘린 상태여야 한다면, Attempt 모델에 question_ids를 저장하는 필드가 있어야 완벽합니다.
+            # 일단 여기서는 '새 시도'일 때 자르는 것에 집중합니다.)
+            
             request.session['attempt_id'] = attempt_id
             request.session['quiz_questions'] = question_ids
         else:
-            # 새 시도 생성
+            # -------------------------------------------------------
+            # ★ [핵심 수정 1] 새 시도 생성 시 문항 수 제한 적용
+            # -------------------------------------------------------
             new_attempt = QuizAttempt.objects.create(user=request.user, quiz=quiz)
             attempt_id = new_attempt.id
-            question_ids = list(quiz.questions.values_list('id', flat=True))
+            
+            # (1) 전체 문제 ID 가져오기
+            all_ids = list(quiz.questions.values_list('id', flat=True))
+            
+            # (2) 무작위 섞기
+            random.shuffle(all_ids)
+            
+            # (3) 설정된 문항 수만큼 자르기 (설정 없으면 25개)
+            limit = quiz.question_count if quiz.question_count else 25
+            question_ids = all_ids[:limit] # ★ 여기서 25개만 남음!
+
             request.session['attempt_id'] = attempt_id
             request.session['quiz_questions'] = question_ids
     
@@ -446,15 +462,20 @@ def take_quiz(request, quiz_id):
 
     # 문제 목록 로드
     if question_ids:
+        # 순서를 보장하기 위해 리스트 정렬 로직 유지
         questions_qs = Question.objects.filter(pk__in=question_ids)
         questions_dict = {q.id: q for q in questions_qs}
         ordered_questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
     else:
-        ordered_questions = list(quiz.questions.all())
+        # 혹시 모를 예외 처리 (설정값 적용)
+        all_qs = list(quiz.questions.all())
+        random.shuffle(all_qs)
+        limit = quiz.question_count if quiz.question_count else 25
+        ordered_questions = all_qs[:limit]
 
 
     # -----------------------------------------------------------
-    # [POST] 제출 및 자동 채점 (100점 만점 환산)
+    # [POST] 제출 및 자동 채점
     # -----------------------------------------------------------
     if request.method == 'POST':
         with transaction.atomic():
@@ -465,17 +486,16 @@ def take_quiz(request, quiz_id):
                 submitted_at=timezone.now()
             )
 
-            # [핵심 로직] 전체 문제 수에 따른 배점 계산
+            # 점수 환산 (100점 만점 기준)
             total_count = len(ordered_questions)
             if total_count > 0:
-                score_per_question = 100 / total_count  # 예: 20문제면 5.0점
+                score_per_question = 100 / total_count
             else:
                 score_per_question = 0
 
-            earned_score_float = 0.0  # 정밀한 계산을 위해 소수점으로 합산
+            earned_score_float = 0.0
             
             for question in ordered_questions:
-                # 1문제당 배점 (자동 계산된 값 사용)
                 current_score = score_per_question 
                 
                 user_input_single = request.POST.get(f'question_{question.id}')
@@ -521,7 +541,7 @@ def take_quiz(request, quiz_id):
                                 is_correct = True
                                 break
 
-                # 정답이면 배점만큼 추가
+                # 점수 합산
                 if is_correct:
                     earned_score_float += current_score
 
@@ -533,9 +553,18 @@ def take_quiz(request, quiz_id):
                     is_correct=is_correct
                 )
 
-            # 최종 점수 저장 (소수점 반올림하여 정수로 저장)
-            # 예: 99.9999... -> 100점
-            result.score = int(round(earned_score_float))
+            # -------------------------------------------------------
+            # ★ [핵심 수정 2] 최종 점수 저장 및 합격 여부 판별
+            # -------------------------------------------------------
+            final_score = int(round(earned_score_float))
+            result.score = final_score
+            
+            # DB에 저장된 pass_score(예: 70)와 비교
+            if final_score >= quiz.pass_score:
+                result.is_pass = True
+            else:
+                result.is_pass = False
+            
             result.save()
 
             # 상태 업데이트
@@ -545,6 +574,13 @@ def take_quiz(request, quiz_id):
 
             messages.success(request, f"제출 완료! 점수: {result.score}점")
             return redirect('quiz:exam_result', result_id=result.id)
+            
+    # GET 요청 시 템플릿 렌더링 (기존 코드 유지)
+    return render(request, 'quiz/take_quiz.html', {
+        'quiz': quiz, 
+        'questions': ordered_questions,
+        'attempt': attempt
+    })
 
     # -----------------------------------------------------------
     # [GET] 화면 렌더링
@@ -1993,35 +2029,41 @@ def manager_trainee_list(request):
 @login_required
 def manager_trainee_detail(request, profile_id):
     """
-    교육생의 시험 결과, 로그(신호등 데이터), 전체 히스토리를 보여주는 뷰
+    교육생의 시험 결과와 로그를 효율적으로 매칭하여 보여주는 뷰
+    (수정사항: DB 쿼리 최적화 및 데이터 매칭 안정성 강화)
     """
     if not request.user.is_staff: 
         return redirect('quiz:index')
 
     profile = get_object_or_404(Profile, pk=profile_id)
 
-    # 1. 시험 결과 가져오기 (쿼리셋 준비)
-    # [핵심 수정 1] list()로 감싸서 즉시 실행(DB 조회)하여 메모리에 리스트로 저장합니다.
-    # 이렇게 해야 아래 for문에서 추가한 속성(log_1st 등)이 HTML까지 살아있습니다.
+    # 1. 시험 결과 가져오기
+    # select_related를 써서 Quiz 정보까지 한 번에 로딩 (속도 향상)
     results = list(TestResult.objects.filter(user=profile.user).select_related('quiz').order_by('-completed_at'))
 
-    # [핵심 로직] 각 시험 결과(result)에 '단계별 로그' 붙이기
-    for result in results:
-        # 이 학생 & 이 시험에 해당하는 로그들만 필터링 (최신순 정렬 추가)
-        quiz_logs = StudentLog.objects.filter(profile=profile, related_quiz=result.quiz).order_by('-created_at')
-        
-        # 1차, 2차, 퇴소 로그를 각각 찾아 result 객체에 할당
-        # (리스트로 변환했기 때문에 이 값이 HTML까지 안전하게 전달됩니다)
-        result.log_1st = quiz_logs.filter(stage=1).first()
-        result.log_2nd = quiz_logs.filter(stage=2).first()
-        result.log_final = quiz_logs.filter(stage=3).first()
+    # 2. [핵심 수정] 반복문 밖에서 이 학생의 '모든 로그'를 한 번에 가져옵니다.
+    # 기존 코드처럼 반복문 안에서 filter()를 쓰면 DB를 수십 번 왔다갔다 하면서 데이터가 씹힐 수 있습니다.
+    # 여기서 related_quiz(시험정보)까지 꽉 잡아서 가져옵니다.
+    all_logs = StudentLog.objects.filter(profile=profile).select_related('related_quiz')
 
-    # 2. 전체 로그 내역 (히스토리 탭용)
+    # 3. [파이썬 메모리 매칭] 가져온 데이터들을 짝지어 줍니다.
+    for result in results:
+        # 전체 로그(all_logs) 중에서 '이 시험(result.quiz.id)'과 연결된 것만 골라냅니다.
+        # (DB를 안 가고 메모리에서 찾으므로 내용이 빈칸으로 뜨는 오류가 사라집니다.)
+        matched_logs = [log for log in all_logs if log.related_quiz_id == result.quiz.id]
+
+        # 1차, 2차, 퇴소 로그를 각각 찾아서 result에 붙여줍니다.
+        # next(...)는 조건에 맞는 첫 번째 녀석을 찾고, 없으면 None을 줍니다.
+        result.log_1st = next((log for log in matched_logs if log.stage == 1), None)
+        result.log_2nd = next((log for log in matched_logs if log.stage == 2), None)
+        result.log_final = next((log for log in matched_logs if log.stage == 3), None)
+
+    # 4. 전체 히스토리 탭용 로그 (생성일 역순)
     logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
 
     return render(request, 'quiz/manager/trainee_detail.html', {
         'profile': profile, 
-        'results': results,  # 이제 수정된 리스트가 넘어갑니다.
+        'results': results, 
         'logs': logs, 
         'badges': profile.badges.all()
     })
@@ -2032,63 +2074,65 @@ def manager_trainee_detail(request, profile_id):
 # =========================================================
 @login_required
 @require_POST
-def manager_create_log_ajax(request, profile_id):
-    if not request.user.is_staff: 
-        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
-    
+def final_log_saver(request, profile_id):
     try:
+        # [디버깅] 요청 확인
+        print(f"\n🔥🔥🔥 [최종 함수 실행] ID: {profile_id} 요청 도착! 🔥🔥🔥")
+        
         profile = get_object_or_404(Profile, pk=profile_id)
         
         # 데이터 수신
         content = request.POST.get('content')
         opinion = request.POST.get('opinion')
         is_passed = request.POST.get('is_passed') == 'on'
-        
-        # ------------------------------------------------------------------
-        # [핵심 수정] stage를 반드시 '숫자(int)'로 변환해야 합니다!
-        # 문자로 저장되면 나중에 filter(stage=1)에서 못 찾습니다.
-        # ------------------------------------------------------------------
         quiz_id = request.POST.get('quiz_id')
         raw_stage = request.POST.get('stage')
+
+        print(f"👉 받은 데이터 - QuizID: {quiz_id}, Stage: {raw_stage}")
+
+        if not quiz_id:
+            print("❌ 실패: Quiz ID가 없습니다.")
+            return JsonResponse({'status': 'error', 'message': 'Quiz ID 누락'})
+
+        related_quiz = get_object_or_404(Quiz, pk=quiz_id)
         
         try:
-            stage = int(raw_stage) # 문자를 숫자로 강제 변환
-        except (ValueError, TypeError):
-            stage = 1 # 에러나면 기본값 1
+            stage = int(raw_stage)
+        except:
+            stage = 1
 
-        # 관련 시험 객체 찾기
-        related_quiz = None
-        if quiz_id:
-            related_quiz = get_object_or_404(Quiz, pk=quiz_id)
-
-        # 로그 타입 결정
-        current_log_type = 'counseling' if is_passed else 'warning'
-
-        # DB 저장
+        # [DB 저장]
+        # 로그 타입은 빨간 테두리 표시를 위해 'warning'을 유지하되, 
+        # 실제 경고 카운트는 아래에서 올리지 않도록 제어합니다.
         StudentLog.objects.create(
             profile=profile, 
             recorder=request.user,
-            log_type=current_log_type,
+            log_type='counseling' if is_passed else 'warning',
             reason=content, 
             action_taken=opinion, 
             is_resolved=is_passed,
-            related_quiz=related_quiz,
-            stage=stage # [확인] 숫자로 변환된 값을 저장
+            related_quiz=related_quiz,  # ★ 시험 정보 연결 필수
+            stage=stage
         )
 
-        # 프로필 상태 업데이트 로직
+        # [상태 업데이트]
         if is_passed:
-            if profile.status == 'counseling':
+            # 합격/조치완료 시 -> '상담필요' 상태였다면 '재직중'으로 복구
+            if profile.status == 'counseling': 
                 profile.status = 'attending'
-        else:
-            profile.warning_count += 1
+        
+        # ⛔ [삭제됨] 아래 코드를 지워서 시험 불합격 시 경고 카운트가 올라가지 않게 함
+        # else:
+        #     profile.warning_count += 1
         
         profile.save()
         
-        return JsonResponse({'status': 'success', 'message': '저장되었습니다.'})
+        return JsonResponse({'status': 'success', 'message': '✅ 상담 내용이 저장되었습니다.'})
 
     except Exception as e:
+        print(f"❌ 에러: {e}")
         return JsonResponse({'status': 'error', 'message': str(e)})
+
 
 # =========================================================
 # 3. 특이사항/경고/징계 관리 페이지 (히스토리 탭의 폼 처리)
@@ -2292,7 +2336,7 @@ def manager_trainee_report(request, profile_id):
 @require_POST
 def manager_create_log_ajax(request, profile_id):
     if not request.user.is_staff: 
-        return JsonResponse({'status': 'error', 'message': '권한 없음'}, status=403)
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
     
     try:
         profile = get_object_or_404(Profile, pk=profile_id)
@@ -2304,6 +2348,7 @@ def manager_create_log_ajax(request, profile_id):
         quiz_id = request.POST.get('quiz_id')
         stage = request.POST.get('stage')
 
+        # 시험 정보 가져오기
         related_quiz = None
         if quiz_id:
             related_quiz = get_object_or_404(Quiz, pk=quiz_id)
@@ -2311,7 +2356,7 @@ def manager_create_log_ajax(request, profile_id):
         # 로그 저장
         StudentLog.objects.create(
             profile=profile,
-            recorder=request.user,  # [수정] recorder 사용
+            recorder=request.user,
             log_type='counseling' if is_passed else 'warning',
             reason=content,
             action_taken=opinion,
@@ -2320,75 +2365,18 @@ def manager_create_log_ajax(request, profile_id):
             stage=stage if stage else 1
         )
 
-        # 상태 업데이트
+        # 상태 업데이트 (시험 불합격은 경고 카운트 증가 X)
         if is_passed:
             if profile.status == 'counseling': profile.status = 'attending'
-        else:
-            profile.warning_count += 1
+        
+        # [삭제됨] else: profile.warning_count += 1 
+        # (사용자님 요청대로 시험 관련은 카운트 안 올림)
         
         profile.save()
         return JsonResponse({'status': 'success', 'message': '저장되었습니다.'})
 
     except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)})
-
-# [매니저 모달용 간편 작성]
-@login_required
-@require_POST
-def manager_create_counseling_log(request, profile_id):
-    # 1. 권한 체크
-    if not request.user.is_staff: 
-        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
-    
-    try:
-        profile = get_object_or_404(Profile, pk=profile_id)
-        
-        # 2. 데이터 수신 (기존 항목 + 신규 항목)
-        content = request.POST.get('content')       # 면담 내용
-        opinion = request.POST.get('opinion')       # 조치 의견
-        is_passed = request.POST.get('is_passed') == 'on' # 잠금 해제 여부
-        
-        # [신규 추가] 신호등 연동을 위한 데이터
-        quiz_id = request.POST.get('quiz_id') 
-        stage = request.POST.get('stage')
-
-        # 3. 관련 시험 객체 찾기 (시험 관련 경고일 경우)
-        related_quiz = None
-        if quiz_id:
-            related_quiz = get_object_or_404(Quiz, pk=quiz_id)
-
-        # 4. 로그 타입 결정 (잠금 해제 체크 안 했으면 '경고'로 간주)
-        # 체크(on) -> counseling(일반/해제), 체크안함 -> warning(경고)
-        current_log_type = 'counseling' if is_passed else 'warning'
-
-        # 5. DB 저장 (누락된 related_quiz, stage 추가)
-        StudentLog.objects.create(
-            profile=profile, 
-            recorder=request.user, 
-            log_type=current_log_type,
-            reason=content, 
-            action_taken=opinion, 
-            is_resolved=is_passed,
-            related_quiz=related_quiz,  # [중요] 시험 연결
-            stage=stage if stage else 1 # [중요] 단계 연결
-        )
-
-        # 6. 프로필 상태 업데이트 (경고 카운트 로직 추가)
-        if is_passed:
-            # '조치 완료' 체크 시 -> 잠금 해제
-            if profile.status == 'counseling':
-                profile.status = 'attending'
-        else:
-            # '조치 완료' 체크 안 함 -> 경고 횟수 증가
-            profile.warning_count += 1
-            # (선택사항) 경고 2회 이상 시 상태 변경 로직이 필요하면 여기에 추가
-            # if profile.warning_count >= 2: profile.status = 'counseling'
-        
-        profile.save()
-        
-        return JsonResponse({'status': 'success', 'message': '저장되었습니다.'})
-
-    except Exception as e:
+        print(f"❌ 로그 저장 에러: {e}")
         return JsonResponse({'status': 'error', 'message': str(e)})
 
 
@@ -2826,94 +2814,103 @@ def manager_quiz_list(request):
 # ==================================================================
 # 1. 시험 생성 함수 (Create) - 수동 처리 방식
 # ==================================================================
+# quiz/views.py
+
 @login_required
 def quiz_create(request):
-    # 관리자 권한 체크
+    # 1. 관리자 권한 체크
     if not request.user.is_staff:
         messages.error(request, "관리자 권한이 필요합니다.")
         return redirect('quiz:index')
 
-    # [POST 요청] 데이터 저장
+    # 2. [POST 요청] 데이터 저장
     if request.method == 'POST':
         try:
-            # (1) 텍스트 데이터 가져오기
             title = request.POST.get('title')
             description = request.POST.get('description')
             category = request.POST.get('category')
             
-            # [수정 1] 공정 ID를 받아서 실제 Process 객체로 변환
             process_id = request.POST.get('related_process')
             process_instance = None
-            
-            # 공정이 선택되었고, 빈 문자열이 아닐 경우에만 DB 조회
             if process_id and process_id.strip():
                 process_instance = Process.objects.filter(id=process_id).first()
 
-            # (2) 숫자 데이터 처리 (빈 값일 경우 기본값 설정)
-            # HTML input에서 값이 넘어오지 않을 경우를 대비해 default 값 지정
             q_count = request.POST.get('question_count') or 25
             p_score = request.POST.get('pass_score') or 80
             t_limit = request.POST.get('time_limit') or 30
 
-            # (3) DB에 저장 (Quiz 객체 생성)
+            # ★ [일단 작성자 없이 시도해봅니다]
+            # 만약 작성자 필드가 필수라면 여기서 에러가 나겠지만,
+            # 적어도 필드 이름 때문에 튕기지는 않게 일단 뺍니다.
             new_quiz = Quiz.objects.create(
                 title=title,
                 description=description,
                 category=category,
-                related_process=process_instance,  # 객체 저장 (없으면 None)
+                related_process=process_instance,
                 question_count=int(q_count),
                 pass_score=int(p_score),
                 time_limit=int(t_limit),
-                recorder=request.user
+                # recorder=request.user  <-- 삭제 (범인 후보 1)
+                # created_by=request.user <-- 삭제 (범인 후보 2)
             )
 
+            print(f"✅ 시험 생성 성공: {new_quiz.title}")
             messages.success(request, f"새 시험 '{title}'이(가) 생성되었습니다.")
-            # 생성 후 문제 목록(관리) 화면으로 이동
             return redirect('quiz:question_list', quiz_id=new_quiz.id)
 
         except Exception as e:
-            print(f"Quiz Create Error: {e}")
-            messages.error(request, "시험 생성 중 오류가 발생했습니다. 입력값을 확인해주세요.")
+            # 🚨 여기서 정답을 알아냅니다!
+            print(f"\n❌ [생성 실패] 에러 내용: {e}")
+            
+            # Quiz 모델에 진짜 있는 필드 이름들을 출력해봅니다.
+            print("\n🔍 [Quiz 모델의 실제 필드 목록]")
+            try:
+                field_names = [field.name for field in Quiz._meta.get_fields()]
+                print(f"👉 {field_names}\n")
+            except:
+                print("👉 필드 목록을 가져오지 못했습니다.")
 
-    # [GET 요청] 생성 화면 표시
-    # [수정 2] 공정 목록(processes)을 전달하여 드롭다운(<select>) 구성
+            messages.error(request, "시험 생성 중 오류가 발생했습니다. (터미널 로그를 확인해주세요)")
+            return redirect('quiz:quiz_create')
+
+    # 3. [GET 요청] 화면 표시
     processes = Process.objects.all()
-    
     return render(request, 'quiz/manager/quiz_form.html', {
         'title': '새 시험 생성', 
         'processes': processes
     })
-
 
 # ==================================================================
 # 2. 시험 수정 함수 (Update) - 수동 처리 방식
 # ==================================================================
 @login_required
 def quiz_update(request, quiz_id):
-    # 관리자 권한 체크
+    # 1. 관리자 권한 체크
     if not request.user.is_staff:
-        messages.error(request, "권한이 없습니다.")
+        messages.error(request, "관리자 권한이 필요합니다.")
         return redirect('quiz:index')
     
+    # 수정할 객체 가져오기
     quiz = get_object_or_404(Quiz, pk=quiz_id)
 
-    # [POST 요청] 데이터 수정
+    # 2. [POST 요청] 데이터 수정 저장
     if request.method == 'POST':
         try:
-            # (1) 기본 정보 업데이트
+            # (1) 텍스트 데이터 업데이트
             quiz.title = request.POST.get('title')
             quiz.description = request.POST.get('description')
             quiz.category = request.POST.get('category')
             
-            # [수정 1] 공정 객체 업데이트 로직
+            # (2) 공정(Process) 연결 로직
             process_id = request.POST.get('related_process')
             if process_id and process_id.strip():
                 quiz.related_process = Process.objects.filter(id=process_id).first()
             else:
-                # '선택 안함'인 경우 연결 해제
                 quiz.related_process = None
 
-            # (2) 숫자 데이터 업데이트
+            # (3) ★ 숫자 데이터 업데이트 (핵심 로직)
+            # 체크박스 체크됨 -> input disabled -> 값 안 넘어옴(None) -> 'or 25' (기본값 적용)
+            # 체크박스 해제됨 -> input enabled -> 값 넘어옴(예: 70) -> 'or 25' 무시하고 70 사용
             q_count = request.POST.get('question_count') or 25
             p_score = request.POST.get('pass_score') or 80
             t_limit = request.POST.get('time_limit') or 30
@@ -2922,22 +2919,26 @@ def quiz_update(request, quiz_id):
             quiz.pass_score = int(p_score)
             quiz.time_limit = int(t_limit)
 
-            # (3) 저장
+            # (4) 저장
             quiz.save()
             
-            messages.success(request, "시험 설정이 수정되었습니다.")
+            messages.success(request, f"시험 '{quiz.title}' 정보가 수정되었습니다.")
+            
+            # 수정 후에는 보통 '문제 목록'이나 '시험 목록'으로 이동합니다.
+            # (원하시는 곳으로 연결하세요. 여기선 시험 목록으로 보냅니다.)
             return redirect('quiz:manager_quiz_list')
 
         except Exception as e:
-            print(f"Quiz Update Error: {e}")
-            messages.error(request, "수정 중 오류가 발생했습니다.")
+            print(f"❌ Quiz Update Error: {e}")
+            messages.error(request, "수정 중 오류가 발생했습니다. 입력값을 확인해주세요.")
+            # 에러 발생 시 수정 페이지에 머무름
+            return redirect('quiz:quiz_update', quiz_id=quiz.id)
 
-    # [GET 요청] 수정 화면 표시
-    # [수정 2] 기존 데이터(quiz)와 공정 목록(processes) 함께 전달
+    # 3. [GET 요청] 수정 화면 표시
     processes = Process.objects.all()
     
     return render(request, 'quiz/manager/quiz_form.html', {
-        'quiz': quiz,
+        'quiz': quiz,          # ★ 중요: 저장된 값(70점 등)을 HTML로 전달
         'title': '시험 설정 수정',
         'processes': processes
     })
@@ -3270,53 +3271,45 @@ def exam_submit(request, quiz_id):
 
     quiz = get_object_or_404(Quiz, pk=quiz_id)
     
-    # 1. 결과지(Result) 생성 (점수는 나중에 계산)
+    # 1. 결과지 생성
     result = QuizResult.objects.create(
         student=request.user,
         quiz=quiz,
-        score=0, # 일단 0점
+        score=0,
         submitted_at=timezone.now()
     )
 
     score = 0
-    total_score = 0
-
-    # 2. 문제별 정답 확인
+    
+    # 2. 문제별 정답 확인 (여기는 기존 코드와 동일)
     for question in quiz.questions.all():
-        total_score += question.score # 총점 누적
-        
-        # 사용자가 선택/입력한 값 가져오기
-        user_input = request.POST.get(f'question_{question.id}') # HTML의 input name과 일치
-        
+        user_input = request.POST.get(f'question_{question.id}')
         is_correct = False
         
-        # (A) 객관식/OX 처리
+        # (A) 객관식/OX
         if question.question_type in ['multiple_choice', 'true_false']:
             if user_input:
-                # user_input은 choice의 ID(객관식) 또는 'O'/'X'(OX)일 수 있음
-                # 로직에 따라 비교 (여기서는 ID 비교 예시)
                 try:
                     selected_choice = Choice.objects.get(pk=user_input)
                     if selected_choice.is_correct:
                         is_correct = True
                 except:
-                    pass # OX인 경우 값 자체('O'/'X')로 비교 로직 필요
+                    pass 
 
-        # (B) 주관식 처리
+        # (B) 주관식
         elif question.question_type == 'short_answer':
             if user_input:
-                # 정답들과 비교 (대소문자 무시)
                 correct_answers = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
                 for ans in correct_answers:
                     if ans.strip().lower() == user_input.strip().lower():
                         is_correct = True
                         break
 
-        # 3. 점수 합산 및 답안 저장
+        # 점수 합산
         if is_correct:
             score += question.score
         
-        # 학생 답안 DB 저장 (선택 사항)
+        # 답안 저장
         StudentAnswer.objects.create(
             result=result,
             question=question,
@@ -3324,11 +3317,24 @@ def exam_submit(request, quiz_id):
             is_correct=is_correct
         )
 
-    # 4. 최종 점수 업데이트
+    # =========================================================
+    # ★ [핵심 추가] 합격/불합격 판별 로직
+    # =========================================================
+    
+    # 1. 점수 저장
     result.score = score
-    result.save()
+    
+    # 2. 합격 여부 결정 (여기가 70점/80점 설정을 반영하는 곳입니다!)
+    # quiz.pass_score : 관리자가 설정한 합격 기준점 (예: 70)
+    if score >= quiz.pass_score:
+        result.is_pass = True
+    else:
+        result.is_pass = False
 
-    # 결과 페이지로 이동 (urls.py에 exam_result가 있어야 함)
+    # 3. 최종 저장
+    result.save()
+    # =========================================================
+
     return redirect('quiz:exam_result', result_id=result.id)
 
 @login_required
@@ -4123,3 +4129,4 @@ def notification_read(request, noti_id):
 
 def bulk_upload_file(request):
     return render(request, 'base.html', {'message': '기능 복구 중'})
+

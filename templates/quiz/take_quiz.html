@@ -39,7 +39,7 @@
         <div>
             <h5 class="fw-bold mb-0 text-dark">{{ quiz.title }}</h5>
             <small class="text-muted">
-                총 {{ questions|length|default:0 }}문제 / 제한시간 {{ quiz.duration_minutes|default:30 }}분
+                총 {{ questions|length|default:0 }}문제 / 제한시간 {{ quiz.time_limit|default:30 }}분
             </small>
         </div>
         <div class="text-end">
@@ -116,7 +116,7 @@
                                     {% endfor %}
                                 </div>
 
-                            {# 3. OX 퀴즈 [!!! 수정됨: forloop.counter 사용 !!!] #}
+                            {# 3. OX 퀴즈 #}
                             {% elif q.question_type == 'true_false' %}
                                 <div class="d-flex gap-3 justify-content-center mt-4">
                                     <input type="radio" class="btn-check choice-input" name="question_{{ q.id }}" id="q{{ q.id }}_O" value="O" onchange="markOMR({{ forloop.counter }})">
@@ -190,10 +190,14 @@
 <script>
     // [중요] 변수가 없어도 자바스크립트가 죽지 않도록 default 값 처리
     const totalQuestions = {{ questions|length|default:0 }};
-    const examDurationMinutes = {{ quiz.duration_minutes|default:30 }}; 
+    
+    // [수정] duration_minutes -> time_limit 사용 (DB 설정값 연동)
+    const examDurationMinutes = {{ quiz.time_limit|default:30 }}; 
     
     let currentIdx = 1;
-    let timeLeft = examDurationMinutes * 30;
+    
+    // [수정] 1분은 60초입니다. (기존 * 30 오류 수정)
+    let timeLeft = examDurationMinutes * 60;
 
     document.addEventListener('DOMContentLoaded', function() {
         if (totalQuestions > 0) {
@@ -276,10 +280,13 @@
                 return;
             }
 
-            const minutes = Math.floor(timeLeft / 30);
-            const seconds = timeLeft % 30;
+            // [수정] 30초 단위가 아닌 60초 단위로 분/초 계산
+            const minutes = Math.floor(timeLeft / 60); 
+            const seconds = timeLeft % 60;
+            
             timerElement.innerText = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
             
+            // 종료 임박 효과 (30초 미만일 때)
             if (timeLeft < 30) timerElement.classList.add('text-danger', 'blink');
             timeLeft--;
         }, 1000);
@@ -310,4 +317,4 @@
     .blink { animation: blinker 1s linear infinite; }
     @keyframes blinker { 50% { opacity: 0; } }
 </style>
-{% endblock %}
+{% endblock %}ㅊ
