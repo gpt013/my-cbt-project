@@ -618,8 +618,8 @@ def bulk_add_sheet_save(request):
     try:
         body = json.loads(request.body)
         quiz_id = body.get('quiz_id')
-        raw_data = body.get('data', [])
-        
+        raw_data = body.get('data', []) # [row, row, ...] 형식의 리스트
+
         if not quiz_id:
             return JsonResponse({'status': 'error', 'message': '선택된 시험(Quiz)이 없습니다.'})
 
@@ -630,65 +630,117 @@ def bulk_add_sheet_save(request):
 
         success_count = 0
 
-        for row in raw_data:
-            # [0:문제, 1:유형, 2:난이도, 3:태그, 4~7:보기, 8:정답]
-            question_text = str(row[0] or '').strip()
-            if not question_text: continue 
+        # 데이터 정합성을 위해 트랜잭션 사용 (중간에 에러나면 롤백)
+        with transaction.atomic():
+            for row in raw_data:
+                # 데이터 포맷: [0:문제, 1:유형, 2:난이도, 3:태그, 4~7:보기, 8:정답]
+                
+                # 1. 문제 내용 (없으면 건너뜀)
+                question_text = str(row[0] or '').strip()
+                if not question_text:
+                    continue 
 
-            q_type_raw = str(row[1] or '객관식').strip()
-            difficulty = str(row[2] or '중').strip()
-            tags_str = str(row[3] or '').strip()
-            answer_raw = str(row[8] or '').strip()
+                # 2. 유형(Type) 판별 [핵심 수정: 한글 -> 영어 코드 변환]
+                # 템플릿(html)에서 사용하는 영어 코드와 일치시켜야 합니다.
+                raw_type = str(row[1] or '').strip()
+                q_type = 'multiple_choice' # 기본값
 
-            q_type_map = {
-                '객관식': '객관식',
-                '다중선택': '다중선택', '다중': '다중선택',
-                'OX': 'OX', 'ox': 'OX',
-                '주관식': '주관식 (단일정답)', '단답형': '주관식 (단일정답)'
-            }
-            final_q_type = q_type_map.get(q_type_raw, '객관식')
+                if '주관식' in raw_type or '단답' in raw_type:
+                    q_type = 'short_answer'
+                elif 'OX' in raw_type.upper():
+                    q_type = 'true_false'
+                elif '다중' in raw_type:
+                    q_type = 'multiple_select'
+                # 그 외는 'multiple_choice' (객관식)
 
-            # [수정된 부분] created_by=request.user 삭제
-            new_question = Question.objects.create(
-                question_text=question_text,
-                question_type=final_q_type,
-                difficulty=difficulty
-                # created_by 필드가 모델에 없으므로 삭제했습니다.
-            )
+                # 3. 난이도 처리 (영어 코드로 변환 권장)
+                raw_diff = str(row[2] or '중').strip()
+                difficulty = 'medium'
+                if '하' in raw_diff: difficulty = 'easy'
+                elif '상' in raw_diff: difficulty = 'hard'
 
-            target_quiz.questions.add(new_question)
+                # 4. 문제 생성
+                # created_by 필드는 모델에 없다고 하셔서 제외했습니다.
+                new_question = Question.objects.create(
+                    question_text=question_text,
+                    question_type=q_type,
+                    difficulty=difficulty
+                )
 
-            if tags_str:
-                for tag_name in tags_str.replace(',', ' ').split():
-                    if tag_name.strip():
-                        tag, _ = Tag.objects.get_or_create(name=tag_name.strip())
-                        new_question.tags.add(tag)
+                # 시험에 문제 연결
+                target_quiz.questions.add(new_question)
 
-            # 정답 및 보기 처리
-            answer_list = [a.strip() for a in answer_raw.replace(',', ' ').split() if a.strip()]
+                # 5. 태그 처리
+                tags_str = str(row[3] or '').strip()
+                if tags_str:
+                    # 쉼표나 공백으로 구분하여 태그 저장
+                    for tag_name in tags_str.replace(',', ' ').split():
+                        if tag_name.strip():
+                            tag, _ = Tag.objects.get_or_create(name=tag_name.strip())
+                            new_question.tags.add(tag)
 
-            if final_q_type == 'OX':
-                user_ans = answer_raw.upper().strip()
-                Choice.objects.create(question=new_question, choice_text='O', is_correct=(user_ans == 'O'))
-                Choice.objects.create(question=new_question, choice_text='X', is_correct=(user_ans == 'X'))
+                # 6. 정답 및 보기 처리 [핵심 수정 구간]
+                raw_answer = str(row[8] or '').strip() # 정답 칸 데이터
 
-            elif final_q_type == '주관식 (단일정답)':
-                if answer_raw:
-                    Choice.objects.create(question=new_question, choice_text=answer_raw, is_correct=True)
+                # (A) 주관식 처리
+                if q_type == 'short_answer':
+                    # 보기 1~4는 무시하고, '정답' 칸의 텍스트를 정답으로 저장
+                    if raw_answer:
+                        Choice.objects.create(
+                            question=new_question, 
+                            choice_text=raw_answer, 
+                            is_correct=True
+                        )
 
-            else: # 객관식/다중선택
-                options_raw = [row[4], row[5], row[6], row[7]]
-                for idx, opt_text in enumerate(options_raw, start=1):
-                    opt_text = str(opt_text or '').strip()
-                    if opt_text:
-                        is_correct = False
-                        # 번호 매칭 ('1') 또는 텍스트 매칭 ('사과')
-                        if str(idx) in answer_list: is_correct = True
-                        elif opt_text in answer_list: is_correct = True
-                        
-                        Choice.objects.create(question=new_question, choice_text=opt_text, is_correct=is_correct)
+                # (B) OX 퀴즈 처리
+                elif q_type == 'true_false':
+                    user_ans = raw_answer.upper()
+                    # O/X 보기 자동 생성 및 정답 체크
+                    Choice.objects.create(question=new_question, choice_text='O', is_correct=(user_ans == 'O'))
+                    Choice.objects.create(question=new_question, choice_text='X', is_correct=(user_ans == 'X'))
 
-            success_count += 1
+                # (C) 객관식 / 다중선택 처리
+                else:
+                    # 보기 데이터 가져오기 (row[4] ~ row[7])
+                    options = [row[4], row[5], row[6], row[7]]
+                    
+                    # 정답 번호/텍스트 파싱
+                    # 예: "1" 또는 "1,3" 또는 "사과"
+                    correct_indices = [] # 정답인 보기의 인덱스(1~4) 저장용
+                    correct_texts = []   # 정답인 텍스트 저장용
+
+                    # 콤마로 구분된 정답 처리 (다중선택 대응)
+                    parts = [p.strip() for p in raw_answer.replace(' ', '').split(',') if p.strip()]
+                    
+                    for p in parts:
+                        if p.isdigit():
+                            correct_indices.append(int(p))
+                        else:
+                            correct_texts.append(p)
+
+                    # 보기 생성 루프
+                    for idx, opt_raw in enumerate(options, start=1):
+                        opt_text = str(opt_raw or '').strip()
+                        if opt_text:
+                            is_correct = False
+                            
+                            # 번호로 정답 체크 (예: 정답칸에 '1' 입력 시 1번 보기 정답)
+                            if idx in correct_indices:
+                                is_correct = True
+                            # 텍스트로 정답 체크 (예: 정답칸에 '사과' 입력 시 내용이 '사과'인 보기 정답)
+                            elif opt_text in correct_texts: 
+                                is_correct = True
+                            # 또는 입력된 정답 텍스트와 보기가 정확히 일치하는 경우
+                            elif raw_answer == opt_text:
+                                is_correct = True
+
+                            Choice.objects.create(
+                                question=new_question, 
+                                choice_text=opt_text, 
+                                is_correct=is_correct
+                            )
+
+                success_count += 1
 
         return JsonResponse({'status': 'success', 'count': success_count})
 
