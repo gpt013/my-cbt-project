@@ -25,7 +25,6 @@ urlpatterns = [
     path('quiz/group-start/<int:quiz_id>/', views.start_group_quiz, name='start_group_quiz'), 
     path('quiz/attempt/<int:attempt_id>/start/', views.start_quiz, name='start_quiz'),    
     path('quiz/take/<int:quiz_id>/', views.take_quiz, name='take_quiz'),
-    path('quiz/submit/<int:quiz_id>/', views.exam_submit, name='exam_submit'),
     path('result/<int:result_id>/', views.exam_result, name='exam_result'),             
     
     # 4. 결과 조회 및 오답 노트

@@ -68,7 +68,7 @@ class QuizForm(forms.ModelForm):
             'title': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '시험 제목을 입력하세요'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '시험에 대한 설명을 입력하세요'}),
             
-            # [핵심 수정 1] 자바스크립트 제어를 위해 id 속성 추가
+            # [중요] category는 모델의 choices를 자동으로 가져와 드롭다운을 만듭니다.
             'category': forms.Select(attrs={'class': 'form-select', 'id': 'id_category'}),
             'related_process': forms.Select(attrs={'class': 'form-select', 'id': 'id_related_process'}),
             

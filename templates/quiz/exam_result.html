@@ -3,16 +3,17 @@
 
 {% block content %}
 <div class="container mt-4" style="max-width: 900px;">
+    
     <div class="card shadow-sm border-0 mb-4 text-center">
         <div class="card-body py-5">
             <h5 class="text-muted mb-3">{{ quiz.title }} 결과 리포트</h5>
             
-            <div class="display-1 fw-bold {% if result.score >= 60 %}text-primary{% else %}text-danger{% endif %} mb-3">
+            <div class="display-1 fw-bold {% if result.is_pass %}text-primary{% else %}text-danger{% endif %} mb-3">
                 {{ result.score }}<span class="fs-4 text-muted">점</span>
             </div>
             
             <div>
-                {% if result.score >= 60 %}
+                {% if result.is_pass %}
                     <span class="badge bg-success fs-5 px-4 py-2 rounded-pill">합격</span>
                     <p class="mt-3 text-muted">축하합니다! 기준 점수를 통과하셨습니다.</p>
                 {% else %}
@@ -22,7 +23,7 @@
             </div>
             
             <div class="mt-4 text-muted small">
-                응시일시: {{ result.submitted_at|date:"Y년 m월 d일 H:i" }}
+                응시일시: {{ result.submitted_at|default:result.completed_at|date:"Y년 m월 d일 H:i" }}
             </div>
         </div>
         
@@ -60,7 +61,14 @@
                 <div class="mb-2">
                     <span class="badge bg-secondary me-2">나의 답</span>
                     <span class="fw-bold {% if ans.is_correct %}text-primary{% else %}text-danger text-decoration-line-through{% endif %}">
-                        {{ ans.answer_text|default:"(미입력)" }}
+                        {# answer_text 대신 short_answer_text 사용 #}
+                        {% if ans.short_answer_text %}
+                            {{ ans.short_answer_text }}
+                        {% elif ans.selected_choice %}
+                            {{ ans.selected_choice.choice_text }}
+                        {% else %}
+                            (미입력)
+                        {% endif %}
                     </span>
                 </div>
                 
@@ -68,11 +76,9 @@
                 <div>
                     <span class="badge bg-success me-2">정답</span>
                     <span class="text-success fw-bold">
-                        {# 정답인 보기(Choice)들을 찾아서 텍스트 출력 #}
                         {% for choice in ans.question.choice_set.all %}
                             {% if choice.is_correct %}
                                 {{ choice.choice_text }}
-                                {# 보기가 여러 개일 경우 콤마로 구분 #}
                                 {% if not forloop.last %}, {% endif %}
                             {% endif %}
                         {% endfor %}

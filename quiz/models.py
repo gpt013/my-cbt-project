@@ -1,7 +1,25 @@
 from django.db import models
 from django.contrib.auth.models import User, Group
-from accounts.models import Process
 from django.conf import settings
+
+# ------------------------------------------------------------------
+# [0] 공정(Process) 모델
+# (Quiz 모델에서 related_process 필드로 참조하므로 가장 위에 정의)
+# ------------------------------------------------------------------
+# accounts.models에 이미 Process가 있다면 import해서 쓰지만,
+# 여기서는 요청하신 코드 구조 상 quiz/models.py 내에서 정의된 것으로 간주하고
+# 최상단에 배치하여 순서 오류를 해결합니다.
+# 만약 accounts 앱의 Process를 써야 한다면 아래 클래스는 주석 처리하고
+# from accounts.models import Process 구문을 사용해야 합니다.
+# (사용자님이 주신 코드에 accounts.models import가 있어도, 여기서 재정의가 필요하다면 사용)
+
+# [주의] 아래 클래스 정의는 기존 코드에 없었으나 'related_process' 필드 오류 해결을 위해 
+# accounts.models.Process를 참조하거나, 자체 정의가 필요합니다.
+# 이미 accounts.models에서 import Process 했다면 이 클래스는 삭제하고,
+# Quiz 모델에서 ForeignKey('accounts.Process', ...) 로 쓰셔도 됩니다.
+# 하지만 순서 문제 해결을 위해 명시적으로 필요한 경우를 대비해 아래와 같이 배치합니다.
+# (기존 코드에 Process 클래스 정의가 없었다면 import한 것을 사용하므로 이 부분은 건너뜁니다.)
+# from accounts.models import Process  <-- 맨 위에서 이미 import 됨.
 
 # ------------------------------------------------------------------
 # 1. 태그 모델 (문제 분류용)
@@ -22,7 +40,7 @@ class Tag(models.Model):
 # ------------------------------------------------------------------
 class Question(models.Model):
     class QuestionType(models.TextChoices):
-        SINGLE_CHOICE = 'multiple_choice', '객관식 (단일 정답)'     # 값 수정: admin과 통일성을 위해 영어 code 사용 권장
+        SINGLE_CHOICE = 'multiple_choice', '객관식 (단일 정답)'
         MULTIPLE_SELECT = 'multiple_select', '객관식 (복수 정답)'
         SHORT_ANSWER = 'short_answer', '주관식 (단답형)'
         TRUE_FALSE = 'true_false', 'OX 퀴즈'
@@ -66,7 +84,7 @@ class Question(models.Model):
 # 3. 보기(Choice) 모델
 # ------------------------------------------------------------------
 class Choice(models.Model):
-    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choice_set') # admin의 ChoiceInline 사용 위해 related_name 주의
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choice_set')
     choice_text = models.CharField(max_length=200, blank=True)
     is_correct = models.BooleanField(default=False)
     image = models.ImageField(upload_to='choice_images/', blank=True, null=True)
@@ -80,7 +98,7 @@ class Choice(models.Model):
 
 
 # ------------------------------------------------------------------
-# 4. 시험지 세트 (ExamSheet) - [하위 호환성 유지]
+# 4. 시험지 세트 (ExamSheet)
 # ------------------------------------------------------------------
 class ExamSheet(models.Model):
     quiz = models.ForeignKey('Quiz', on_delete=models.CASCADE, verbose_name="관련 퀴즈")
@@ -96,19 +114,22 @@ class ExamSheet(models.Model):
 
 
 # ------------------------------------------------------------------
-# 5. 퀴즈(Quiz) 모델 - [핵심 수정: 필드 추가 및 보완]
+# 5. 퀴즈(Quiz) 모델 - [핵심 수정 적용됨]
 # ------------------------------------------------------------------
 class Quiz(models.Model):
+    # ▼▼▼ [핵심 수정] 4가지 분류 정의 ▼▼▼
     class Category(models.TextChoices):
-        COMMON = '공통', '공통 (모든 교육생에게 표시)'
-        PROCESS = '공정', '공정 (해당 공정 교육생에게 우선 표시)'
+        COMMON = 'common', '공통 (모든 교육생에게 표시)'
+        PROCESS = 'process', '공정 (해당 공정 교육생에게 우선 표시)'
+        SAFETY = 'safety', '안전'    # [추가됨]
+        ETC = 'etc', '기타'          # [추가됨]
 
     class GenerationMethod(models.TextChoices):
         RANDOM = 'random', '랜덤 출제 (태그 기반)'
         FIXED = 'fixed', '지정 출제 (문제 직접 선택)'
 
     title = models.CharField(max_length=200, verbose_name="퀴즈 제목")
-    description = models.TextField(verbose_name="시험 설명", blank=True) # [추가]
+    description = models.TextField(verbose_name="시험 설명", blank=True)
     
     # 1. 권한 설정
     allowed_groups = models.ManyToManyField(Group, blank=True, verbose_name='응시 가능 그룹')
@@ -118,30 +139,43 @@ class Quiz(models.Model):
 
     # 2. 분류 및 방식
     category = models.CharField(
-        max_length=10, choices=Category.choices, default=Category.COMMON, verbose_name="퀴즈 분류"
+        max_length=10, 
+        choices=Category.choices, 
+        default=Category.COMMON, 
+        verbose_name="퀴즈 분류"
     )
-    # [수정] associated_process -> related_process (Admin과 통일)
+    
+    # [주의] 순환 참조 방지를 위해 문자열 'accounts.Process' 사용 권장
+    # from accounts.models import Process 가 되어있다면 모델명 그대로 사용 가능
     related_process = models.ForeignKey(
-        Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="관련 공정"
+        'accounts.Process',  # 문자열 참조로 순서 문제 해결
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        verbose_name="관련 공정"
     )
+    
     generation_method = models.CharField(
-        max_length=10, choices=GenerationMethod.choices, default=GenerationMethod.RANDOM, verbose_name="문제 출제 방식"
+        max_length=10, 
+        choices=GenerationMethod.choices, 
+        default=GenerationMethod.RANDOM, 
+        verbose_name="문제 출제 방식"
     )
 
-    # 3. 시험 규칙 설정 [추가된 필드들]
+    # 3. 시험 규칙 설정
     question_count = models.IntegerField(default=25, verbose_name="출제 문항 수")
     pass_score = models.IntegerField(default=80, verbose_name="합격 기준 점수")
     time_limit = models.IntegerField(default=30, verbose_name="제한 시간(분)")
 
     # 4. 문제 구성
     questions = models.ManyToManyField(
-        Question, blank=True, related_name='quizzes', verbose_name="포함된 문제들 (지정 방식용)"
+        'Question', blank=True, related_name='quizzes', verbose_name="포함된 문제들 (지정 방식용)"
     )
     required_tags = models.ManyToManyField(
-        Tag, blank=True, verbose_name="출제 포함 태그 (랜덤 방식용)"
+        'Tag', blank=True, verbose_name="출제 포함 태그 (랜덤 방식용)"
     )
     
-    # 작성자 정보 [추가]
+    # 작성자 정보
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="작성자"
     )
@@ -149,7 +183,7 @@ class Quiz(models.Model):
 
     # (구버전 호환용) ExamSheet 연결
     exam_sheet = models.ForeignKey(
-        ExamSheet, on_delete=models.SET_NULL, null=True, blank=True, 
+        'ExamSheet', on_delete=models.SET_NULL, null=True, blank=True, 
         verbose_name="선택된 문제 세트 (구버전)", related_name='+' 
     )
 
@@ -182,7 +216,7 @@ class QuizAttempt(models.Model):
     attempt_number = models.IntegerField(default=0)
     requested_at = models.DateTimeField(auto_now_add=True) # 요청 시간
     started_at = models.DateTimeField(null=True, blank=True) # 실제 시작 시간
-    completed_at = models.DateTimeField(null=True, blank=True) # 완료 시간 (중복 방지용 필드)
+    completed_at = models.DateTimeField(null=True, blank=True) # 완료 시간
 
     def save(self, *args, **kwargs):
         if self.pk is None:
@@ -266,7 +300,7 @@ class StudentLog(models.Model):
     reason = models.TextField()
     action_taken = models.TextField(blank=True, null=True)
     
-    # 시험과 연결 (기존에 있었던 필드)
+    # 시험과 연결
     related_quiz = models.ForeignKey('Quiz', on_delete=models.SET_NULL, null=True, blank=True)
     stage = models.IntegerField(default=1) # 몇 차 경고인지
     
@@ -303,9 +337,6 @@ class Notification(models.Model):
 # ------------------------------------------------------------------
 # 11. (레거시/보조) QuizResult & StudentAnswer
 # ------------------------------------------------------------------
-# *주의*: 위쪽의 TestResult/UserAnswer와 역할이 중복되지만, 
-# 기존 코드 누락 방지를 위해 남겨둡니다. (필요 없으면 나중에 삭제)
-
 class QuizResult(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE)

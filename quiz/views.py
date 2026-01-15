@@ -411,188 +411,318 @@ def request_quiz(request, quiz_id):
 @login_required
 @cache_control(no_cache=True, must_revalidate=True, no_store=True)
 def take_quiz(request, quiz_id):
+    """
+    [시험 전용 3단계 제재 로직 적용]
+    - 경고/경고장(행동 징계)과 분리하여 'exam_fail' 타입만 사용
+    - 1차: 잠금 (매니저 해제 필요)
+    - 2차: 잠금 + PL 메일 (매니저 해제 필요)
+    - 3차: 계정 비활성화 (사이트 접속 불가)
+    """
     quiz = get_object_or_404(Quiz, pk=quiz_id)
 
-    # 1. 세션/DB에서 시도(Attempt) 정보 가져오기
+    # -----------------------------------------------------------
+    # [입구컷] 0. 현재 이 시험에 대해 '잠금' 상태인지 확인
+    # -----------------------------------------------------------
+    # *주의* 3차 불합격자는 이미 계정이 비활성화되어 로그인조차 못하므로 여기엔 걸리지 않음
+    try:
+        if hasattr(request.user, 'profile'):
+            # 'exam_fail' 타입이면서 해결되지 않은(is_resolved=False) 로그가 있는지 확인
+            blocking_log = StudentLog.objects.filter(
+                profile=request.user.profile,
+                related_quiz=quiz,       # 이 시험에 대한 기록만 확인
+                log_type='exam_fail',    # 행동 징계(경고장)와 섞이지 않게 시험 불합격만 체크
+                is_resolved=False        # 잠금 상태
+            ).last()
+
+            if blocking_log:
+                # 1차, 2차에 따라 메시지 다르게 보여주기 (친절한 안내)
+                if "1차" in blocking_log.reason:
+                    messages.error(request, "🚫 [1차 불합격 잠금] 담당 매니저와 면담 후 잠금을 해제해야 재응시 가능합니다.")
+                elif "2차" in blocking_log.reason:
+                    messages.error(request, "🚫 [2차 불합격 잠금] 파트장(PL)님과 면담이 필요합니다. (매니저 승인 후 해제 가능)")
+                else:
+                    messages.error(request, "🚫 불합격 패널티로 인해 응시가 제한되었습니다.")
+                
+                return redirect('quiz:index')
+    except Exception as e:
+        print(f"입구컷 에러: {e}")
+
+
+    # -----------------------------------------------------------
+    # 1. 시도(Attempt) 정보 및 문제 목록 확보
+    # -----------------------------------------------------------
     attempt_id = request.session.get('attempt_id')
     question_ids = request.session.get('quiz_questions')
 
-    if not attempt_id:
-        ongoing_attempt = QuizAttempt.objects.filter(
-            user=request.user, quiz=quiz, status='진행중'
-        ).last()
-        
-        if ongoing_attempt:
-            attempt_id = ongoing_attempt.id
-            # 기존 진행 중인 건 DB에 저장된 문제를 그대로 씀 (순서 유지)
-            question_ids = list(quiz.questions.values_list('id', flat=True)) 
-            # (주의: 만약 진행중인 것도 잘린 상태여야 한다면, Attempt 모델에 question_ids를 저장하는 필드가 있어야 완벽합니다.
-            # 일단 여기서는 '새 시도'일 때 자르는 것에 집중합니다.)
-            
-            request.session['attempt_id'] = attempt_id
+    if request.method == 'POST' and not question_ids:
+        recovered_ids = []
+        for key in request.POST.keys():
+            if key.startswith('question_'):
+                try:
+                    q_id = int(key.replace('question_', ''))
+                    recovered_ids.append(q_id)
+                except: pass
+        if recovered_ids:
+            question_ids = recovered_ids
             request.session['quiz_questions'] = question_ids
-        else:
-            # -------------------------------------------------------
-            # ★ [핵심 수정 1] 새 시도 생성 시 문항 수 제한 적용
-            # -------------------------------------------------------
-            new_attempt = QuizAttempt.objects.create(user=request.user, quiz=quiz)
-            attempt_id = new_attempt.id
-            
-            # (1) 전체 문제 ID 가져오기
-            all_ids = list(quiz.questions.values_list('id', flat=True))
-            
-            # (2) 무작위 섞기
-            random.shuffle(all_ids)
-            
-            # (3) 설정된 문항 수만큼 자르기 (설정 없으면 25개)
-            limit = quiz.question_count if quiz.question_count else 25
-            question_ids = all_ids[:limit] # ★ 여기서 25개만 남음!
 
-            request.session['attempt_id'] = attempt_id
-            request.session['quiz_questions'] = question_ids
+    # 2. Attempt 확보
+    if not attempt_id:
+        ongoing = QuizAttempt.objects.filter(user=request.user, quiz=quiz, status='진행중').last()
+        if ongoing:
+            attempt_id = ongoing.id
+            if not question_ids: 
+                question_ids = list(quiz.questions.values_list('id', flat=True))
+        else:
+            new_att = QuizAttempt.objects.create(user=request.user, quiz=quiz)
+            attempt_id = new_att.id
+            all_ids = list(quiz.questions.values_list('id', flat=True))
+            random.shuffle(all_ids)
+            question_ids = all_ids[:(quiz.question_count or 25)]
+        
+        request.session['attempt_id'] = attempt_id
+        request.session['quiz_questions'] = question_ids
     
     attempt = get_object_or_404(QuizAttempt, pk=attempt_id)
 
     if attempt.status == '완료됨':
-        messages.info(request, "이미 완료된 시험입니다.")
-        last_result = QuizResult.objects.filter(quiz=quiz, student=request.user).last()
-        if last_result:
-            return redirect('quiz:exam_result', result_id=last_result.id)
+        last_res = TestResult.objects.filter(user=request.user, quiz=quiz).last()
+        if not last_res:
+             try: last_res = QuizResult.objects.filter(student=request.user, quiz=quiz).last()
+             except: pass
+        if last_res: return redirect('quiz:exam_result', result_id=last_res.id)
         return redirect('quiz:index')
 
-    # 문제 목록 로드
+    # 3. 문제 객체 로드
+    target_questions = []
     if question_ids:
-        # 순서를 보장하기 위해 리스트 정렬 로직 유지
-        questions_qs = Question.objects.filter(pk__in=question_ids)
-        questions_dict = {q.id: q for q in questions_qs}
-        ordered_questions = [questions_dict[qid] for qid in question_ids if qid in questions_dict]
+        qs = Question.objects.filter(pk__in=question_ids)
+        q_dict = {q.id: q for q in qs}
+        for qid in question_ids:
+            if qid in q_dict: target_questions.append(q_dict[qid])
     else:
-        # 혹시 모를 예외 처리 (설정값 적용)
-        all_qs = list(quiz.questions.all())
-        random.shuffle(all_qs)
-        limit = quiz.question_count if quiz.question_count else 25
-        ordered_questions = all_qs[:limit]
+        target_questions = list(quiz.questions.all())[:25]
 
 
     # -----------------------------------------------------------
-    # [POST] 제출 및 자동 채점
+    # [POST] 제출 및 채점
     # -----------------------------------------------------------
     if request.method == 'POST':
         with transaction.atomic():
-            result = QuizResult.objects.create(
-                student=request.user,
-                quiz=quiz,
-                score=0,
-                submitted_at=timezone.now()
-            )
-
-            # 점수 환산 (100점 만점 기준)
-            total_count = len(ordered_questions)
-            if total_count > 0:
-                score_per_question = 100 / total_count
-            else:
-                score_per_question = 0
-
-            earned_score_float = 0.0
+            total_count = len(target_questions)
+            score_per_q = 100 / total_count if total_count > 0 else 0
+            earned_score = 0.0
             
-            for question in ordered_questions:
-                current_score = score_per_question 
-                
-                user_input_single = request.POST.get(f'question_{question.id}')
-                user_responses = request.POST.getlist(f'question_{question.id}')
+            answers_to_save = []
 
+            for question in target_questions:
+                user_val = request.POST.get(f'question_{question.id}', '')
+                user_list = request.POST.getlist(f'question_{question.id}') 
+
+                save_text = ""       
+                selected_obj = None  
                 is_correct = False
-                user_answer_text = ""
 
-                # (A) 객관식 & OX
-                if question.question_type in ['multiple_choice', 'true_false', '객관식']:
-                    if user_input_single:
-                        user_answer_text = user_input_single
-                        if question.question_type == 'true_false':
-                            correct_choice = question.choice_set.filter(is_correct=True).first()
-                            if correct_choice and correct_choice.choice_text == user_input_single:
-                                is_correct = True
-                        else:
-                            try:
-                                selected = Choice.objects.get(pk=user_input_single)
-                                if selected.is_correct:
-                                    is_correct = True
-                            except Choice.DoesNotExist:
-                                pass
-
-                # (B) 다중선택
-                elif question.question_type in ['multiple_select', '다중선택']:
-                    if user_responses:
-                        valid_ids = [x for x in user_responses if x.isdigit()]
-                        user_answer_text = ",".join(valid_ids)
+                # [A] 다중 선택
+                if question.question_type in ['multiple_select', '다중선택', '다중']:
+                    if user_list:
+                        submitted_ids = set(int(x) for x in user_list if x.isdigit())
                         correct_ids = set(question.choice_set.filter(is_correct=True).values_list('id', flat=True))
-                        user_ids = set(int(x) for x in valid_ids)
-                        
-                        if correct_ids == user_ids and len(user_ids) > 0:
+                        if submitted_ids == correct_ids and len(submitted_ids) > 0:
                             is_correct = True
+                        
+                        selected_choices = Choice.objects.filter(id__in=submitted_ids)
+                        text_list = [c.choice_text for c in selected_choices]
+                        save_text = ", ".join(text_list)
 
-                # (C) 주관식
-                elif question.question_type in ['short_answer', '주관식 (단일정답)', '주관식 (복수정답)']:
-                    if user_input_single:
-                        user_answer_text = user_input_single.strip()
-                        correct_answers = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
-                        for ans in correct_answers:
-                            if ans.strip().lower() == user_answer_text.lower():
+                # [B] 단일 선택
+                elif question.question_type in ['multiple_choice', 'true_false', '객관식', 'OX', 'true_false']:
+                    raw_val = str(user_val).strip()
+                    if raw_val:
+                        if raw_val.isdigit():
+                            try:
+                                choice = Choice.objects.get(pk=raw_val)
+                                selected_obj = choice
+                                save_text = choice.choice_text 
+                                if choice.is_correct: is_correct = True
+                            except:
+                                save_text = raw_val
+                        else:
+                            save_text = raw_val
+                            correct_choice = question.choice_set.filter(is_correct=True).first()
+                            if correct_choice and correct_choice.choice_text.upper() == raw_val.upper():
+                                is_correct = True
+
+                # [C] 주관식
+                else: 
+                    save_text = str(user_val).strip()
+                    if save_text:
+                        ans_list = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
+                        for ans in ans_list:
+                            if ans.strip().lower() == save_text.lower():
                                 is_correct = True
                                 break
 
-                # 점수 합산
-                if is_correct:
-                    earned_score_float += current_score
+                if is_correct: earned_score += score_per_q
 
-                # 상세 답안 저장
-                StudentAnswer.objects.create(
-                    result=result,
-                    question=question,
-                    answer_text=user_answer_text,
-                    is_correct=is_correct
+                answers_to_save.append({
+                    'q': question,
+                    'text': save_text, 
+                    'sel': selected_obj,
+                    'is_c': is_correct
+                })
+
+            final_score = int(round(earned_score))
+            is_pass = (final_score >= quiz.pass_score)
+            
+            # --- TestResult 저장 ---
+            try:
+                tr = TestResult.objects.create(
+                    user=request.user, quiz=quiz, score=final_score
                 )
+                if hasattr(tr, 'is_pass'): tr.is_pass = is_pass
+                if hasattr(tr, 'completed_at'): tr.completed_at = timezone.now()
+                elif hasattr(tr, 'submitted_at'): tr.submitted_at = timezone.now()
+                if hasattr(tr, 'attempt'): tr.attempt = attempt
+                tr.save()
 
-            # -------------------------------------------------------
-            # ★ [핵심 수정 2] 최종 점수 저장 및 합격 여부 판별
-            # -------------------------------------------------------
-            final_score = int(round(earned_score_float))
-            result.score = final_score
-            
-            # DB에 저장된 pass_score(예: 70)와 비교
-            if final_score >= quiz.pass_score:
-                result.is_pass = True
-            else:
-                result.is_pass = False
-            
-            result.save()
+                for item in answers_to_save:
+                    try:
+                        UserAnswer.objects.create(
+                            test_result=tr,
+                            question=item['q'],
+                            short_answer_text=item['text'],
+                            selected_choice=item['sel'],     
+                            is_correct=item['is_c']
+                        )
+                    except: pass
+                final_res_id = tr.id
 
-            # 상태 업데이트
+            except Exception as e:
+                print(f"TestResult 저장 실패: {e}")
+                qr = QuizResult.objects.create(student=request.user, quiz=quiz, score=final_score, submitted_at=timezone.now())
+                try: qr.is_pass = is_pass; qr.save()
+                except: pass
+                for item in answers_to_save:
+                    try:
+                        StudentAnswer.objects.create(
+                            result=qr, question=item['q'], answer_text=item['text'], is_correct=item['is_c']
+                        )
+                    except: pass
+                final_res_id = qr.id
+
+            # --- Attempt 저장 ---
             attempt.status = '완료됨'
             attempt.completed_at = timezone.now()
+            attempt.score = final_score
+            try: attempt.is_pass = is_pass
+            except: pass
+            if 'tr' in locals():
+                try: attempt.result = tr
+                except: pass
             attempt.save()
 
-            messages.success(request, f"제출 완료! 점수: {result.score}점")
-            return redirect('quiz:exam_result', result_id=result.id)
+            request.session.pop('quiz_questions', None)
+            request.session.pop('attempt_id', None)
+
+
+            # ===========================================================
+            # [NEW] 시험 전용 불합격 제재 로직 (경고장X, exam_failO)
+            # ===========================================================
+            if not is_pass:
+                # 1. 연속 불합격 횟수 계산
+                last_pass = TestResult.objects.filter(
+                    user=request.user, quiz=quiz, is_pass=True
+                ).order_by('-submitted_at').first()
+                
+                fail_query = TestResult.objects.filter(
+                    user=request.user, quiz=quiz, is_pass=False
+                )
+                
+                if last_pass:
+                    fail_query = fail_query.filter(submitted_at__gt=last_pass.submitted_at)
+                
+                fail_count = fail_query.count()
+
+                if hasattr(request.user, 'profile'):
+                    profile = request.user.profile
+                    
+                    if fail_count == 1:
+                        # [1차] 잠금 (매니저 면담)
+                        # 'warning' 대신 'exam_fail' 사용
+                        StudentLog.objects.create(
+                            profile=profile,
+                            log_type='exam_fail',  # 시험 불합격 전용 타입
+                            reason=f"[{quiz.title}] 1차 불합격 - 재응시 잠금 (매니저 면담 필요)",
+                            related_quiz=quiz,
+                            stage=1,               # 1단계
+                            is_resolved=False      # 잠금 상태
+                        )
+                        messages.error(request, "1차 불합격입니다. 잠금이 설정되었습니다. 담당 매니저와 면담 후 재응시 가능합니다.")
+
+                    elif fail_count == 2:
+                        # [2차] 잠금 + PL 메일 (파트장 면담)
+                        StudentLog.objects.create(
+                            profile=profile,
+                            log_type='exam_fail',  # 시험 불합격 전용 타입
+                            reason=f"[{quiz.title}] 2차 불합격 - PL 면담 필요 (메일 발송됨)",
+                            related_quiz=quiz,
+                            stage=2,               # 2단계
+                            is_resolved=False      # 잠금 상태
+                        )
+                        
+                        # PL에게 메일 발송
+                        try:
+                            # 실제로는 PL들의 이메일 리스트를 DB에서 가져와야 합니다.
+                            # 예: recipient_list=['pl@pmtc.com']
+                            # send_mail(
+                            #     subject=f'[교육 요청] {request.user.username} - {quiz.title} 2차 불합격',
+                            #     message=f'{request.user.username}님이 2차 불합격했습니다. 파트장 면담 및 재교육 부탁드립니다.',
+                            #     from_email='system@pmtc.com',
+                            #     recipient_list=['pl_manager@pmtc.com'],
+                            #     fail_silently=True
+                            # )
+                            pass 
+                        except: pass
+                        
+                        messages.error(request, "2차 불합격입니다. PL에게 교육 요청이 전송되었습니다. 파트장 면담 후 매니저가 잠금을 해제해야 합니다.")
+
+                    elif fail_count >= 3:
+                        # [3차] 퇴소 기준 (계정 차단)
+                        StudentLog.objects.create(
+                            profile=profile,
+                            log_type='exam_fail',
+                            reason=f"[{quiz.title}] 3차 불합격 - 퇴소 기준 도달 (계정 비활성화)",
+                            related_quiz=quiz,
+                            stage=3,
+                            is_resolved=False
+                        )
+                        
+                        # [계정 잠금] 최종 관리자만 풀 수 있음
+                        request.user.is_active = False
+                        request.user.save()
+                        
+                        messages.error(request, "3차 불합격으로 퇴소 기준에 도달하여 계정이 비활성화되었습니다. (최종 관리자 문의)")
+                        # 필요 시 로그아웃 처리 추가 가능
+                        # from django.contrib.auth import logout
+                        # logout(request)
             
-    # GET 요청 시 템플릿 렌더링 (기존 코드 유지)
-    return render(request, 'quiz/take_quiz.html', {
-        'quiz': quiz, 
-        'questions': ordered_questions,
-        'attempt': attempt
-    })
+            else:
+                messages.success(request, f"합격입니다! 점수: {final_score}점")
+
+            return redirect('quiz:exam_result', result_id=final_res_id)
 
     # -----------------------------------------------------------
     # [GET] 화면 렌더링
     # -----------------------------------------------------------
-    for q in ordered_questions:
+    for q in target_questions:
         choices = list(q.choice_set.all())
         random.shuffle(choices)
         q.shuffled_choices = choices
 
     context = {
         'quiz': quiz,
-        'questions': ordered_questions,
+        'questions': target_questions,
         'attempt': attempt,
         'start_time': attempt.started_at.isoformat() if attempt.started_at else timezone.now().isoformat(),
         'is_in_test_mode': True,
@@ -3313,105 +3443,7 @@ def evaluate_trainee(request, profile_id):
     }
     return render(request, 'quiz/evaluate_trainee.html', context)
 
-# ------------------------------------------------------------------
-# 시험 제출 처리 (Submit)
-# ------------------------------------------------------------------
-@login_required
-def exam_submit(request, quiz_id):
-    if request.method != 'POST':
-        return redirect('quiz:take_quiz', quiz_id=quiz_id)
 
-    quiz = get_object_or_404(Quiz, pk=quiz_id)
-    
-    # 1. 결과지 생성
-    result = QuizResult.objects.create(
-        student=request.user,
-        quiz=quiz,
-        score=0,
-        submitted_at=timezone.now()
-    )
-
-    score = 0
-    
-    # 2. 문제별 정답 확인 (여기는 기존 코드와 동일)
-    for question in quiz.questions.all():
-        user_input = request.POST.get(f'question_{question.id}')
-        is_correct = False
-        
-        # (A) 객관식/OX
-        if question.question_type in ['multiple_choice', 'true_false']:
-            if user_input:
-                try:
-                    selected_choice = Choice.objects.get(pk=user_input)
-                    if selected_choice.is_correct:
-                        is_correct = True
-                except:
-                    pass 
-
-        # (B) 주관식
-        elif question.question_type == 'short_answer':
-            if user_input:
-                correct_answers = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
-                for ans in correct_answers:
-                    if ans.strip().lower() == user_input.strip().lower():
-                        is_correct = True
-                        break
-
-        # 점수 합산
-        if is_correct:
-            score += question.score
-        
-        # 답안 저장
-        StudentAnswer.objects.create(
-            result=result,
-            question=question,
-            answer_text=user_input,
-            is_correct=is_correct
-        )
-
-    # =========================================================
-    # ★ [핵심 추가] 합격/불합격 판별 로직
-    # =========================================================
-    
-    # 1. 점수 저장
-    result.score = score
-    
-    # 2. 합격 여부 결정 (여기가 70점/80점 설정을 반영하는 곳입니다!)
-    # quiz.pass_score : 관리자가 설정한 합격 기준점 (예: 70)
-    if score >= quiz.pass_score:
-        result.is_pass = True
-    else:
-        result.is_pass = False
-
-    # 3. 최종 저장
-    result.save()
-    # =========================================================
-
-    return redirect('quiz:exam_result', result_id=result.id)
-
-@login_required
-def exam_result(request, result_id):
-    # 본인 결과만 조회 가능
-    result = get_object_or_404(QuizResult, pk=result_id, student=request.user)
-    
-    # 1. 이미 확인한 결과인지 체크 (새로고침/뒤로가기/재진입 차단)
-    if result.is_viewed:
-        messages.warning(request, "이미 확인한 시험 결과입니다. 다시 조회할 수 없습니다.")
-        return redirect('quiz:index') # 목록으로 강제 이동
-
-    # 2. 처음 보는 것이라면 '확인함'으로 상태 변경
-    result.is_viewed = True
-    result.save()
-
-    # 답안 가져오기
-    answers = result.studentanswer_set.select_related('question').all()
-    
-    context = {
-        'result': result,
-        'answers': answers,
-        'quiz': result.quiz,
-    }
-    return render(request, 'quiz/exam_result.html', context)
 
 @login_required
 def certificate_view(request):
@@ -4182,3 +4214,33 @@ def notification_read(request, noti_id):
 def bulk_upload_file(request):
     return render(request, 'base.html', {'message': '기능 복구 중'})
 
+@login_required
+def exam_result(request, result_id):
+    """
+    시험 종료 후 점수와 정답 여부를 보여주는 화면
+    TestResult(구형)와 QuizResult(신형) 모델을 모두 지원하도록 작성됨
+    """
+    # 1. TestResult(관리자용 메인 DB)에서 먼저 찾기
+    try:
+        result = TestResult.objects.get(pk=result_id, user=request.user)
+        # 답안지 가져오기 (UserAnswer)
+        answers = result.useranswer_set.select_related('question').all()
+        quiz = result.quiz
+        
+    except TestResult.DoesNotExist:
+        # 2. 없으면 QuizResult(보조 DB)에서 찾기
+        # (만약 TestResult 생성이 실패하고 QuizResult만 남은 경우 대비)
+        result = get_object_or_404(QuizResult, pk=result_id, student=request.user)
+        answers = result.studentanswer_set.select_related('question').all()
+        quiz = result.quiz
+
+    # 3. '결과 확인했음' 표시 (재응시 방지 로직 등이 있다면 사용)
+    if hasattr(result, 'is_viewed') and not result.is_viewed:
+        result.is_viewed = True
+        result.save()
+
+    return render(request, 'quiz/exam_result.html', {
+        'result': result, 
+        'answers': answers, 
+        'quiz': quiz
+    })
