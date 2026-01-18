@@ -188,6 +188,10 @@
 </div>
 
 <script>
+    // ==========================================
+    // [1] 전역 변수 및 설정
+    // ==========================================
+    
     // [중요] 변수가 없어도 자바스크립트가 죽지 않도록 default 값 처리
     const totalQuestions = {{ questions|length|default:0 }};
     
@@ -199,12 +203,86 @@
     // [수정] 1분은 60초입니다. (기존 * 30 오류 수정)
     let timeLeft = examDurationMinutes * 60;
 
+    // [보안] 정상적인 제출인지 확인하는 플래그 (페이지 이탈 경고 제어용)
+    let isSubmitting = false;
+
+
+    // ==========================================
+    // [2] 초기화 (DOMContentLoaded)
+    // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
+        // 1. 시험 로직 초기화
         if (totalQuestions > 0) {
             showQuestion(1);
             startTimer();
         }
+
+        // 2. [보안] 우클릭 방지
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
+        // 3. [보안] 페이지 이탈 경고 (새로고침, 닫기 실수 방지)
+        // 주의: form 제출(isSubmitting=true) 시에는 경고가 뜨면 안 됨
+        window.addEventListener('beforeunload', function(e) {
+            if (!isSubmitting) {
+                e.preventDefault();
+                e.returnValue = ''; // Chrome 호환
+            }
+        });
+
+        // 4. [보안] 폼의 기본 submit 이벤트 감지 (엔터키 제출 등 대비)
+        const form = document.getElementById('examForm');
+        if (form) {
+            form.addEventListener('submit', function() {
+                isSubmitting = true;
+            });
+        }
     });
+
+
+    // ==========================================
+    // [3] 키보드 제어 (보안 + 네비게이션 통합)
+    // ==========================================
+    document.addEventListener('keydown', function(e) {
+        // --- [보안] 키보드 단축키 차단 ---
+        
+        // F5 (새로고침) / Ctrl+R
+        if ((e.which || e.keyCode) == 116 || ((e.ctrlKey || e.metaKey) && e.keyCode == 82)) {
+            e.preventDefault();
+            alert("시험 중에는 새로고침을 할 수 없습니다.");
+            return;
+        }
+        
+        // F12 (개발자 도구)
+        if ((e.which || e.keyCode) == 123) {
+            e.preventDefault();
+            return;
+        }
+        
+        // Backspace (뒤로가기 방지 - 입력창 제외)
+        if ((e.which || e.keyCode) == 8) {
+            const tag = e.target.tagName.toUpperCase();
+            // input이나 textarea가 아닐 때만 막음
+            if (tag !== "INPUT" && tag !== "TEXTAREA") {
+                e.preventDefault();
+                return;
+            }
+        }
+        
+        // Alt+Left (뒤로가기)
+        if (e.altKey && (e.which || e.keyCode) == 37) {
+            e.preventDefault();
+            return;
+        }
+
+        // --- [기능] 문제 이동 (화살표 키) ---
+        if(e.key === 'ArrowRight') nextQuestion();
+        if(e.key === 'ArrowLeft') prevQuestion();
+    });
+
+
+    // ==========================================
+    // [4] 시험 핵심 로직 함수들
+    // ==========================================
 
     function showQuestion(idx) {
         if (idx < 1 || idx > totalQuestions) return;
@@ -274,7 +352,12 @@
             if (timeLeft <= 0) {
                 clearInterval(interval);
                 timerElement.innerText = "00:00";
+                
                 alert("시험 시간이 종료되었습니다. 답안을 제출합니다.");
+                
+                // [보안 연동] 자동 제출 시 이탈 경고 무시 설정
+                isSubmitting = true; 
+
                 const form = document.getElementById('examForm');
                 if (form) form.submit();
                 return;
@@ -301,16 +384,16 @@
         msg += "제출하시겠습니까?";
 
         if (confirm(msg)) {
+            // 버튼 중복 클릭 방지
             document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+            
+            // [보안 연동] 수동 제출 시 이탈 경고 무시 설정
+            isSubmitting = true;
+
             const form = document.getElementById('examForm');
             if (form) form.submit();
         }
     }
-
-    document.addEventListener('keydown', function(e) {
-        if(e.key === 'ArrowRight') nextQuestion();
-        if(e.key === 'ArrowLeft') prevQuestion();
-    });
 </script>
 
 <style>

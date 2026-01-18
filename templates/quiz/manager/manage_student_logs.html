@@ -28,7 +28,7 @@
                     <h2 class="fw-bold text-danger mb-0">{{ profile.warning_count }} <span class="fs-6">회</span></h2>
                 </div>
             </div>
-
+            
             <div class="progress" style="height: 20px;">
                 {% with w=profile.warning_count %}
                 <div class="progress-bar {% if w >= 4 %}bg-dark{% elif w >= 2 %}bg-danger{% else %}bg-warning{% endif %} progress-bar-striped progress-bar-animated" 
@@ -52,7 +52,7 @@
         <div class="col-lg-5">
             <div class="card shadow-sm border-0 sticky-top" style="top: 20px;">
                 <div class="card-header bg-primary text-white fw-bold">
-                    <i class="bi bi-pencil-square"></i> 새 기록 작성
+                    <i class="bi bi-pencil-square"></i> 새 기록 작성 / 잠금 해제
                 </div>
                 <div class="card-body">
                     <form method="post">
@@ -60,26 +60,52 @@
                         
                         <div class="mb-3">
                             <label class="form-label fw-bold">기록 유형</label>
-                            {{ form.log_type }}
+                            <select name="log_type" class="form-select" id="logTypeSelect">
+                                <option value="counseling">🔓 면담 및 잠금 해제 (시험/경고 통합)</option>
+                                <option value="warning">⚠️ 구두 경고 / 주의 (Warning)</option>
+                                <option value="warning_letter">⛔ 경고장 발송 (Warning Letter)</option>
+                                <option value="attitude">👎 태도/행동 불량 (Attitude)</option>
+                                <option value="others">📝 기타 특이사항 (Others)</option>
+                            </select>
+                        </div>
+
+                        <div id="lockedExamDiv" class="mb-3 p-3 bg-light border rounded">
+                            <label class="form-label fw-bold text-danger">
+                                <i class="bi bi-lock-fill"></i> 해제할 시험 선택
+                            </label>
+                            
+                            <select name="related_quiz_id" class="form-select" id="lockedQuizSelect">
+                                <option value="">-- 선택하세요 (자동완성) --</option>
+                                {% for log in locked_logs %}
+                                    <option value="{{ log.related_quiz.id }}" 
+                                            data-exam-title="{{ log.related_quiz.title }}"
+                                            data-fail-stage="{{ log.stage }}"
+                                            data-fail-date="{{ log.created_at|date:'Y-m-d' }}">
+                                            [불합격 {{ log.stage }}차] {{ log.related_quiz.title }} ({{ log.created_at|date:"Y-m-d" }})
+                                    </option>
+                                {% empty %}
+                                    <option value="" disabled>현재 잠겨있는 시험이 없습니다.</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text small text-muted mt-2">
+                                * 목록에 없는 시험은 이미 해제되었거나 정상 상태입니다.
+                            </div>
                         </div>
 
                         <div class="mb-3">
                             <label class="form-label fw-bold">사유 및 내용 <span class="text-danger">*</span></label>
-                            {{ form.reason }}
+                            <textarea name="reason" id="reasonArea" class="form-control" rows="4" required></textarea>
                             <div class="form-text small">
-                                * 경고 발부 시 <strong>육하원칙</strong>에 의거하여 구체적인 사유를 작성해주세요.
+                                * 시험을 선택하면 내용이 자동으로 입력됩니다.
                             </div>
                         </div>
 
                         <div class="mb-3">
                             <label class="form-label fw-bold">조치 사항 (Action Taken)</label>
-                            {{ form.action_taken }}
-                            <div class="form-text small">
-                                * 학생과의 합의 내용이나 부여된 벌칙 등을 기록하세요.
-                            </div>
+                            <input type="text" name="action_taken" id="actionInput" class="form-control">
                         </div>
 
-                        <div id="unlockOptions" class="card bg-light border-warning mb-3" style="display: none;">
+                        <div id="unlockOptions" class="card bg-light border-warning mb-3">
                             <div class="card-body p-3">
                                 <h6 class="fw-bold text-dark border-bottom pb-2 mb-2">🔓 잠금 해제 옵션</h6>
                                 
@@ -91,25 +117,18 @@
                                 </div>
 
                                 {% if profile.warning_count == 3 %}
-                                <div class="form-check bg-white p-2 border rounded">
+                                <div class="form-check bg-white p-2 border rounded mt-2">
                                     <input type="checkbox" class="form-check-input" name="pl_check" id="plCheck">
                                     <label class="form-check-label text-danger fw-bold small" for="plCheck">
                                         [필수] PL(파트장) 면담 진행 확인
                                     </label>
-                                    <div class="form-text x-small mt-1">
-                                        * 3회 누적자는 PL 면담이 확인되어야만 잠금이 해제됩니다.
-                                    </div>
                                 </div>
                                 {% endif %}
-                                
-                                <div class="form-text small mt-2 text-muted">
-                                    체크 시 계정 상태가 <strong>'정상(재직)'</strong>으로 변경됩니다.
-                                </div>
                             </div>
                         </div>
 
                         <button type="submit" class="btn btn-primary w-100 fw-bold py-2">
-                            <i class="bi bi-save"></i> 기록 저장하기
+                            <i class="bi bi-save"></i> 기록 저장 및 적용
                         </button>
                     </form>
                 </div>
@@ -134,7 +153,8 @@
                                 {% if log.log_type == 'warning' %}bg-warning text-dark
                                 {% elif log.log_type == 'warning_letter' %}bg-danger
                                 {% elif log.log_type == 'counseling' %}bg-success
-                                {% else %}bg-secondary{% endif %}">
+                                {% elif log.log_type == 'exam_fail' %}bg-secondary
+                                {% else %}bg-info text-dark{% endif %}">
                                 {{ log.get_log_type_display }}
                             </span>
                             <small class="text-muted">{{ log.created_at|date:"Y-m-d H:i" }}</small>
@@ -144,6 +164,12 @@
                             <strong>내용:</strong><br>
                             {{ log.reason|linebreaksbr }}
                         </div>
+
+                        {% if log.related_quiz %}
+                        <div class="small text-primary mb-2">
+                            <i class="bi bi-clipboard-check"></i> 관련 시험: {{ log.related_quiz.title }}
+                        </div>
+                        {% endif %}
 
                         {% if log.action_taken %}
                         <div class="bg-light p-2 rounded small mb-2 text-secondary">
@@ -166,7 +192,7 @@
                 {% empty %}
                 <div class="text-center py-5 text-muted border rounded bg-light">
                     <i class="bi bi-clipboard-x fs-1 opacity-25"></i>
-                    <p class="mt-3 mb-0">등록된 특이사항이나 경고 기록이 없습니다.</p>
+                    <p class="mt-3 mb-0">등록된 기록이 없습니다.</p>
                 </div>
                 {% endfor %}
             </div>
@@ -175,28 +201,66 @@
 </div>
 
 <script>
-    // '면담 및 조치' 유형 선택 시에만 잠금 해제 옵션 보이기
-    const logTypeSelect = document.getElementById('id_log_type');
-    const unlockOptions = document.getElementById('unlockOptions');
+    document.addEventListener('DOMContentLoaded', function() {
+        // 요소 가져오기
+        const logTypeSelect = document.getElementById('logTypeSelect');
+        const lockedExamDiv = document.getElementById('lockedExamDiv');
+        const unlockOptions = document.getElementById('unlockOptions');
+        const quizSelect = document.getElementById('lockedQuizSelect');
+        const reasonArea = document.getElementById('reasonArea');
+        const actionInput = document.getElementById('actionInput');
+        const resolveCheck = document.getElementById('resolveCheck');
 
-    function toggleUnlockOptions() {
-        if (logTypeSelect.value === 'counseling') {
-            unlockOptions.style.display = 'block';
-        } else {
-            unlockOptions.style.display = 'none';
-            // 숨길 때 체크박스 해제 (실수 방지)
-            const resolveCheck = document.getElementById('resolveCheck');
-            if(resolveCheck) resolveCheck.checked = false;
-            
-            const plCheck = document.getElementById('plCheck');
-            if(plCheck) plCheck.checked = false;
+        // 1. [UI 제어] 기록 유형에 따라 화면 보이기/숨기기
+        function toggleUI() {
+            // 'counseling'(면담)일 때만 잠금 해제 관련 UI 표시
+            if (logTypeSelect.value === 'counseling') {
+                lockedExamDiv.style.display = 'block';
+                unlockOptions.style.display = 'block';
+            } else {
+                // 경고장(warning_letter), 경고(warning), 기타 등일 때는 숨김
+                lockedExamDiv.style.display = 'none';
+                unlockOptions.style.display = 'none';
+                
+                // 숨길 때 체크박스와 선택값 초기화 (오류 방지)
+                if(resolveCheck) resolveCheck.checked = false;
+                if(quizSelect) quizSelect.value = "";
+            }
         }
-    }
 
-    if(logTypeSelect) {
-        logTypeSelect.addEventListener('change', toggleUnlockOptions);
-        // 초기 로드 시 상태 확인
-        toggleUnlockOptions();
-    }
+        // 2. [자동완성] 시험 선택 시 내용 자동 채우기
+        if (quizSelect) {
+            quizSelect.addEventListener('change', function() {
+                const selectedOption = this.options[this.selectedIndex];
+                
+                if (this.value) {
+                    // HTML data 속성에서 값 가져오기
+                    const title = selectedOption.getAttribute('data-exam-title');
+                    const stage = selectedOption.getAttribute('data-fail-stage');
+                    const date = selectedOption.getAttribute('data-fail-date');
+                    
+                    // 체크박스 자동 체크
+                    if(resolveCheck) resolveCheck.checked = true;
+
+                    // 사유 및 내용 자동 채우기 (이미 내용이 있으면 덮어쓰지 않음)
+                    if (!reasonArea.value.trim()) { 
+                        reasonArea.value = `[${stage}차 불합격 면담]\n- 시험명: ${title}\n- 응시일: ${date}\n\n[면담 내용]\n- 불합격 사유 파악 및 재응시 기회 부여함.`;
+                    }
+                    if (!actionInput.value.trim()) {
+                        actionInput.value = "재응시 잠금 해제 완료";
+                    }
+                } else {
+                    // 선택 취소 시 체크 해제
+                    if(resolveCheck) resolveCheck.checked = false;
+                }
+            });
+        }
+
+        // 초기 실행 및 이벤트 리스너 연결
+        if(logTypeSelect) {
+            logTypeSelect.addEventListener('change', toggleUI);
+            toggleUI(); // 페이지 로드 시 상태 반영
+        }
+    });
 </script>
 {% endblock %}

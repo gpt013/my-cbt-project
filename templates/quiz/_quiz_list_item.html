@@ -3,7 +3,7 @@
     <span>
         {{ quiz.title }}
         
-        {# --- 시험을 완료한 경우, 합격/불합격 배지와 결과 보기 링크를 표시 --- #}
+        {# --- [공통] 시험을 완료한 경우: 합격/불합격 배지와 결과 보기 링크 표시 --- #}
         {% if quiz.user_status == '완료됨' %}
             {% if quiz.is_pass %}
                 <span class="badge bg-success ms-2">합격</span>
@@ -15,11 +15,11 @@
     </span>
     
     <span>
-        {# --- 1. 대기중 --- #}
+        {# --- 1. 승인 대기중 --- #}
         {% if quiz.user_status == '대기중' %}
             <button type="button" class="btn btn-secondary btn-sm" disabled>승인 대기중</button>
         
-        {# --- 2. 개인 승인됨 (관리자 우선 승인) --- #}
+        {# --- 2. 개인 승인됨 (관리자 승인 완료) --- #}
         {% elif quiz.user_status == '승인됨' %}
             <a href="{% url 'quiz:start_quiz' quiz.action_id %}" class="btn btn-success btn-sm">시험 시작 (개인)</a>
         
@@ -27,17 +27,36 @@
         {% elif quiz.user_status == '그룹 응시 가능' %}
             <a href="{% url 'quiz:start_group_quiz' quiz.action_id %}" class="btn btn-info btn-sm">시험 시작 (그룹)</a>
         
-        {# --- 4. 완료됨 (3번 항목 요청) --- #}
+        {# --- 4. 완료됨 (재응시 판별 및 잠금 로직 적용) --- #}
         {% elif quiz.user_status == '완료됨' %}
-            {# 불합격한 경우에만 '재응시 요청' 버튼이 보입니다. #}
+            
+            {# 합격하면 재응시 불가, 불합격한 경우에만 버튼 노출 #}
             {% if not quiz.is_pass %}
-                <form action="{% url 'quiz:request_quiz' quiz.id %}" method="post" style="display: inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-warning btn-sm">재응시 요청</button>
-                </form>
+                
+                {# [NEW] 잠금 로그(blocking_log)가 있으면 '잠김' 버튼 표시 #}
+                {% if quiz.blocking_log %}
+                    <button type="button" class="btn btn-secondary btn-sm" disabled>
+                        <i class="bi bi-lock-fill"></i> 
+                        {% if quiz.blocking_log.stage == 1 %}
+                            재응시 잠금 (면담필요)
+                        {% elif quiz.blocking_log.stage == 2 %}
+                            재응시 잠금 (PL면담)
+                        {% else %}
+                            응시 제한됨
+                        {% endif %}
+                    </button>
+
+                {# 잠금 로그가 없으면(해제됨 or 해당없음) '재응시 요청' 버튼 표시 #}
+                {% else %}
+                    <form action="{% url 'quiz:request_quiz' quiz.id %}" method="post" style="display: inline;">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-warning btn-sm">재응시 요청</button>
+                    </form>
+                {% endif %}
+
             {% endif %}
 
-        {# --- 5. 요청 가능 (처음) --- #}
+        {# --- 5. 요청 가능 (처음 상태) --- #}
         {% else %} 
             <form action="{% url 'quiz:request_quiz' quiz.id %}" method="post">
                 {% csrf_token %}
@@ -46,4 +65,3 @@
         {% endif %}
     </span>
 </li>
-
