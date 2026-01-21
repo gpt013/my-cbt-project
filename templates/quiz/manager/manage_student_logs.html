@@ -2,12 +2,17 @@
 {% load static %}
 
 {% block content %}
-<div class="container mt-4" style="max-width: 1000px;">
+<div class="container mt-4" style="max-width: 1200px;">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h3 class="fw-bold"><i class="bi bi-shield-exclamation text-danger"></i> 특이사항 및 경고 관리</h3>
-        <a href="{% url 'quiz:manager_trainee_detail' profile.id %}" class="btn btn-secondary">
-            <i class="bi bi-arrow-left"></i> 상세 페이지로
-        </a>
+        <h3 class="fw-bold"><i class="bi bi-shield-exclamation text-danger"></i> 교육생 통합 관리</h3>
+        <div>
+            <a href="{% url 'quiz:manager_trainee_detail' profile.id %}" class="btn btn-secondary me-2">
+                <i class="bi bi-arrow-left"></i> 상세 정보
+            </a>
+            <a href="{% url 'quiz:dashboard' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-grid-3x3-gap"></i> 대시보드
+            </a>
+        </div>
     </div>
 
     <div class="card bg-white border-0 shadow-sm mb-4">
@@ -22,6 +27,7 @@
                         {% else %}bg-secondary{% endif %} fs-6">
                         {{ profile.get_status_display }}
                     </span>
+                    <span class="ms-2 text-muted small">({{ profile.process.name }} / {{ profile.cohort.name }})</span>
                 </div>
                 <div class="text-end">
                     <h5 class="mb-0 text-muted">누적 경고</h5>
@@ -32,12 +38,12 @@
             <div class="progress" style="height: 20px;">
                 {% with w=profile.warning_count %}
                 <div class="progress-bar {% if w >= 4 %}bg-dark{% elif w >= 2 %}bg-danger{% else %}bg-warning{% endif %} progress-bar-striped progress-bar-animated" 
-                     role="progressbar" 
-                     style="width: {% widthratio w 4 100 %}%;">
+                     role="progressbar" style="width: {% widthratio w 4 100 %}%;">
                     {% if w > 0 %}{{ w }}회 누적{% endif %}
                 </div>
                 {% endwith %}
             </div>
+
             <div class="d-flex justify-content-between small text-muted mt-2 fw-bold">
                 <span>🟢 0회 (정상)</span>
                 <span>⚠️ 1회 (주의)</span>
@@ -48,16 +54,83 @@
         </div>
     </div>
 
+    <div class="card shadow-sm mb-4 border-0">
+        <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold">
+            <i class="bi bi-diagram-3-fill"></i> 시험 진행 단계 및 결과 (Curriculum Process)
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 text-center">
+                    <thead class="bg-light">
+                        <tr>
+                            <th width="20%">시험명</th>
+                            <th width="10%">최근 점수</th>
+                            <th width="10%">상태</th>
+                            <th width="40%">진행 단계 (Process)</th>
+                            <th width="20%">최종 응시일</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in exam_process_list %}
+                        <tr>
+                            <td class="text-start ps-4 fw-bold">
+                                {% if item.quiz.category == 'common' %}
+                                    <span class="badge bg-secondary me-1">공통</span>
+                                {% else %}
+                                    <span class="badge bg-info text-dark me-1">공정</span>
+                                {% endif %}
+                                {{ item.quiz.title }}
+                            </td>
+                            <td class="fw-bold {% if item.status == 'fail' %}text-danger{% elif item.status == 'pass' %}text-primary{% endif %}">
+                                {{ item.score }}
+                            </td>
+                            <td>
+                                {% if item.status == 'pass' %}
+                                    <span class="badge bg-primary">합격</span>
+                                {% elif item.status == 'fail' %}
+                                    <span class="badge bg-danger">불합격</span>
+                                    {% if item.is_locked %}
+                                        <div class="mt-1"><span class="badge bg-warning text-dark"><i class="bi bi-lock-fill"></i> 잠김</span></div>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-secondary bg-opacity-50">미응시</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="d-flex justify-content-center align-items-center gap-2">
+                                    <button type="button" class="btn btn-sm position-relative {% if item.try_1 %}{% if item.try_1.is_pass %}btn-outline-primary active{% else %}btn-outline-danger active{% endif %}{% else %}btn-outline-secondary disabled opacity-25{% endif %}" style="width: 70px;">
+                                        1차{% if item.try_1 %}<span class="d-block x-small">{{ item.try_1.score }}점</span>{% endif %}
+                                    </button>
+                                    <i class="bi bi-chevron-right text-muted"></i>
+                                    <button type="button" class="btn btn-sm position-relative {% if item.try_2 %}{% if item.try_2.is_pass %}btn-outline-primary active{% else %}btn-outline-danger active{% endif %}{% else %}btn-outline-secondary disabled opacity-25{% endif %}" style="width: 70px;">
+                                        2차{% if item.try_2 %}<span class="d-block x-small">{{ item.try_2.score }}점</span>{% endif %}
+                                    </button>
+                                    <i class="bi bi-chevron-right text-muted"></i>
+                                    <button type="button" class="btn btn-sm position-relative {% if item.try_3 %}{% if item.try_3.is_pass %}btn-outline-primary active{% else %}btn-outline-danger active{% endif %}{% else %}btn-outline-secondary disabled opacity-25{% endif %}" style="width: 70px;">
+                                        3차+
+                                    </button>
+                                </div>
+                            </td>
+                            <td class="text-muted small">{{ item.date|default:"-" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="py-4 text-muted">등록된 시험 커리큘럼이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-lg-5">
             <div class="card shadow-sm border-0 sticky-top" style="top: 20px;">
-                <div class="card-header bg-primary text-white fw-bold">
-                    <i class="bi bi-pencil-square"></i> 새 기록 작성 / 잠금 해제
+                <div class="card-header bg-dark text-white fw-bold">
+                    <i class="bi bi-pencil-square"></i> 관리자 조치 / 기록 작성
                 </div>
                 <div class="card-body">
                     <form method="post">
                         {% csrf_token %}
-                        
                         <div class="mb-3">
                             <label class="form-label fw-bold">기록 유형</label>
                             <select name="log_type" class="form-select" id="logTypeSelect">
@@ -70,66 +143,50 @@
                         </div>
 
                         <div id="lockedExamDiv" class="mb-3 p-3 bg-light border rounded">
-                            <label class="form-label fw-bold text-danger">
-                                <i class="bi bi-lock-fill"></i> 해제할 시험 선택
-                            </label>
-                            
+                            <label class="form-label fw-bold text-danger"><i class="bi bi-lock-fill"></i> 해제할 시험 선택</label>
                             <select name="related_quiz_id" class="form-select" id="lockedQuizSelect">
-                                <option value="">-- 선택하세요 (자동완성) --</option>
+                                <option value="">-- 선택 안 함 (경고 누적 해제 시) --</option>
                                 {% for log in locked_logs %}
                                     <option value="{{ log.related_quiz.id }}" 
                                             data-exam-title="{{ log.related_quiz.title }}"
-                                            data-fail-stage="{{ log.stage }}"
+                                            data-fail-stage="재응시"
                                             data-fail-date="{{ log.created_at|date:'Y-m-d' }}">
-                                            [불합격 {{ log.stage }}차] {{ log.related_quiz.title }} ({{ log.created_at|date:"Y-m-d" }})
+                                            [불합격] {{ log.related_quiz.title }} ({{ log.created_at|date:"Y-m-d" }})
                                     </option>
                                 {% empty %}
                                     <option value="" disabled>현재 잠겨있는 시험이 없습니다.</option>
                                 {% endfor %}
                             </select>
-                            <div class="form-text small text-muted mt-2">
-                                * 목록에 없는 시험은 이미 해제되었거나 정상 상태입니다.
-                            </div>
                         </div>
 
                         <div class="mb-3">
                             <label class="form-label fw-bold">사유 및 내용 <span class="text-danger">*</span></label>
                             <textarea name="reason" id="reasonArea" class="form-control" rows="4" required></textarea>
-                            <div class="form-text small">
-                                * 시험을 선택하면 내용이 자동으로 입력됩니다.
-                            </div>
+                            <div class="form-text small">* 시험을 선택하면 내용이 자동으로 입력됩니다.</div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label fw-bold">조치 사항 (Action Taken)</label>
+                            <label class="form-label fw-bold">조치 사항</label>
                             <input type="text" name="action_taken" id="actionInput" class="form-control">
                         </div>
 
                         <div id="unlockOptions" class="card bg-light border-warning mb-3">
                             <div class="card-body p-3">
                                 <h6 class="fw-bold text-dark border-bottom pb-2 mb-2">🔓 잠금 해제 옵션</h6>
-                                
                                 <div class="form-check mb-2">
                                     <input type="checkbox" class="form-check-input" name="resolve_lock" id="resolveCheck">
-                                    <label class="form-check-label fw-bold text-primary" for="resolveCheck">
-                                        조치 완료 및 잠금 해제
-                                    </label>
+                                    <label class="form-check-label fw-bold text-primary" for="resolveCheck">조치 완료 및 잠금 해제</label>
                                 </div>
-
                                 {% if profile.warning_count == 3 %}
                                 <div class="form-check bg-white p-2 border rounded mt-2">
                                     <input type="checkbox" class="form-check-input" name="pl_check" id="plCheck">
-                                    <label class="form-check-label text-danger fw-bold small" for="plCheck">
-                                        [필수] PL(파트장) 면담 진행 확인
-                                    </label>
+                                    <label class="form-check-label text-danger fw-bold small" for="plCheck">[필수] PL(파트장) 면담 진행 확인</label>
                                 </div>
                                 {% endif %}
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary w-100 fw-bold py-2">
-                            <i class="bi bi-save"></i> 기록 저장 및 적용
-                        </button>
+                        <button type="submit" class="btn btn-primary w-100 fw-bold py-2"><i class="bi bi-save"></i> 기록 저장 및 적용</button>
                     </form>
                 </div>
             </div>
@@ -137,7 +194,6 @@
 
         <div class="col-lg-7">
             <h5 class="fw-bold mb-3 mt-4 mt-lg-0"><i class="bi bi-clock-history"></i> 기록 히스토리</h5>
-            
             <div class="vstack gap-3">
                 {% for log in logs %}
                 <div class="card border-0 shadow-sm">
@@ -147,53 +203,21 @@
                         {% elif log.log_type == 'counseling' %}border-success
                         {% elif log.log_type == 'exam_fail' %}border-secondary
                         {% else %}border-info{% endif %}">
-                        
                         <div class="d-flex justify-content-between mb-2">
-                            <span class="badge rounded-pill 
-                                {% if log.log_type == 'warning' %}bg-warning text-dark
-                                {% elif log.log_type == 'warning_letter' %}bg-danger
-                                {% elif log.log_type == 'counseling' %}bg-success
-                                {% elif log.log_type == 'exam_fail' %}bg-secondary
-                                {% else %}bg-info text-dark{% endif %}">
-                                {{ log.get_log_type_display }}
-                            </span>
+                            <span class="badge rounded-pill {% if log.log_type == 'warning' %}bg-warning text-dark{% elif log.log_type == 'warning_letter' %}bg-danger{% elif log.log_type == 'counseling' %}bg-success{% else %}bg-secondary{% endif %}">{{ log.get_log_type_display }}</span>
                             <small class="text-muted">{{ log.created_at|date:"Y-m-d H:i" }}</small>
                         </div>
-                        
-                        <div class="mb-2">
-                            <strong>내용:</strong><br>
-                            {{ log.reason|linebreaksbr }}
-                        </div>
-
-                        {% if log.related_quiz %}
-                        <div class="small text-primary mb-2">
-                            <i class="bi bi-clipboard-check"></i> 관련 시험: {{ log.related_quiz.title }}
-                        </div>
-                        {% endif %}
-
-                        {% if log.action_taken %}
-                        <div class="bg-light p-2 rounded small mb-2 text-secondary">
-                            <strong>⚡ 조치:</strong> {{ log.action_taken }}
-                        </div>
-                        {% endif %}
-
+                        <div class="mb-2"><strong>내용:</strong><br>{{ log.reason|linebreaksbr }}</div>
+                        {% if log.related_quiz %}<div class="small text-primary mb-2"><i class="bi bi-clipboard-check"></i> 관련 시험: {{ log.related_quiz.title }}</div>{% endif %}
+                        {% if log.action_taken %}<div class="bg-light p-2 rounded small mb-2 text-secondary"><strong>⚡ 조치:</strong> {{ log.action_taken }}</div>{% endif %}
                         <div class="d-flex justify-content-between align-items-end mt-2 pt-2 border-top">
-                            <small class="text-muted">
-                                <i class="bi bi-pencil"></i> 기록자: {{ log.recorder.profile.name|default:"시스템" }}
-                            </small>
-                            {% if log.is_resolved %}
-                                <span class="badge bg-primary-subtle text-primary border border-primary">
-                                    <i class="bi bi-check-all"></i> 조치 완료
-                                </span>
-                            {% endif %}
+                            <small class="text-muted"><i class="bi bi-pencil"></i> 기록자: {{ log.recorder.profile.name|default:"시스템" }}</small>
+                            {% if log.is_resolved %}<span class="badge bg-primary-subtle text-primary border border-primary"><i class="bi bi-check-all"></i> 조치 완료</span>{% endif %}
                         </div>
                     </div>
                 </div>
                 {% empty %}
-                <div class="text-center py-5 text-muted border rounded bg-light">
-                    <i class="bi bi-clipboard-x fs-1 opacity-25"></i>
-                    <p class="mt-3 mb-0">등록된 기록이 없습니다.</p>
-                </div>
+                <div class="text-center py-5 text-muted border rounded bg-light"><p class="mb-0">기록이 없습니다.</p></div>
                 {% endfor %}
             </div>
         </div>
@@ -202,7 +226,6 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // 요소 가져오기
         const logTypeSelect = document.getElementById('logTypeSelect');
         const lockedExamDiv = document.getElementById('lockedExamDiv');
         const unlockOptions = document.getElementById('unlockOptions');
@@ -211,55 +234,40 @@
         const actionInput = document.getElementById('actionInput');
         const resolveCheck = document.getElementById('resolveCheck');
 
-        // 1. [UI 제어] 기록 유형에 따라 화면 보이기/숨기기
         function toggleUI() {
-            // 'counseling'(면담)일 때만 잠금 해제 관련 UI 표시
             if (logTypeSelect.value === 'counseling') {
                 lockedExamDiv.style.display = 'block';
                 unlockOptions.style.display = 'block';
             } else {
-                // 경고장(warning_letter), 경고(warning), 기타 등일 때는 숨김
                 lockedExamDiv.style.display = 'none';
                 unlockOptions.style.display = 'none';
-                
-                // 숨길 때 체크박스와 선택값 초기화 (오류 방지)
                 if(resolveCheck) resolveCheck.checked = false;
                 if(quizSelect) quizSelect.value = "";
             }
         }
 
-        // 2. [자동완성] 시험 선택 시 내용 자동 채우기
         if (quizSelect) {
             quizSelect.addEventListener('change', function() {
                 const selectedOption = this.options[this.selectedIndex];
-                
                 if (this.value) {
-                    // HTML data 속성에서 값 가져오기
                     const title = selectedOption.getAttribute('data-exam-title');
                     const stage = selectedOption.getAttribute('data-fail-stage');
                     const date = selectedOption.getAttribute('data-fail-date');
                     
-                    // 체크박스 자동 체크
                     if(resolveCheck) resolveCheck.checked = true;
-
-                    // 사유 및 내용 자동 채우기 (이미 내용이 있으면 덮어쓰지 않음)
+                    
+                    // [누락 보완 2] 차수(stage)와 날짜(date)를 포함하여 상세 내용 자동 입력
                     if (!reasonArea.value.trim()) { 
                         reasonArea.value = `[${stage}차 불합격 면담]\n- 시험명: ${title}\n- 응시일: ${date}\n\n[면담 내용]\n- 불합격 사유 파악 및 재응시 기회 부여함.`;
                     }
-                    if (!actionInput.value.trim()) {
-                        actionInput.value = "재응시 잠금 해제 완료";
-                    }
-                } else {
-                    // 선택 취소 시 체크 해제
-                    if(resolveCheck) resolveCheck.checked = false;
+                    if (!actionInput.value.trim()) actionInput.value = "재응시 잠금 해제 완료";
                 }
             });
         }
-
-        // 초기 실행 및 이벤트 리스너 연결
+        
         if(logTypeSelect) {
             logTypeSelect.addEventListener('change', toggleUI);
-            toggleUI(); // 페이지 로드 시 상태 반영
+            toggleUI();
         }
     });
 </script>

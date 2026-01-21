@@ -9,6 +9,7 @@ from django.utils import timezone
 import calendar
 from datetime import datetime, date, timedelta
 import json
+import math  # [수정] 거리 계산(Haversine)을 위해 필수 추가
 from django.db.models import Q, Sum
 
 # [필수] 공휴일 라이브러리
@@ -19,8 +20,8 @@ except ImportError:
 
 # 모델 Import
 from accounts.models import Profile, Process, Cohort, PartLeader
-from quiz.models import StudentLog # [추가] 알림 발송용
-from .models import WorkType, DailySchedule, ScheduleRequest, Attendance # Attendance 모델 필요
+from quiz.models import StudentLog  # [추가] 알림 발송용
+from .models import WorkType, DailySchedule, ScheduleRequest, Attendance 
 
 
 # ------------------------------------------------------------------
@@ -31,13 +32,13 @@ def calculate_annual_leave_total(profile, target_year):
     입사일(joined_at) 기준으로 해당 연도의 총 연차 개수를 계산합니다.
     """
     if not profile.joined_at:
-        return 15 # 입사일 없으면 기본값
+        return 15  # 입사일 없으면 기본값
     
     # 근속 연수 계산 (대상 년도 - 입사 년도)
     years_worked = target_year - profile.joined_at.year
     
     if years_worked < 1:
-        return 15 # 1년차 미만
+        return 15  # 1년차 미만
     
     # 가산 연차 계산: (근속연수 - 1) // 2
     added_days = (years_worked - 1) // 2
@@ -61,6 +62,21 @@ def can_manage_schedule(user, target_profile):
             return True
             
     return False
+
+
+# ------------------------------------------------------------------
+# [Helper] 거리 계산 함수 (Haversine 공식)
+# ------------------------------------------------------------------
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Haversine 공식을 이용한 거리 계산 (단위: km)"""
+    R = 6371  # 지구 반지름 (km)
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = math.sin(d_lat / 2) * math.sin(d_lat / 2) + \
+        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * \
+        math.sin(d_lon / 2) * math.sin(d_lon / 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
 
 
 # ------------------------------------------------------------------
@@ -99,17 +115,13 @@ def process_attendance(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': f'시스템 오류: {str(e)}'})
 
-# (구버전 호환용 - 필요 없다면 삭제 가능하지만 URL 에러 방지 위해 유지)
+# (구버전 호환용)
 @login_required
 def upload_mdm(request):
-    return redirect('attendance:mdm_status') # 신규 페이지로 리다이렉트 권장
+    return redirect('attendance:mdm_status') 
 
 @login_required
 def mdm_status(request):
-    # 출근 기록 조회 페이지 (Attendance 모델 조회)
-    # 기존 DailySchedule 대신 Attendance 모델을 보여주는 것이 맞으나,
-    # 여기서는 템플릿 호환성을 위해 DailySchedule을 보여주거나 수정 필요.
-    # 일단은 출근 인증 화면(index.html)을 보여주는 뷰로 연결하는 것이 좋음.
     return render(request, 'attendance/index.html') 
 
 
@@ -375,60 +387,80 @@ def get_pending_requests(request):
     return JsonResponse({'requests': data})
 
 
-# ------------------------------------------------------------------
-# [핵심 수정] 4. 근무 변경 요청 승인/반려 (알림 발송 추가)
-# ------------------------------------------------------------------
 @login_required
-@require_POST
-def process_request(request):
+def process_request(request, request_id, action):
     """
-    승인(approve) -> 근무표 변경 + '승인' 알림 발송
-    반려(reject)  -> 변경 없음 + '반려' 알림 발송
+    근무 변경 요청 승인(approve) / 반려(reject) 통합 처리
     """
+    # 1. POST 요청만 허용 (보안)
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': '잘못된 접근입니다.'}, status=405)
+
+    # 2. 관리자 권한 확인 (스태프 이상)
+    if not request.user.is_staff:
+        return JsonResponse({'status': 'error', 'message': '관리자 권한이 없습니다.'}, status=403)
+
     try:
-        data = json.loads(request.body)
-        req = get_object_or_404(ScheduleRequest, pk=data.get('request_id'))
-        
-        can_approve = False
-        if request.user.is_superuser:
-            can_approve = True
-        elif hasattr(request.user, 'profile') and request.user.profile.is_manager:
-            if request.user.profile.process == req.requester.process:
-                can_approve = True
-        
-        if not can_approve: return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
-
-        action = data.get('action')
-        log_message = ""
-        
-        if action == 'approve':
-            # 1. 근무표 반영
-            DailySchedule.objects.update_or_create(
-                profile=req.requester, date=req.date, defaults={'work_type': req.target_work_type}
-            )
-            req.status = 'approved'
-            log_message = f"[{req.date}] 근무 변경 요청이 승인되었습니다. ({req.target_work_type.name})"
+        with transaction.atomic():
+            req_obj = get_object_or_404(ScheduleRequest, id=request_id)
             
-        else:
-            # 2. 반려 (변경 없음)
-            req.status = 'rejected'
-            log_message = f"[{req.date}] 근무 변경 요청이 반려되었습니다."
+            # 이미 처리된 요청인지 확인
+            if req_obj.status != 'pending':
+                return JsonResponse({'status': 'error', 'message': '이미 처리된 요청입니다.'})
 
-        req.approver = request.user
-        req.save()
+            # ============================================
+            # [CASE 1] 승인 (Approve)
+            # ============================================
+            if action == 'approve':
+                # 1) 상태 변경
+                req_obj.status = 'approved'
+                req_obj.approver = request.user
+                req_obj.save()
 
-        # [알림 발송] StudentLog 생성
-        StudentLog.objects.create(
-            profile=req.requester,
-            log_type='counseling', # 또는 notification 등 적절한 타입 사용
-            reason=log_message,
-            created_by=request.user,
-            is_resolved=True # 단순 알림이므로 완료 처리
-        )
+                # 2) 근무표 실제 반영 (DailySchedule 업데이트)
+                daily, created = DailySchedule.objects.get_or_create(
+                    profile=req_obj.requester,  
+                    date=req_obj.date
+                )
+                daily.work_type = req_obj.target_work_type
+                daily.save()
 
-        return JsonResponse({'status': 'success'})
+                # 3) 알림 로그 생성 (★ recorder 필드명 수정됨)
+                StudentLog.objects.create(
+                    profile=req_obj.requester,
+                    log_type='others', # 승인은 단순 알림 성격이므로 'others' 또는 'system'
+                    reason=f"[근무변경 승인] {req_obj.date} 근무가 '{req_obj.target_work_type.short_name}'(으)로 변경되었습니다.",
+                    is_resolved=True,
+                    recorder=request.user # ★ [수정 완료] created_by -> recorder
+                )
+                
+                return JsonResponse({'status': 'success', 'message': '승인이 완료되었습니다.'})
+
+            # ============================================
+            # [CASE 2] 반려 (Reject)
+            # ============================================
+            elif action == 'reject':
+                req_obj.status = 'rejected'
+                req_obj.approver = request.user
+                req_obj.save()
+
+                # 알림 로그 생성 (★ recorder 필드명 수정됨)
+                StudentLog.objects.create(
+                    profile=req_obj.requester,
+                    log_type='warning', # 반려/거절은 주의 환기 차원에서 'warning' 사용 가능 (선택 사항)
+                    reason=f"[근무변경 반려] {req_obj.date} 요청이 반려되었습니다. (사유: {req_obj.reason})",
+                    is_resolved=True,
+                    recorder=request.user # ★ [수정 완료] created_by -> recorder
+                )
+
+                return JsonResponse({'status': 'success', 'message': '요청이 반려되었습니다.'})
+
+            else:
+                return JsonResponse({'status': 'error', 'message': '알 수 없는 명령입니다.'})
+
     except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+        print(f"❌ [에러발생] process_request 중 오류: {e}")
+        return JsonResponse({'status': 'error', 'message': f'서버 오류 발생: {str(e)}'}, status=500)
 
 
 # ------------------------------------------------------------------
@@ -481,81 +513,6 @@ def apply_all_normal(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
     
-@login_required
-def process_request(request, request_id, action):
-    """
-    [수정] 필드명 오류 수정 (new_work_type -> work_type)
-    """
-    if request.method != 'POST':
-        return JsonResponse({'status': 'error', 'message': '잘못된 접근입니다.'}, status=405)
-
-    if not request.user.is_staff:
-        return JsonResponse({'status': 'error', 'message': '관리자 권한이 없습니다.'}, status=403)
-
-    try:
-        with transaction.atomic():
-            req_obj = get_object_or_404(ScheduleRequest, id=request_id)
-            
-            print(f"🔹 [처리시작] 요청ID: {request_id}, 액션: {action}, 요청자: {req_obj.requester}")
-
-            if req_obj.status != 'pending':
-                return JsonResponse({'status': 'error', 'message': '이미 처리된 요청입니다.'})
-
-            # ============================================
-            # [CASE 1] 승인 (Approve)
-            # ============================================
-            if action == 'approve':
-                # 1) 상태 변경
-                req_obj.status = 'approved'
-                req_obj.save()
-
-                # 2) 근무표 변경
-                daily, created = DailySchedule.objects.get_or_create(
-                    profile=req_obj.requester,  
-                    date=req_obj.date
-                )
-                
-                # [수정] new_work_type -> work_type 으로 변경
-                daily.work_type = req_obj.target_work_type
-                daily.save()
-
-                # 3) 알림 생성
-                # [수정] new_work_type -> work_type 으로 변경
-                StudentLog.objects.create(
-                    profile=req_obj.requester,
-                    log_type='system',
-    reason=f"[근무변경 승인] {req_obj.date} 근무가 '{req_obj.target_work_type.short_name}'(으)로 변경되었습니다.",
-                    is_resolved=True,
-                    created_by=request.user
-                )
-                
-                print(f"✅ [성공] 승인 완료: {req_obj.date} -> {req_obj.date} -> {req_obj.target_work_type.short_name}")
-                return JsonResponse({'status': 'success', 'message': '승인이 완료되었습니다.'})
-
-            # ============================================
-            # [CASE 2] 반려 (Reject)
-            # ============================================
-            elif action == 'reject':
-                req_obj.status = 'rejected'
-                req_obj.save()
-
-                StudentLog.objects.create(
-                    profile=req_obj.requester,
-                    log_type='warning',
-                    reason=f"[근무변경 반려] {req_obj.date} 요청이 반려되었습니다. (사유: {req_obj.reason})",
-                    is_resolved=True,
-                    created_by=request.user
-                )
-
-                print(f"✅ [성공] 반려 완료")
-                return JsonResponse({'status': 'success', 'message': '요청이 반려되었습니다.'})
-
-            else:
-                return JsonResponse({'status': 'error', 'message': '알 수 없는 명령입니다.'})
-
-    except Exception as e:
-        print(f"❌ [에러발생] process_request 중 오류: {e}")
-        return JsonResponse({'status': 'error', 'message': f'서버 오류 발생: {str(e)}'}, status=500)
 
 @login_required
 def check_in_page(request):
@@ -618,14 +575,3 @@ def check_in_api(request):
 
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
-
-def calculate_distance(lat1, lon1, lat2, lon2):
-    """Haversine 공식을 이용한 거리 계산 (단위: km)"""
-    R = 6371  # 지구 반지름 (km)
-    d_lat = math.radians(lat2 - lat1)
-    d_lon = math.radians(lon2 - lon1)
-    a = math.sin(d_lat / 2) * math.sin(d_lat / 2) + \
-        math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * \
-        math.sin(d_lon / 2) * math.sin(d_lon / 2)
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c

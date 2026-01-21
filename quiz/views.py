@@ -2393,43 +2393,88 @@ def manager_trainee_list(request):
 @login_required
 def manager_trainee_detail(request, profile_id):
     """
-    교육생의 시험 결과와 로그를 효율적으로 매칭하여 보여주는 뷰
-    (수정사항: DB 쿼리 최적화 및 데이터 매칭 안정성 강화)
+    [교육생 상세] 시험 진행 프로세스(Curriculum Process) 뷰
+    - 공통/공정 시험 목록을 모두 가져와서 1차/2차 진행 상황을 버튼 형태로 가공함
+    - 쪽지(Popover) 기능에 필요한 상세 로그 포함
     """
-    if not request.user.is_staff: 
+    if not request.user.is_staff:
+        messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
 
     profile = get_object_or_404(Profile, pk=profile_id)
+    student = profile.user
 
-    # 1. 시험 결과 가져오기
-    # select_related를 써서 Quiz 정보까지 한 번에 로딩 (속도 향상)
-    results = list(TestResult.objects.filter(user=profile.user).select_related('quiz').order_by('-completed_at'))
+    # ========================================================
+    # [1] 커리큘럼(시험 목록) 가져오기
+    # ========================================================
+    # 공통(common) + 해당 학생의 공정(related_process) 시험 모두 조회
+    target_quizzes = Quiz.objects.filter(
+        Q(category='common') | Q(related_process=profile.process)
+    ).distinct().order_by('category', 'title')
 
-    # 2. [핵심 수정] 반복문 밖에서 이 학생의 '모든 로그'를 한 번에 가져옵니다.
-    # 기존 코드처럼 반복문 안에서 filter()를 쓰면 DB를 수십 번 왔다갔다 하면서 데이터가 씹힐 수 있습니다.
-    # 여기서 related_quiz(시험정보)까지 꽉 잡아서 가져옵니다.
-    all_logs = StudentLog.objects.filter(profile=profile).select_related('related_quiz')
+    # ========================================================
+    # [2] 프로세스 데이터 가공 (HTML의 exam_process_list 와 매칭)
+    # ========================================================
+    exam_process_list = []
 
-    # 3. [파이썬 메모리 매칭] 가져온 데이터들을 짝지어 줍니다.
-    for result in results:
-        # 전체 로그(all_logs) 중에서 '이 시험(result.quiz.id)'과 연결된 것만 골라냅니다.
-        # (DB를 안 가고 메모리에서 찾으므로 내용이 빈칸으로 뜨는 오류가 사라집니다.)
-        matched_logs = [log for log in all_logs if log.related_quiz_id == result.quiz.id]
+    for quiz in target_quizzes:
+        # created_at -> completed_at 으로 변경
+        history = TestResult.objects.filter(user=student, quiz=quiz).order_by('completed_at')
+        attempts = list(history)
+        count = len(attempts)
+        last_result = attempts[-1] if count > 0 else None
+        
+        # 2. 기본 표시 정보 (점수, 날짜, 상태)
+        status = 'not_taken'
+        score = '-'
+        date = None
+        
+        if last_result:
+            score = f"{last_result.score}점"
+            date = last_result.completed_at
+            status = 'pass' if last_result.is_pass else 'fail'
 
-        # 1차, 2차, 퇴소 로그를 각각 찾아서 result에 붙여줍니다.
-        # next(...)는 조건에 맞는 첫 번째 녀석을 찾고, 없으면 None을 줍니다.
-        result.log_1st = next((log for log in matched_logs if log.stage == 1), None)
-        result.log_2nd = next((log for log in matched_logs if log.stage == 2), None)
-        result.log_final = next((log for log in matched_logs if log.stage == 3), None)
+        # 3. 잠금 여부 확인
+        is_locked = False
+        if status == 'fail':
+            is_locked = StudentLog.objects.filter(
+                profile=profile, related_quiz=quiz, log_type='exam_fail', is_resolved=False
+            ).exists()
 
-    # 4. 전체 히스토리 탭용 로그 (생성일 역순)
+        # 4. [쪽지 기능] 이 시험과 관련된 면담/특이사항 로그 가져오기
+        # (HTML에서 버튼 클릭 시 말풍선 안에 들어갈 내용)
+        quiz_logs = StudentLog.objects.filter(
+            profile=profile, related_quiz=quiz
+        ).select_related('recorder').order_by('-created_at')
+
+        # 5. 리스트에 담기 (HTML로 보낼 한 줄)
+        exam_process_list.append({
+            'quiz': quiz,
+            'status': status,      
+            'score': score,
+            'date': date,
+            # 1차, 2차, 3차 시도 객체를 각각 분리해서 전달 (버튼 표시용)
+            'try_1': attempts[0] if count >= 1 else None, 
+            'try_2': attempts[1] if count >= 2 else None, 
+            'try_3': attempts[2] if count >= 3 else None, 
+            'is_locked': is_locked,
+            'logs': quiz_logs, # ★ 이게 있어야 쪽지 내용이 나옵니다!
+        })
+
+    # ========================================================
+    # [3] 기타 데이터 (하단 히스토리 탭용)
+    # ========================================================
     logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
+    
+    # 뱃지 등 추가 정보가 있다면
+    badges = getattr(profile, 'badges', None)
+    if badges: badges = badges.all()
 
     return render(request, 'quiz/manager/trainee_detail.html', {
-        'profile': profile, 
-        'results': results, 
-        'logs': logs, 
-        'badges': profile.badges.all()
+        'profile': profile,
+        'exam_process_list': exam_process_list, # ★ 핵심: 이 변수가 있어야 화면이 뜹니다!
+        'logs': logs,
+        'badges': badges,
     })
 
 
@@ -2504,166 +2549,183 @@ def final_log_saver(request, profile_id):
 @login_required
 def manage_student_logs(request, profile_id):
     """
-    별도 페이지에서 경고/징계/면담 로직을 상세 처리하는 뷰 (경고 누적 및 시험 잠금 해제 포함)
+    [관리자용] 교육생 특이사항/로그 관리 페이지
+    - 기능: 시험 프로세스 조회, 경고/면담 기록 저장, 잠금 해제
     """
-    if not request.user.is_staff: 
+    # 1. 권한 체크
+    if not request.user.is_staff:
+        messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
-        
+
     profile = get_object_or_404(Profile, pk=profile_id)
-    
-    # [1] 잠겨있는 시험 불합격 로그 목록 조회 (화면 표시용 - 드롭다운)
+    student = profile.user
+
+    # ========================================================
+    # [1] View Data: 시험 진행 프로세스 표 데이터 생성
+    # ========================================================
+    target_quizzes = Quiz.objects.filter(
+        Q(category='common') | Q(related_process=profile.process)
+    ).distinct().order_by('category', 'title')
+
+    exam_process_list = []
+    for quiz in target_quizzes:
+        # created_at -> completed_at (수정완료)
+        history = TestResult.objects.filter(user=student, quiz=quiz).order_by('completed_at')
+        attempts = list(history)
+        count = len(attempts)
+        last_result = attempts[-1] if count > 0 else None
+        
+        status = 'not_taken'
+        score = '-'
+        date = None # 변수명 통일
+        
+        if last_result:
+            score = f"{last_result.score}점"
+            date = last_result.completed_at
+            status = 'pass' if last_result.is_pass else 'fail'
+
+        # 잠금 여부 확인
+        is_locked = False
+        if status == 'fail':
+            is_locked = StudentLog.objects.filter(
+                profile=profile, related_quiz=quiz, log_type='exam_fail', is_resolved=False
+            ).exists()
+        
+        # 쪽지 기능용 로그
+        quiz_logs = StudentLog.objects.filter(profile=profile, related_quiz=quiz).order_by('-created_at')
+
+        exam_process_list.append({
+            'quiz': quiz,
+            'status': status,
+            'score': score,
+            'date': date,
+            'try_1': attempts[0] if count >= 1 else None,
+            'try_2': attempts[1] if count >= 2 else None,
+            'try_3': attempts[2] if count >= 3 else None,
+            'is_locked': is_locked,
+            'logs': quiz_logs
+        })
+
+    # ========================================================
+    # [2] View Data: 잠긴 시험 로그 (드롭다운 선택용)
+    # ========================================================
     locked_logs = StudentLog.objects.filter(
         profile=profile,
         log_type='exam_fail',
         is_resolved=False
     ).select_related('related_quiz').order_by('-created_at')
 
-    # [POST 요청 처리] 기록 저장 및 경고/해제 로직 실행
+    # ========================================================
+    # [3] POST 요청 처리: 로그 저장 및 로직 실행
+    # ========================================================
     if request.method == 'POST':
-        form = StudentLogForm(request.POST)
-        if form.is_valid():
-            log = form.save(commit=False)
-            log.profile = profile
-            log.recorder = request.user  # 작성자 기록
-            
-            # ---------------------------------------------------
-            # [추가 데이터 처리] 폼에 없는 추가 필드 값 가져오기
-            # ---------------------------------------------------
-            # 1. 잠금 해제 체크 여부
-            is_unlocked = request.POST.get('resolve_lock') == 'on'
-            log.is_resolved = is_unlocked
+        log_type = request.POST.get('log_type')
+        reason = request.POST.get('reason')
+        action_taken = request.POST.get('action_taken')
+        
+        is_unlocked = request.POST.get('resolve_lock') == 'on'
+        pl_check = request.POST.get('pl_check') == 'on'
+        related_quiz_id = request.POST.get('related_quiz_id')
+        related_quiz = get_object_or_404(Quiz, pk=related_quiz_id) if related_quiz_id else None
 
-            # 2. 해제할 특정 시험 ID 가져오기 (드롭다운 선택 값)
-            related_quiz_id = request.POST.get('related_quiz_id')
-            if related_quiz_id:
-                log.related_quiz = get_object_or_404(Quiz, pk=related_quiz_id)
-
-            # 3. PL 면담 확인 체크 여부
-            pl_check = request.POST.get('pl_check') == 'on'
-
+        try:
             with transaction.atomic():
-                # ===================================================
-                # [A] 일반 경고 (Warning) - 단계별 누적 로직
-                # ===================================================
-                if log.log_type == 'warning':
+                # (1) 로그 생성
+                new_log = StudentLog.objects.create(
+                    profile=profile,
+                    recorder=request.user,
+                    log_type=log_type,
+                    reason=reason,
+                    action_taken=action_taken,
+                    related_quiz=related_quiz,
+                    is_resolved=is_unlocked,
+                    created_at=timezone.now()
+                )
+
+                # (2) 경고 누적 로직
+                if log_type == 'warning':
                     profile.warning_count += 1
-                    log.save() # 현재 로그 저장
-                    
-                    # 2회 누적: 1차 경고장 자동 발부 -> 잠금
                     if profile.warning_count == 2:
                         StudentLog.objects.create(
-                            profile=profile, 
-                            recorder=request.user, 
-                            log_type='warning_letter',
-                            reason="[시스템 자동] 일반 경고 2회 누적 -> 1차 경고장 발부",
-                            action_taken="계정 잠금 (매니저 면담 필요)"
+                            profile=profile, recorder=request.user, log_type='warning_letter',
+                            reason="[시스템 자동] 경고 2회 누적 -> 1차 경고장", action_taken="매니저 면담 필요", is_resolved=False
                         )
                         profile.status = 'counseling'
-                        messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 발부되고 계정이 잠겼습니다.")
-
-                    # 3회 누적: 2차 경고장 자동 발부 -> 잠금 (PL 면담 필수)
+                        messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 자동 발부되었습니다.")
                     elif profile.warning_count == 3:
                         StudentLog.objects.create(
-                            profile=profile, 
-                            recorder=request.user, 
-                            log_type='warning_letter',
-                            reason="[시스템 자동] 일반 경고 3회 누적 -> 2차 경고장 발부",
-                            action_taken="계정 잠금 (PL 면담 필수)"
+                            profile=profile, recorder=request.user, log_type='warning_letter',
+                            reason="[시스템 자동] 경고 3회 누적 -> 2차 경고장", action_taken="PL 면담 필수", is_resolved=False
                         )
                         profile.status = 'counseling'
-                        messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다. (PL 면담 필수)")
-
-                    # 4회 이상: 퇴소
+                        messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다.")
                     elif profile.warning_count >= 4:
                         profile.status = 'dropout'
+                        profile.user.is_active = False
+                        profile.user.save()
                         messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
-                    
-                    # 1회: 주의
                     else:
                         profile.status = 'caution'
-                        messages.info(request, "일반 경고가 등록되었습니다. (상태: 주의)")
+                        messages.info(request, "경고가 1회 적립되었습니다.")
 
-                # ===================================================
-                # [B] 경고장 즉시 발부 (Warning Letter)
-                # ===================================================
-                elif log.log_type == 'warning_letter':
-                    # 기존 횟수가 적더라도 최소 2회(1차)나 3회(2차)로 점프
-                    if profile.warning_count < 2: 
-                        profile.warning_count = 2
-                    else: 
-                        profile.warning_count += 1
+                # (3) 경고장 수동 발부
+                elif log_type == 'warning_letter':
+                    if profile.warning_count < 2: profile.warning_count = 2
+                    else: profile.warning_count += 1
                     
-                    profile.status = 'counseling'
-                    if profile.warning_count >= 4: 
+                    if profile.warning_count >= 4:
                         profile.status = 'dropout'
-                    
-                    log.save()
-                    messages.warning(request, f"⛔ 경고장이 즉시 발부되었습니다. (현재 누적: {profile.warning_count}회)")
-
-                # ===================================================
-                # [C] 면담 및 조치 (Counseling/Fail) - ★ 잠금 해제 핵심 ★
-                # ===================================================
-                elif log.log_type == 'counseling' or log.log_type == 'exam_fail': 
-                    log.save() # 면담 기록 먼저 저장
-
-                    if is_unlocked:
-                        # [1] 특정 시험 잠금 해제 (드롭다운에서 선택한 경우)
-                        if log.related_quiz:
-                            updated_count = StudentLog.objects.filter(
-                                profile=profile,
-                                related_quiz=log.related_quiz,
-                                log_type='exam_fail',
-                                is_resolved=False
-                            ).update(is_resolved=True)
-                            
-                            if updated_count > 0:
-                                messages.success(request, f"✅ '{log.related_quiz.title}' 시험의 재응시 잠금이 해제되었습니다.")
-                            else:
-                                messages.warning(request, "선택한 시험에 대해 해제할 잠금(불합격 기록)을 찾지 못했습니다.")
-
-                        # [2] 계정 상태 정상화 (경고 누적 잠금 해제 시)
-                        # 3회차(2차 경고장) 해제 시 PL 면담 확인 여부 체크
-                        if profile.warning_count == 3 and not pl_check:
-                             messages.error(request, "🚫 3회 누적자는 'PL 면담 확인'을 체크해야 잠금이 해제됩니다.")
-                             log.is_resolved = False
-                             log.save()
-                             return redirect('quiz:manage_student_logs', profile_id=profile.id)
-
-                        # 퇴소 상태는 해제 불가
-                        if profile.warning_count >= 4:
-                            profile.status = 'dropout'
-                            messages.warning(request, "퇴소 대상자는 잠금을 해제할 수 없습니다.")
-                        else:
-                            # 시험만 푸는 경우가 아니라면 상태를 정상으로 복구
-                            profile.status = 'attending'
-                            if not log.related_quiz:
-                                messages.success(request, "✅ 조치가 완료되어 계정이 정상화되었습니다.")
+                        profile.user.is_active = False
+                        profile.user.save()
                     else:
-                        messages.success(request, "면담 기록이 저장되었습니다.")
+                        profile.status = 'counseling'
+                    messages.warning(request, f"⛔ 경고장이 발부되었습니다.")
 
-                # ===================================================
-                # [D] 기타 일반 로그
-                # ===================================================
-                else:
-                    log.save()
-                    messages.success(request, "기록되었습니다.")
+                # (4) 면담 및 잠금 해제
+                elif log_type == 'counseling' or log_type == 'exam_fail':
+                    if is_unlocked:
+                        if related_quiz:
+                            StudentLog.objects.filter(
+                                profile=profile, related_quiz=related_quiz, log_type='exam_fail', is_resolved=False
+                            ).update(is_resolved=True)
+                            messages.success(request, f"시험 '{related_quiz.title}' 잠금 해제됨.")
+
+                        if profile.warning_count == 3 and not pl_check:
+                            messages.error(request, "🚫 3회 누적자는 'PL 면담 확인' 필수입니다.")
+                            new_log.is_resolved = False
+                            new_log.save()
+                        elif profile.warning_count >= 4:
+                            profile.status = 'dropout'
+                            messages.error(request, "퇴소자는 잠금을 해제할 수 없습니다.")
+                            new_log.is_resolved = False
+                            new_log.save()
+                        else:
+                            if profile.status == 'counseling': profile.status = 'attending'
+                            if not profile.user.is_active:
+                                profile.user.is_active = True
+                                profile.user.save()
+                            messages.success(request, "계정이 정상화되었습니다.")
+                    else:
+                        messages.info(request, "면담 기록이 저장되었습니다.")
 
                 profile.save()
-                
-            return redirect('quiz:manage_student_logs', profile_id=profile.id)
-    
-    else:
-        # [GET 요청] 빈 폼 생성
-        form = StudentLogForm()
+        except Exception as e:
+            messages.error(request, f"저장 중 오류 발생: {e}")
 
-    # 히스토리 목록 조회
+        return redirect('quiz:manage_student_logs', profile_id=profile.id)
+
+    # ========================================================
+    # [4] GET: 최종 데이터 렌더링
+    # ========================================================
     logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
-    
+
+    # ★ 에러가 나던 badges 코드는 삭제했습니다.
+    # ★ 템플릿도 manage_student_logs.html 로 정확히 지정했습니다.
     return render(request, 'quiz/manager/manage_student_logs.html', {
-        'profile': profile, 
+        'profile': profile,
+        'exam_process_list': exam_process_list,
         'logs': logs,
-        'locked_logs': locked_logs, # ★ 핵심: 잠겨있는 시험 목록을 HTML로 전달
-        'form': form
+        'locked_logs': locked_logs,
     })
 
 
@@ -2671,34 +2733,185 @@ def manage_student_logs(request, profile_id):
 # 4. 최종 평가서 작성 (데이터 통계 포함)
 # =========================================================
 @login_required
-def manager_trainee_report(request, profile_id):
+def manage_student_logs(request, profile_id):
+    """
+    [관리자용] 교육생 특이사항/로그 관리 페이지 (완전 수정본)
+    - 기능: 시험 프로세스 조회, 경고/면담 기록 저장, 잠금 해제
+    """
+    # 1. 권한 체크
+    if not request.user.is_staff:
+        messages.error(request, "접근 권한이 없습니다.")
+        return redirect('quiz:index')
+
     profile = get_object_or_404(Profile, pk=profile_id)
-    
-    # 1. 통계 데이터 계산 (왼쪽 사이드바용)
-    results = TestResult.objects.filter(user=profile.user)
-    
-    # 평균 점수
-    avg_score = results.aggregate(Avg('score'))['score__avg']
-    avg_score = round(avg_score, 1) if avg_score else 0
-    
-    # 재시험(불합격) 횟수
-    fail_count = results.filter(is_pass=False).count()
-    
-    # 최근 특이사항 로그 (최신 5개)
-    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')[:5]
+    student = profile.user
 
-    # 2. 저장(POST) 처리
+    # ========================================================
+    # [1] View Data: 시험 진행 프로세스 표 데이터 생성
+    # ========================================================
+    # 필드명 related_process 로 수정완료
+    target_quizzes = Quiz.objects.filter(
+        Q(category='common') | Q(related_process=profile.process)
+    ).distinct().order_by('category', 'title')
+
+    exam_process_list = []
+    for quiz in target_quizzes:
+        # created_at -> completed_at (수정완료)
+        history = TestResult.objects.filter(user=student, quiz=quiz).order_by('completed_at')
+        attempts = list(history)
+        count = len(attempts)
+        last_result = attempts[-1] if count > 0 else None
+        
+        status = 'not_taken'
+        score = '-'
+        date = None # 변수명 통일
+        
+        if last_result:
+            score = f"{last_result.score}점"
+            date = last_result.completed_at
+            status = 'pass' if last_result.is_pass else 'fail'
+
+        # 잠금 여부 확인
+        is_locked = False
+        if status == 'fail':
+            is_locked = StudentLog.objects.filter(
+                profile=profile, related_quiz=quiz, log_type='exam_fail', is_resolved=False
+            ).exists()
+        
+        # 쪽지 기능용 로그
+        quiz_logs = StudentLog.objects.filter(profile=profile, related_quiz=quiz).order_by('-created_at')
+
+        exam_process_list.append({
+            'quiz': quiz,
+            'status': status,
+            'score': score,
+            'date': date, # last_date 오타 수정완료
+            'try_1': attempts[0] if count >= 1 else None,
+            'try_2': attempts[1] if count >= 2 else None,
+            'try_3': attempts[2] if count >= 3 else None,
+            'is_locked': is_locked,
+            'logs': quiz_logs
+        })
+
+    # ========================================================
+    # [2] View Data: 잠긴 시험 로그 (드롭다운 선택용)
+    # ========================================================
+    locked_logs = StudentLog.objects.filter(
+        profile=profile,
+        log_type='exam_fail',
+        is_resolved=False
+    ).select_related('related_quiz').order_by('-created_at')
+
+    # ========================================================
+    # [3] POST 요청 처리: 로그 저장 및 로직 실행
+    # ========================================================
     if request.method == 'POST':
-        # (여기에 평가 저장 로직 구현 가능)
-        messages.success(request, f"{profile.name}님의 최종 평가가 저장되었습니다.")
-        return redirect('quiz:manager_trainee_detail', profile_id=profile.id)
+        log_type = request.POST.get('log_type')
+        reason = request.POST.get('reason')
+        action_taken = request.POST.get('action_taken')
+        
+        is_unlocked = request.POST.get('resolve_lock') == 'on'
+        pl_check = request.POST.get('pl_check') == 'on'
+        related_quiz_id = request.POST.get('related_quiz_id')
+        related_quiz = get_object_or_404(Quiz, pk=related_quiz_id) if related_quiz_id else None
 
-    # 3. 화면 렌더링
-    return render(request, 'quiz/manager/final_report.html', {
+        try:
+            with transaction.atomic():
+                # (1) 로그 생성
+                new_log = StudentLog.objects.create(
+                    profile=profile,
+                    recorder=request.user,
+                    log_type=log_type,
+                    reason=reason,
+                    action_taken=action_taken,
+                    related_quiz=related_quiz,
+                    is_resolved=is_unlocked,
+                    created_at=timezone.now()
+                )
+
+                # (2) 경고 누적 로직
+                if log_type == 'warning':
+                    profile.warning_count += 1
+                    if profile.warning_count == 2:
+                        StudentLog.objects.create(
+                            profile=profile, recorder=request.user, log_type='warning_letter',
+                            reason="[시스템 자동] 경고 2회 누적 -> 1차 경고장", action_taken="매니저 면담 필요", is_resolved=False
+                        )
+                        profile.status = 'counseling'
+                        messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 자동 발부되었습니다.")
+                    elif profile.warning_count == 3:
+                        StudentLog.objects.create(
+                            profile=profile, recorder=request.user, log_type='warning_letter',
+                            reason="[시스템 자동] 경고 3회 누적 -> 2차 경고장", action_taken="PL 면담 필수", is_resolved=False
+                        )
+                        profile.status = 'counseling'
+                        messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다.")
+                    elif profile.warning_count >= 4:
+                        profile.status = 'dropout'
+                        profile.user.is_active = False
+                        profile.user.save()
+                        messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
+                    else:
+                        profile.status = 'caution'
+                        messages.info(request, "경고가 1회 적립되었습니다.")
+
+                # (3) 경고장 수동 발부
+                elif log_type == 'warning_letter':
+                    if profile.warning_count < 2: profile.warning_count = 2
+                    else: profile.warning_count += 1
+                    
+                    if profile.warning_count >= 4:
+                        profile.status = 'dropout'
+                        profile.user.is_active = False
+                        profile.user.save()
+                    else:
+                        profile.status = 'counseling'
+                    messages.warning(request, f"⛔ 경고장이 발부되었습니다.")
+
+                # (4) 면담 및 잠금 해제
+                elif log_type == 'counseling' or log_type == 'exam_fail':
+                    if is_unlocked:
+                        if related_quiz:
+                            StudentLog.objects.filter(
+                                profile=profile, related_quiz=related_quiz, log_type='exam_fail', is_resolved=False
+                            ).update(is_resolved=True)
+                            messages.success(request, f"시험 '{related_quiz.title}' 잠금 해제됨.")
+
+                        if profile.warning_count == 3 and not pl_check:
+                            messages.error(request, "🚫 3회 누적자는 'PL 면담 확인' 필수입니다.")
+                            new_log.is_resolved = False
+                            new_log.save()
+                        elif profile.warning_count >= 4:
+                            profile.status = 'dropout'
+                            messages.error(request, "퇴소자는 잠금을 해제할 수 없습니다.")
+                            new_log.is_resolved = False
+                            new_log.save()
+                        else:
+                            if profile.status == 'counseling': profile.status = 'attending'
+                            if not profile.user.is_active:
+                                profile.user.is_active = True
+                                profile.user.save()
+                            messages.success(request, "계정이 정상화되었습니다.")
+                    else:
+                        messages.info(request, "면담 기록이 저장되었습니다.")
+
+                profile.save()
+        except Exception as e:
+            messages.error(request, f"저장 중 오류 발생: {e}")
+
+        return redirect('quiz:manage_student_logs', profile_id=profile.id)
+
+    # ========================================================
+    # [4] GET: 최종 데이터 렌더링
+    # ========================================================
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
+
+    # ★ 템플릿 연결 확인: manage_student_logs.html
+    return render(request, 'quiz/manager/manage_student_logs.html', {
         'profile': profile,
-        'avg_score': avg_score,
-        'fail_count': fail_count,
+        'exam_process_list': exam_process_list,
         'logs': logs,
+        'locked_logs': locked_logs,
     })
 
 # =========================================================
@@ -4131,7 +4344,7 @@ def my_notifications(request):
 @login_required
 def admin_full_data_view(request):
     """
-    [관리자 전용] 엑셀 스타일의 마스터 그리드 뷰 (석차 계산 로직 추가)
+    [관리자 전용] 엑셀 스타일의 마스터 그리드 뷰 (안전한 조회 방식 적용)
     """
     if not request.user.is_superuser:
         messages.error(request, "접근 권한이 없습니다.")
@@ -4142,11 +4355,10 @@ def admin_full_data_view(request):
     filter_process = request.GET.get('process', '')
     filter_company = request.GET.get('company', '')
     search_query = request.GET.get('q', '')
-    start_date = request.GET.get('start_date', '')
-    end_date = request.GET.get('end_date', '')
+    start_date_param = request.GET.get('start_date', '')
+    end_date_param = request.GET.get('end_date', '')
 
-    # 2. [석차 계산] 전체 인원에 대한 랭킹 미리 계산 (필터링 전 데이터 기준)
-    # (FinalAssessment가 있는 인원만 대상)
+    # 2. [석차 계산]
     all_assessments = FinalAssessment.objects.filter(
         final_score__isnull=False
     ).select_related('profile').values(
@@ -4154,47 +4366,44 @@ def admin_full_data_view(request):
         'profile__cohort_id', 'profile__process_id', 'profile__company_id'
     )
 
-    # 딕셔너리로 변환 및 정렬 (점수 내림차순)
     data_pool = list(all_assessments)
     data_pool.sort(key=lambda x: x['final_score'], reverse=True)
 
-    # 석차 저장소 { profile_id: { 'overall': 1, 'cohort': 3, ... } }
     rank_map = defaultdict(dict)
 
-    # (A) 전체 석차 계산
+    # (A) 전체 석차
     curr_rank = 1
     for i, item in enumerate(data_pool):
         if i > 0 and item['final_score'] < data_pool[i-1]['final_score']:
             curr_rank = i + 1
         rank_map[item['profile__id']]['overall'] = curr_rank
 
-    # (B) 그룹별 석차 계산 함수
+    # (B) 그룹별 석차
     def calculate_group_rank(group_key, rank_name):
         grouped = defaultdict(list)
         for item in data_pool:
             grouped[item[group_key]].append(item)
         
         for g_id, items in grouped.items():
-            # 이미 점수순 정렬되어 있음
             g_rank = 1
             for i, item in enumerate(items):
                 if i > 0 and item['final_score'] < items[i-1]['final_score']:
                     g_rank = i + 1
                 rank_map[item['profile__id']][rank_name] = g_rank
 
-    calculate_group_rank('profile__cohort_id', 'cohort')   # 기수별
-    calculate_group_rank('profile__process_id', 'process') # 공정별
-    calculate_group_rank('profile__company_id', 'company') # 회사별
+    calculate_group_rank('profile__cohort_id', 'cohort')
+    calculate_group_rank('profile__process_id', 'process')
+    calculate_group_rank('profile__company_id', 'company')
 
 
-    # 3. 화면 표시용 프로필 조회 (필터링 적용)
+    # 3. 화면 표시용 프로필 조회
+    # [수정] prefetch_related에서 에러가 나는 'logs/studentlog_set' 제거 (안전 제일)
     profiles = Profile.objects.select_related(
         'user', 'cohort', 'company', 'process', 'pl', 'final_assessment'
     ).prefetch_related(
         'user__testresult_set', 
         'user__testresult_set__quiz',
         'dailyschedule_set__work_type',
-        'logs', 
         'managerevaluation_set__selected_items'
     ).order_by('cohort__start_date', 'user__username')
 
@@ -4202,8 +4411,10 @@ def admin_full_data_view(request):
     if filter_cohort: profiles = profiles.filter(cohort_id=filter_cohort)
     if filter_process: profiles = profiles.filter(process_id=filter_process)
     if filter_company: profiles = profiles.filter(company_id=filter_company)
-    if start_date: profiles = profiles.filter(joined_at__gte=start_date)
-    if end_date: profiles = profiles.filter(joined_at__lte=end_date)
+    
+    if start_date_param: profiles = profiles.filter(joined_at__gte=start_date_param)
+    if end_date_param: profiles = profiles.filter(joined_at__lte=end_date_param)
+    
     if search_query:
         profiles = profiles.filter(
             Q(name__icontains=search_query) | 
@@ -4216,7 +4427,7 @@ def admin_full_data_view(request):
     table_rows = []
 
     for p in profiles:
-        # 퀴즈 점수
+        # (1) 퀴즈 점수
         user_results = p.user.testresult_set.all()
         result_map = defaultdict(list)
         for r in user_results:
@@ -4233,19 +4444,29 @@ def admin_full_data_view(request):
                     scores_pkg.append({'val': '-', 'is_pass': False})
             ordered_scores.append(scores_pkg)
 
-        # 근태
+        # (2) 근태 (기수 기간 한정)
         schedules = p.dailyschedule_set.all()
+        
+        if p.cohort:
+            if p.cohort.start_date:
+                schedules = schedules.filter(date__gte=p.cohort.start_date)
+            if p.cohort.end_date:
+                schedules = schedules.filter(date__lte=p.cohort.end_date)
+
         w_cnt = schedules.filter(work_type__deduction=0).count()
         l_cnt = schedules.filter(work_type__deduction=1.0).count()
         h_cnt = schedules.filter(work_type__deduction=0.5).count()
         
-        # 로그 및 평가
-        logs_list = p.logs.all().order_by('-created_at')
+        # (3) 로그 및 평가
+        # ★★★ [핵심 수정] 역참조 이름 몰라도 되는 '직접 조회' 방식 사용 ★★★
+        # p.studentlog_set.all() 대신 StudentLog 테이블에서 직접 찾습니다.
+        logs_list = StudentLog.objects.filter(profile=p).order_by('-created_at')
+        
         fa = getattr(p, 'final_assessment', None)
         last_eval = p.managerevaluation_set.last()
         manager_comment = last_eval.overall_comment if last_eval else ""
 
-        # [석차 정보 가져오기]
+        # (4) 석차
         my_ranks = rank_map.get(p.id, {})
 
         table_rows.append({
@@ -4253,7 +4474,7 @@ def admin_full_data_view(request):
             'ordered_scores': ordered_scores,
             'attendance': {'work': w_cnt, 'leave': l_cnt, 'half': h_cnt},
             'final': fa,
-            'ranks': my_ranks, # 계산된 석차 딕셔너리 전달
+            'ranks': my_ranks,
             'logs': logs_list,
             'manager_comment': manager_comment,
             'log_count': logs_list.count()
@@ -4269,8 +4490,8 @@ def admin_full_data_view(request):
         'sel_cohort': int(filter_cohort) if filter_cohort else '',
         'sel_process': int(filter_process) if filter_process else '',
         'sel_company': int(filter_company) if filter_company else '',
-        'sel_start': start_date,
-        'sel_end': end_date,
+        'sel_start': start_date_param,
+        'sel_end': end_date_param,
         'sel_q': search_query,
     }
 
@@ -4415,8 +4636,16 @@ def exam_result(request, result_id):
 @login_required
 def bulk_add_sheet_view(request):
     """
-    문제 일괄 등록(엑셀 업로드) 페이지를 보여주는 뷰
+    엑셀 대량 등록 페이지 뷰
     """
-    # 템플릿 이름은 사용자님 프로젝트의 실제 파일명에 맞춰주세요.
-    # 기존 규칙(manager_quiz_...)에 따라 추정한 이름입니다.
-    return render(request, 'quiz/manager_quiz_bulk_sheet.html')
+    if not request.user.is_staff:
+        messages.error(request, "접근 권한이 없습니다.")
+        return redirect('quiz:index')
+
+    # 등록된 모든 시험 목록을 가져옴 (드롭다운 선택용)
+    quizzes = Quiz.objects.all().order_by('-created_at')
+
+    # ★★★ 여기를 수정했습니다! (기존 파일명으로 연결) ★★★
+    return render(request, 'quiz/bulk_add_sheet.html', {
+        'quizzes': quizzes
+    })
