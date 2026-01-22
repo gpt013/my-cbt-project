@@ -23,7 +23,7 @@
             </div>
             
             <div class="mt-4 text-muted small">
-                응시일시: {{ result.submitted_at|default:result.completed_at|date:"Y년 m월 d일 H:i" }}
+                응시일시: {{ result.completed_at|date:"Y년 m월 d일 H:i" }}
             </div>
         </div>
         
@@ -32,21 +32,20 @@
         </div>
     </div>
 
-    {% if user.is_staff %}
-        <div class="alert alert-info mt-4">
-            <i class="bi bi-shield-lock-fill"></i> 관리자 권한으로 상세 답안을 확인합니다.
-        </div>
-
-        <h5 class="fw-bold mb-3 ms-2"><i class="bi bi-check2-circle"></i> 상세 풀이 내역</h5>
-        
-        {% for ans in answers %}
+    <div class="d-flex justify-content-between align-items-center mb-3 mt-5">
+        <h5 class="fw-bold"><i class="bi bi-check2-circle"></i> 상세 풀이 내역</h5>
+        <span class="badge bg-secondary">총 {{ detail_results|length }}문제</span>
+    </div>
+    
+    {% if detail_results %}
+        {% for item in detail_results %}
         <div class="card shadow-sm border-0 mb-3">
             <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                 <span class="fw-bold">문제 {{ forloop.counter }}</span>
                 
-                {% if ans.is_correct %}
+                {% if item.is_correct %}
                     <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
-                        <i class="bi bi-circle"></i> 정답 (+{{ ans.question.score|default:10 }}점)
+                        <i class="bi bi-circle"></i> 정답 (+{{ item.score_earned }}점)
                     </span>
                 {% else %}
                     <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
@@ -56,37 +55,21 @@
             </div>
             
             <div class="card-body">
-                <p class="fw-bold mb-3">{{ ans.question.question_text|linebreaksbr }}</p>
+                <p class="fw-bold mb-3">{{ item.question|linebreaksbr }}</p>
                 
-                {% if ans.question.image %}
-                    <img src="{{ ans.question.image.url }}" class="img-fluid rounded mb-3 border" style="max-height: 200px;">
-                {% endif %}
-
                 <div class="bg-light p-3 rounded">
                     <div class="mb-2">
                         <span class="badge bg-secondary me-2">나의 답</span>
-                        <span class="fw-bold {% if ans.is_correct %}text-primary{% else %}text-danger text-decoration-line-through{% endif %}">
-                            {# answer_text 대신 short_answer_text 사용 #}
-                            {% if ans.short_answer_text %}
-                                {{ ans.short_answer_text }}
-                            {% elif ans.selected_choice %}
-                                {{ ans.selected_choice.choice_text }}
-                            {% else %}
-                                (미입력)
-                            {% endif %}
+                        <span class="fw-bold {% if item.is_correct %}text-primary{% else %}text-danger text-decoration-line-through{% endif %}">
+                            {{ item.user_answer|default:"(미입력)" }}
                         </span>
                     </div>
                     
-                    {% if not ans.is_correct %}
+                    {% if not item.is_correct %}
                     <div>
                         <span class="badge bg-success me-2">정답</span>
                         <span class="text-success fw-bold">
-                            {% for choice in ans.question.choice_set.all %}
-                                {% if choice.is_correct %}
-                                    {{ choice.choice_text }}
-                                    {% if not forloop.last %}, {% endif %}
-                                {% endif %}
-                            {% endfor %}
+                            {{ item.real_answer }}
                         </span>
                     </div>
                     {% endif %}
@@ -96,12 +79,8 @@
         {% endfor %}
 
     {% else %}
-        <div class="alert alert-warning mt-5 text-center p-5">
-            <h4 class="alert-heading fw-bold"><i class="bi bi-lock-fill"></i> 상세 결과 비공개</h4>
-            <p class="mb-0 mt-3">
-                시험 문제 유출 방지를 위해 상세 풀이와 정답은 제공되지 않습니다.<br>
-                결과에 대한 문의는 담당 매니저에게 해주세요.
-            </p>
+        <div class="alert alert-warning text-center">
+            <i class="bi bi-exclamation-circle"></i> 상세 풀이 데이터가 없습니다. (관리자에게 문의하세요)
         </div>
     {% endif %}
 

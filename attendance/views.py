@@ -9,7 +9,7 @@ from django.utils import timezone
 import calendar
 from datetime import datetime, date, timedelta
 import json
-import math  # [필수] 거리 계산용
+import math  # [필수] 거리 계산용 라이브러리 (누락 방지)
 from django.db.models import Q, Sum
 
 # [필수] 공휴일 라이브러리
@@ -18,7 +18,7 @@ try:
 except ImportError:
     holidays = None
 
-# 모델 Import (경로는 프로젝트 구조에 맞게 확인해주세요)
+# 모델 Import
 from accounts.models import Profile, Process, Cohort, PartLeader
 from quiz.models import StudentLog # [필수] 알림 로그용
 from .models import WorkType, DailySchedule, ScheduleRequest, Attendance 
@@ -120,7 +120,7 @@ def mdm_status(request):
 
 
 # ------------------------------------------------------------------
-# 2. 캘린더 스케줄 조회 (스마트 기수 자동 선택 + 권한별 필터)
+# 2. 캘린더 스케줄 조회 (매니저 전체조회 가능 / 교육생 보안 유지)
 # ------------------------------------------------------------------
 @login_required
 def schedule_index(request):
@@ -160,16 +160,20 @@ def schedule_index(request):
         hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl)
     )
 
-    # 3. [핵심 로직] 기수 및 공정 선택 (자동 추천 알고리즘)
+    # 3. [핵심 로직] 기수 및 공정 필터링
+    # request.GET이 비어있으면 '처음 접속(Initial Load)' -> 자동 추천 동작
+    # request.GET이 있으면(?cohort= 등) '검색 동작(Search)' -> 사용자가 선택한 값 존중 (빈값이면 전체조회)
+    is_initial_load = (len(request.GET) == 0)
+
     sel_cohort = request.GET.get('cohort', '')
     sel_process = request.GET.get('process', '')
     sel_role = request.GET.get('role', 'student')
 
-    # 매니저/관리자인 경우
+    # (A) 매니저/관리자 로직
     if is_manager_or_admin:
-        # (A) 기수 자동 선택: 선택 안 했으면 '오늘 포함된 기수' or '최신 기수'
-        if not sel_cohort:
-            # 1순위: 오늘 날짜가 기간(start~end) 안에 포함된 기수 찾기
+        if is_initial_load:
+            # [처음 접속 시] 편의를 위해 '현재 활동 기수'와 '내 공정' 자동 선택
+            # 1순위: 오늘 포함된 기수
             active_cohort = Cohort.objects.filter(
                 start_date__lte=today, 
                 end_date__gte=today
@@ -178,16 +182,18 @@ def schedule_index(request):
             if active_cohort:
                 sel_cohort = str(active_cohort.id)
             else:
-                # 2순위: 없으면 가장 최신 기수
+                # 2순위: 최신 기수
                 latest_cohort = Cohort.objects.order_by('-start_date').first()
                 if latest_cohort:
                     sel_cohort = str(latest_cohort.id)
 
-        # (B) 공정 자동 선택: 선택 안 했으면 '내 공정'
-        if not sel_process and hasattr(user, 'profile') and user.profile.process:
-            sel_process = str(user.profile.process.id)
+            # 내 공정 자동 선택
+            if hasattr(user, 'profile') and user.profile.process:
+                sel_process = str(user.profile.process.id)
+        
+        # [검색 시] 위 자동 선택 로직을 타지 않으므로, sel_cohort가 비어있으면 '전체 조회'가 됨
 
-        # (C) 역할 필터
+        # 역할 필터
         if sel_role == 'manager':
             profiles = profiles.filter(
                 Q(is_manager=True) | Q(is_pl=True) | 
@@ -199,15 +205,15 @@ def schedule_index(request):
                 user__is_superuser=False, user__is_staff=False
             )
         
-        # (D) 최종 필터 적용
+        # 필터 적용 (값이 있을 때만 필터링 -> 값이 없으면 전체 조회)
         if sel_cohort:
             profiles = profiles.filter(cohort_id=sel_cohort)
         if sel_process:
             profiles = profiles.filter(process_id=sel_process)
         
-    # 교육생인 경우
+    # (B) 교육생 로직 (보안 필수)
     else:
-        # [중요] 교육생은 본인 기수/공정 강제 고정
+        # [중요] 교육생은 본인 기수/공정 강제 고정 (타 데이터 조회 불가)
         sel_role = 'student'
         
         if hasattr(user, 'profile'):
@@ -216,15 +222,17 @@ def schedule_index(request):
             # 1. 내 기수만
             if my_profile.cohort:
                 profiles = profiles.filter(cohort=my_profile.cohort)
-                sel_cohort = str(my_profile.cohort.id)
+                sel_cohort = str(my_profile.cohort.id) # 템플릿 표시용
             
             # 2. 내 공정만
             if my_profile.process:
                 profiles = profiles.filter(process=my_profile.process)
-                sel_process = str(my_profile.process.id)
+                sel_process = str(my_profile.process.id) # 템플릿 표시용
             else:
+                # 공정이 없으면 본인 데이터만
                 profiles = profiles.filter(user=user)
                 
+            # 관리자 제외하고 순수 학생만
             profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False)
         else:
             profiles = profiles.none()
@@ -307,6 +315,7 @@ def schedule_index(request):
         'work_types': WorkType.objects.all().order_by('order'),
         'cohorts': Cohort.objects.all().order_by('-start_date'),
         'processes': Process.objects.all(),
+        # 템플릿에서 '선택됨' 표시를 위해 정수형 변환 (값이 있을 때만)
         'sel_cohort': int(sel_cohort) if sel_cohort else '',
         'sel_process': int(sel_process) if sel_process else '',
         'sel_role': sel_role,

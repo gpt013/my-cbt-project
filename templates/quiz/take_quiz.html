@@ -59,16 +59,19 @@
     {% else %}
 
     <form method="post" id="examForm" action="">
-        {% csrf_token %}
-        <input type="hidden" name="start_time" value="{{ start_time }}">
+    {% csrf_token %}
+    
+    <input type="hidden" name="custom_attempt_id" value="{{ attempt.id }}">
+    
+    <input type="hidden" name="start_time" value="{{ start_time }}">
 
-        <div class="row">
+    <div class="row">
             <div class="col-lg-9 mb-4">
                 {% for q in questions %}
                 <div class="card shadow-sm border-0 question-card" id="q_card_{{ forloop.counter }}" data-idx="{{ forloop.counter }}">
                     <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                         <span class="badge bg-primary rounded-pill">문제 {{ forloop.counter }}</span>
-                        <span class="badge bg-light text-dark border">배점: {{ q.score|default:10 }}점</span>
+                        <span class="badge bg-light text-dark border">배점: {{ q.score }}점</span>
                     </div>
                     
                     <div class="card-body p-4">
@@ -184,6 +187,7 @@
             </div>
         </div>
     </form>
+
     {% endif %}
 </div>
 
@@ -400,4 +404,4 @@
     .blink { animation: blinker 1s linear infinite; }
     @keyframes blinker { 50% { opacity: 0; } }
 </style>
-{% endblock %}ㅊ
+{% endblock %}

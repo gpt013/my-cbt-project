@@ -220,7 +220,6 @@
                                                             </button>
                                                         </div>
                                                     </td>
-
                                                     <td class="text-muted small">
                                                         {{ item.date|date:"Y-m-d" }}<br>
                                                         {% if item.date %}{{ item.date|date:"H:i" }}{% else %}-{% endif %}
@@ -231,12 +230,148 @@
                                                 {% endfor %}
                                             </tbody>
                                         </table>
+                                        {% if etc_process_list %}
+<div class="accordion mb-4 shadow-sm border-0" id="etcAccordion">
+    <div class="accordion-item border-0">
+        <h2 class="accordion-header" id="headingEtc">
+            <button class="accordion-button collapsed bg-secondary bg-opacity-10 text-secondary fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseEtc" aria-expanded="false" aria-controls="collapseEtc">
+                <i class="bi bi-folder-plus me-2"></i> 기타 및 안전 교육 (클릭하여 펼치기)
+            </button>
+        </h2>
+        <div id="collapseEtc" class="accordion-collapse collapse" aria-labelledby="headingEtc" data-bs-parent="#etcAccordion">
+            <div class="accordion-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead class="bg-light">
+                            <tr>
+                                <th width="20%">시험명</th>
+                                <th width="10%">최근 점수</th>
+                                <th width="10%">상태</th>
+                                <th width="40%">진행 단계 (클릭하여 상세 보기)</th>
+                                <th width="20%">최종 응시일</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+    {% for item in etc_process_list %}
+    <tr>
+        <td class="text-start ps-4 fw-bold">
+            {% if item.quiz.category == 'safety' %}
+                <span class="badge bg-success me-1">안전</span>
+            {% else %}
+                <span class="badge bg-secondary me-1">기타</span>
+            {% endif %}
+            {{ item.quiz.title }}
+        </td>
+
+        <td class="fw-bold {% if item.status == 'fail' %}text-danger{% elif item.status == 'pass' %}text-primary{% endif %}">
+            {{ item.score }}
+        </td>
+
+        <td>
+            {% if item.status == 'pass' %}
+                <span class="badge bg-primary">합격</span>
+            {% elif item.status == 'fail' %}
+                <span class="badge bg-danger">불합격</span>
+                {% if item.is_locked %}
+                    <div class="mt-1"><span class="badge bg-warning text-dark"><i class="bi bi-lock-fill"></i> 잠김</span></div>
+                {% endif %}
+            {% else %}
+                <span class="badge bg-secondary bg-opacity-50">미응시</span>
+            {% endif %}
+        </td>
+
+        <td>
+            <div class="d-flex justify-content-center align-items-center gap-2">
+                
+                <button type="button" 
+                    class="btn btn-sm btn-process position-relative 
+                    {% if item.try_1 %}
+                        {% if item.try_1.is_pass %}btn-outline-primary active{% else %}btn-danger text-white{% endif %}
+                    {% else %}btn-outline-secondary disabled opacity-25{% endif %}"
+                    
+                    {% if item.try_1 %}
+                        data-bs-toggle="popover" 
+                        data-bs-trigger="focus"
+                        title="[1차] {{ item.try_1.completed_at|date:'Y-m-d H:i' }}"
+                        data-bs-html="true"
+                        data-bs-content="
+                            <strong>점수:</strong> {{ item.try_1.score }}점<br>
+                            <strong>결과:</strong> {% if item.try_1.is_pass %}합격{% else %}불합격{% endif %}<br>
+                            <hr class='my-1'>
+                            {% for log in item.logs %}
+                                <div class='mb-2 p-2 bg-light rounded border'>
+                                    <span class='badge bg-warning text-dark'>{{ log.get_log_type_display }}</span>
+                                    <div class='mt-1 small'>{{ log.reason }}</div>
+                                    {% if log.action_taken %}<div class='mt-1 text-primary small'>⚡ {{ log.action_taken }}</div>{% endif %}
+                                    <div class='text-end text-muted x-small'>- {{ log.recorder.profile.name }} ({{ log.created_at|date:'m/d' }})</div>
+                                </div>
+                            {% empty %}
+                                <span class='text-muted'>등록된 특이사항 없음</span>
+                            {% endfor %}
+                        "
+                    {% endif %}>
+                    
+                    <span class="fw-bold">1차</span>
+                    {% if item.try_1 %}
+                        <span class="small">{{ item.try_1.score }}점</span>
+                    {% endif %}
+                </button>
+
+                <i class="bi bi-chevron-right text-muted"></i>
+
+                <button type="button" 
+                    class="btn btn-sm btn-process position-relative
+                    {% if item.try_2 %}
+                        {% if item.try_2.is_pass %}btn-outline-primary active{% else %}btn-danger text-white{% endif %}
+                    {% else %}btn-outline-secondary disabled opacity-25{% endif %}"
+                    
+                    {% if item.try_2 %}
+                        data-bs-toggle="popover" 
+                        data-bs-trigger="focus"
+                        title="[2차] {{ item.try_2.completed_at|date:'Y-m-d H:i' }}"
+                        data-bs-html="true"
+                        data-bs-content="
+                            <strong>점수:</strong> {{ item.try_2.score }}점<br>
+                            <strong>결과:</strong> {% if item.try_2.is_pass %}합격{% else %}불합격{% endif %}
+                        "
+                    {% endif %}>
+                    
+                    <span class="fw-bold">2차</span>
+                    {% if item.try_2 %}
+                        <span class="small">{{ item.try_2.score }}점</span>
+                    {% endif %}
+                </button>
+
+                <i class="bi bi-chevron-right text-muted"></i>
+
+                <button type="button" class="btn btn-sm btn-process btn-outline-secondary disabled opacity-25">
+                    <span class="fw-bold">3차+</span>
+                </button>
+            </div>
+        </td>
+
+        <td class="text-muted small">
+            {{ item.date|date:"Y-m-d" }}<br>
+            {% if item.date %}{{ item.date|date:"H:i" }}{% else %}-{% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+</tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
                                     </div>
                                 </div>
                             </div>
 
+
                             <div class="bg-white rounded border p-3">
                                 <h5 class="fw-bold mb-3">상세 응시 이력 (History)</h5>
+                                
                                 <div class="table-responsive">
                                     <table class="table table-hover align-middle">
                                         <thead class="table-light">

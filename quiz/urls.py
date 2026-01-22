@@ -131,5 +131,10 @@ urlpatterns = [
     
     # [3] 최종 평가서 작성 페이지
     path('manager/report/create/<int:profile_id>/', views.manager_trainee_report, name='manager_trainee_report'),
+    
+    # [7번 기능] 접속 제한 안내 페이지들
+    path('status/counseling/', views.counseling_required_view, name='counseling_required'), # 퇴소 안내 (기간 중)
+    path('status/dropout/', views.dropout_alert_view, name='dropout_alert'),               # 퇴소 확정 (기간 후)
+    path('status/completed/', views.completed_alert_view, name='completed_alert'),         # 수료증
 
 ]

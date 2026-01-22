@@ -1,6 +1,9 @@
 from django.db import models
 from django.contrib.auth.models import User, Group
 from django.conf import settings
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.db.models import Avg
 
 # ------------------------------------------------------------------
 # [0] 공정(Process) 모델
@@ -355,3 +358,31 @@ class StudentAnswer(models.Model):
 
     def __str__(self):
         return f"{self.result} - {self.question.id}번 문제"
+    
+@receiver(post_save, sender=TestResult)
+def update_final_assessment_stats(sender, instance, created, **kwargs):
+    """
+    시험 결과가 나오면 -> FinalAssessment의 '시험 평균 점수'를 즉시 재계산
+    """
+    try:
+        user = instance.user
+        if not hasattr(user, 'profile'):
+            return
+
+        # 1. 해당 유저의 모든 시험 점수 평균 계산
+        avg_data = TestResult.objects.filter(user=user).aggregate(avg=Avg('score'))
+        new_avg = avg_data['avg'] if avg_data['avg'] is not None else 0
+
+        # 2. FinalAssessment 가져오기 (없으면 생성)
+        # accounts 앱의 모델을 가져와야 하므로 안에서 import (순환 참조 방지)
+        from accounts.models import FinalAssessment
+        
+        assessment, _ = FinalAssessment.objects.get_or_create(profile=user.profile)
+
+        # 3. 점수 업데이트 (값이 다를 때만 저장)
+        if assessment.exam_avg_score != new_avg:
+            assessment.exam_avg_score = round(new_avg, 1)
+            assessment.save() # 저장 시 accounts/models.py의 Signal이 발동하여 환산점수/등수까지 자동 계산됨
+            
+    except Exception as e:
+        print(f"❌ [통계 갱신 오류] {e}")

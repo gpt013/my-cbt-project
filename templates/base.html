@@ -215,23 +215,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     {% if user.is_authenticated and not is_in_test_mode and not is_completing_profile %} 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
-            const wsPath = wsScheme + '://' + window.location.host + '/ws/notifications/';
-            
-            try {
-                const notificationSocket = new WebSocket(wsPath);
-                notificationSocket.onmessage = function(e) {
-                    const data = JSON.parse(e.data);
-                    alert(data.message);
-                    window.location.reload(); 
-                };
-            } catch (e) {
-                console.log('WebSocket skipped.');
-            }
-        });
-    </script>
+    
     {% endif %}
 </body>
 </html>

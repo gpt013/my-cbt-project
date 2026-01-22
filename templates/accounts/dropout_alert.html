@@ -9,6 +9,9 @@
                 귀하의 계정은 <strong>'퇴소'</strong> 처리되어<br>
                 더 이상 서비스를 이용하실 수 없습니다.
             </p>
+            <p class="text-muted small">
+                (교육 기수 기간이 종료되어 계정이 비활성화되었습니다.)
+            </p>
             <form action="{% url 'accounts:logout' %}" method="post" class="mt-4">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-secondary">로그아웃</button>

@@ -226,6 +226,7 @@ ADMIN_INTERFACE_MODELS_GROUP_BY_CATEGORY = [
             "quiz.Choice",
             "quiz.StudentLog", # accounts.StudentLog -> quiz.StudentLog (모델 위치에 맞게 수정됨)
             "quiz.Notification", # [추가] 알림 모델도 보이게
+            'quiz.middleware.StudentAccessControlMiddleware',
         ],
     },
 ]
