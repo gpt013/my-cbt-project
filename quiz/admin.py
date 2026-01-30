@@ -6,10 +6,12 @@ from django.db.models import Count
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
+
 # 모델 임포트
 from .models import (
     Quiz, Question, Choice, TestResult, UserAnswer, 
-    QuizAttempt, Tag, ExamSheet, StudentLog
+    QuizAttempt, Tag, ExamSheet, StudentLog, Room, Reservation, Notification
+
 )
 
 # ------------------------------------------------------------------
@@ -263,6 +265,20 @@ class StudentLogAdmin(admin.ModelAdmin):
         return obj.reason[:30] + "..." if len(obj.reason) > 30 else obj.reason
     reason_short.short_description = "내용"
 
+# 강의실 관리
+@admin.register(Room)
+class RoomAdmin(admin.ModelAdmin):
+    list_display = ('name', 'room_type', 'target_process', 'capacity', 'is_active')
+    list_filter = ('room_type', 'target_process')
+    # ★ 관리자를 체크박스로 편하게 고르기 위해 추가
+    filter_horizontal = ('managers',)
+
+# 예약 관리
+@admin.register(Reservation)
+class ReservationAdmin(admin.ModelAdmin):
+    list_display = ('title', 'room', 'user', 'start_time', 'status')
+    list_filter = ('status', 'start_time', 'room')
+    search_fields = ('title', 'user__username')
 
 # ------------------------------------------------------------------
 # 4. 최종 등록 (중복 방지)
@@ -276,3 +292,4 @@ admin.site.register(UserAnswer, UserAnswerAdmin)
 admin.site.register(TestResult, TestResultAdmin)
 admin.site.register(QuizAttempt, QuizAttemptAdmin)
 admin.site.register(StudentLog, StudentLogAdmin)
+admin.site.register(Notification)

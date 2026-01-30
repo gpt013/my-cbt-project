@@ -1,0 +1,618 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<script src='https://unpkg.com/fullcalendar@6.1.8/index.global.min.js'></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+
+<style>
+    /* [스타일] 커스텀 주간 테이블 (Matrix View) */
+    .matrix-table { width: 100%; border-collapse: collapse; font-size: 0.9em; text-align: center; }
+    .matrix-table th, .matrix-table td { border: 1px solid #dee2e6; padding: 0; height: 60px; vertical-align: middle; }
+    .matrix-header { background-color: #f8f9fa; font-weight: bold; padding: 10px !important; }
+    .room-header { background-color: #f1f3f5; font-weight: bold; width: 150px; }
+    
+    /* 오전/오후 분할 스타일 */
+    .time-slot-container { display: flex; flex-direction: column; height: 100%; width: 100%; }
+    .time-slot { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 0.75em; cursor: pointer; transition: background 0.2s; }
+    .time-slot:first-child { border-bottom: 1px dashed #eee; }
+    .time-slot:hover { background-color: #e9ecef; }
+
+    /* 예약 상태 색상 */
+    .booked-am { background-color: #a5d8ff !important; color: #004085; font-weight: bold; }
+    .booked-pm { background-color: #ffc9c9 !important; color: #850000; font-weight: bold; }
+
+    /* 탭 스타일 */
+    .nav-tabs .nav-link.active { font-weight: bold; color: #495057; background-color: #fff; border-color: #dee2e6 #dee2e6 #fff; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-md-3">
+            
+            <div class="card shadow border-0 mb-3 border-start border-4 border-warning">
+                <div class="card-header bg-white fw-bold py-2"><i class="bi bi-bell-fill text-warning"></i> 도착한 알림</div>
+                <div class="card-body p-0" style="max-height: 150px; overflow-y: auto;">
+                    <ul class="list-group list-group-flush small">
+                        {% for noti in notifications %}
+                        <li class="list-group-item bg-light">{{ noti.message }}<br><span class="text-muted" style="font-size:0.7em;">{{ noti.created_at|date:"m/d H:i" }}</span></li>
+                        {% empty %}
+                        <li class="list-group-item text-muted text-center">알림 없음</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card shadow border-0 mb-4 bg-primary text-white">
+                <div class="card-body p-3">
+                    <h6 class="fw-bold mb-3"><i class="bi bi-calendar-check"></i> 예약하기</h6>
+                    <button class="btn btn-light text-primary w-100 fw-bold" onclick="openReserveModal()">
+                        <i class="bi bi-plus-lg"></i> 예약 신청
+                    </button>
+                </div>
+            </div>
+
+            <div class="card shadow border-0 mb-4 border-start border-4 border-info">
+                <div class="card-header bg-white fw-bold py-2"><i class="bi bi-list-check text-info"></i> 오늘 예약 현황</div>
+                <div class="card-body p-2" style="max-height: 400px; overflow-y: auto;">
+                    {% if today_reservations %}
+                        <div class="list-group list-group-flush">
+                        
+                        {% for group in today_reservations %}
+                            
+                            <div class="list-group-item bg-light fw-bold py-1 small text-secondary">
+                                <i class="bi bi-door-open-fill"></i> {{ group.room.name }}
+                            </div>
+
+                            {% for res in group.events %}
+                            <div class="list-group-item list-group-item-action border-0 py-2 ps-4" 
+                                 onclick="focusOnEvent('{{ res.start_time|date:'c' }}')" 
+                                 style="cursor: pointer; border-left: 2px solid #ddd !important;">
+                                
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="badge bg-info text-dark opacity-75 me-2" style="font-size: 0.7em;">
+                                        {{ res.start_time|date:"H:i" }}~{{ res.end_time|date:"H:i" }}
+                                    </span>
+                                    <small class="text-primary fw-bold" style="font-size: 0.8em;">
+                                        {{ res.user.profile.name|default:res.user.username }}
+                                    </small>
+                                </div>
+                                <div class="text-truncate small text-muted mt-1 ps-1">
+                                    {{ res.title }}
+                                </div>
+                            </div>
+                            {% endfor %}
+                            
+                            {% if not forloop.last %}<hr class="my-1">{% endif %}
+                            
+                        {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-center text-muted small my-3">오늘 예약 없음</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-9">
+            <div class="card shadow border-0" style="min-height: 850px;">
+                <div class="card-header bg-white">
+                    <ul class="nav nav-tabs card-header-tabs" id="viewTabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" id="month-tab" data-bs-toggle="tab" data-bs-target="#month-view" type="button">
+                                <i class="bi bi-calendar-month"></i> 📅 월간 달력
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="week-tab" data-bs-toggle="tab" data-bs-target="#week-view" type="button" onclick="loadWeeklyMatrix()">
+                                <i class="bi bi-table"></i> 📋 주간 강의실 현황
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+                
+                <div class="card-body p-3 tab-content">
+                    <div class="tab-pane fade show active" id="month-view">
+                        <div id='calendar'></div>
+                    </div>
+
+                    <div class="tab-pane fade" id="week-view">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="changeWeek(-1)"><i class="bi bi-chevron-left"></i> 지난주</button>
+                            <h5 class="fw-bold m-0" id="matrix-title"></h5>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="changeWeek(1)">다음주 <i class="bi bi-chevron-right"></i></button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="matrix-table" id="matrix-table">
+                                <thead><tr><th class="room-header">강의실 / 날짜</th></tr></thead>
+                                <tbody id="matrix-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="reserveModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="reserveForm" class="modal-content">
+            <input type="hidden" name="id" id="reserve_id"> 
+            
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold" id="reserveModalTitle">시설 예약 신청</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label fw-bold small text-primary">⏱ 빠른 시간 선택</label>
+                <div class="btn-group w-100 mb-3">
+                    <input type="radio" class="btn-check" name="time_preset" id="p_m" value="manual" checked><label class="btn btn-outline-secondary" for="p_m">직접</label>
+                    <input type="radio" class="btn-check" name="time_preset" id="p_am" value="am"><label class="btn btn-outline-primary" for="p_am">오전</label>
+                    <input type="radio" class="btn-check" name="time_preset" id="p_pm" value="pm"><label class="btn btn-outline-primary" for="p_pm">오후</label>
+                    <input type="radio" class="btn-check" name="time_preset" id="p_all" value="all"><label class="btn btn-outline-success" for="p_all">종일</label>
+                </div>
+                <div class="mb-3"><label class="fw-bold">목적</label><input type="text" name="title" id="reserve_title" class="form-control" required></div>
+                <div class="mb-3"><label class="fw-bold">강의실</label>
+                    <select name="room_id" id="modalRoomSelect" class="form-select" required>
+                        {% for room in rooms %}<option value="{{ room.id }}">{{ room.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3"><label class="fw-bold">시작</label><input type="datetime-local" name="start_time" id="start_time" class="form-control" required></div>
+                    <div class="col-6 mb-3"><label class="fw-bold">종료</label><input type="datetime-local" name="end_time" id="end_time" class="form-control" required></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button type="submit" class="btn btn-primary">저장하기</button></div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title fw-bold">상세 정보</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <h4 id="d_title" class="mb-3 fw-bold"></h4>
+                <p><strong>신청자:</strong> <span id="d_user"></span> (<span id="d_info"></span>)</p>
+                <p><strong>상태:</strong> <span id="d_status" class="badge"></span></p>
+                <hr>
+                <p class="small text-muted mb-1">예약 시간:</p>
+                <p class="fw-bold fs-5" id="d_time"></p>
+                <input type="hidden" id="d_id"> <div id="adminBtns" class="d-none mt-4 text-end">
+                    <button onclick="editEvent()" class="btn btn-primary btn-sm me-1"><i class="bi bi-pencil"></i> 수정</button>
+                    <button onclick="doAction('approve')" class="btn btn-success btn-sm">승인</button>
+                    <button onclick="doAction('reject')" class="btn btn-warning btn-sm text-white">반려</button>
+                    <button onclick="doAction('delete')" class="btn btn-danger btn-sm">삭제</button>
+                </div>
+                <div id="userBtns" class="d-none mt-4 text-end">
+                    <button onclick="editEvent()" class="btn btn-primary btn-sm me-1"><i class="bi bi-pencil"></i> 수정</button>
+                    <button onclick="doAction('delete')" class="btn btn-danger btn-sm">예약 취소</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ----------------------------------------------------
+    // 1. 전역 변수 및 초기화
+    // ----------------------------------------------------
+    let calendar;
+    let currentWeekStart = new Date(); // 주간 뷰 기준일
+
+    // 방 목록 (Django Template -> JS Array)
+    const roomList = [
+        {% for room in rooms %}
+        { id: "{{ room.id }}", name: "{{ room.name }}" },
+        {% endfor %}
+    ];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // [1] 달력 초기화 (FullCalendar)
+        const calendarEl = document.getElementById('calendar');
+        if (calendarEl) {
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'ko',
+                headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth' },
+                height: 'auto',
+                
+                // 데이터 소스
+                events: '{% url "quiz:facility_events" %}',
+                
+                // ★ 기능 설정 (드래그, 리사이즈, 선택 활성화)
+                selectable: true,
+                editable: true,
+                eventStartEditable: true, 
+                eventDurationEditable: true, 
+
+                // ★ 이벤트 핸들러
+                select: function(info) { openReserve(info.startStr, info.endStr); },
+                eventClick: function(info) { openDetail(info.event); }, // 클릭 시 상세창
+                eventDrop: function(info) { updateTime(info); },      // 드래그 이동 시
+                eventResize: function(info) { updateTime(info); }     // 길이 조절 시
+            });
+            calendar.render();
+        }
+
+        // [2] 예약 폼 제출 (AJAX)
+        const form = document.getElementById('reserveForm');
+        if(form) {
+            form.onsubmit = function(e) {
+                e.preventDefault();
+                const formData = new FormData(this);
+                
+                // 수정 모드일 경우 URL 변경 (필요 시 로직 분기 가능하나, 현재는 create/update 통합 가정 혹은 백엔드 처리)
+                // 여기서는 기존 reserve URL을 사용하되, ID가 있으면 백엔드에서 처리하거나
+                // 별도 update 로직이 필요할 수 있습니다. 
+                // 작성해주신 코드 흐름상 reserve 뷰에서 ID 유무로 판단하지 않는다면 
+                // editEvent 저장 시에는 별도 fetch가 필요할 수 있으나, 
+                // 요청주신 코드 기반으로 'reserve' URL 하나로 통합되어 있다면 그대로 둡니다.
+                
+                fetch('{% url "quiz:facility_reserve" %}', { 
+                    method: 'POST', 
+                    headers: {'X-CSRFToken': '{{ csrf_token }}'}, 
+                    body: formData 
+                })
+                .then(r => r.json()).then(d => {
+                    alert(d.message);
+                    if(d.status === 'success') location.reload();
+                })
+                .catch(err => alert("통신 오류: " + err));
+            };
+        }
+
+        // [3] 시간 프리셋(오전/오후) 라디오 버튼 동작
+        document.querySelectorAll('input[name="time_preset"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                const s = document.getElementById('start_time');
+                const e = document.getElementById('end_time');
+                let d = s.value ? s.value.slice(0, 10) : new Date().toISOString().slice(0, 10);
+                
+                if (this.value === 'am') { s.value = d + 'T08:00'; e.value = d + 'T13:00'; }
+                else if (this.value === 'pm') { s.value = d + 'T13:00'; e.value = d + 'T17:00'; }
+                else if (this.value === 'all') { s.value = d + 'T08:00'; e.value = d + 'T17:00'; }
+            });
+        });
+
+        // [4] 주간 매트릭스 기준일 설정 (이번주 월요일로 보정)
+        const day = currentWeekStart.getDay();
+        const diff = currentWeekStart.getDate() - day + (day == 0 ? -6 : 1);
+        currentWeekStart.setDate(diff);
+    });
+
+    // ----------------------------------------------------
+    // 2. 주간 테이블 (Matrix View) 로직
+    // ----------------------------------------------------
+    
+    // [추가] 날짜 색상 판별 함수 (공휴일/주말)
+    function getDateColor(d) {
+        const month = d.getMonth() + 1;
+        const date = d.getDate();
+        const day = d.getDay(); // 0:일, 6:토
+        
+        // 주요 양력 공휴일 (MM-DD)
+        const solarHolidays = [
+            '01-01', '03-01', '05-05', '06-06', '08-15', '10-03', '10-09', '12-25'
+        ];
+        
+        const dateStr = (month < 10 ? '0' : '') + month + '-' + (date < 10 ? '0' : '') + date;
+        
+        // 1. 일요일이거나 공휴일이면 -> 빨강
+        if (day === 0 || solarHolidays.includes(dateStr)) return '#dc3545'; 
+        // 2. 토요일이면 -> 파랑
+        if (day === 6) return '#0d6efd';
+        // 3. 평일 -> 검정
+        return '#212529';
+    }
+
+    // 주간 매트릭스 로드
+    function loadWeeklyMatrix() {
+        const theadRow = document.querySelector('#matrix-table thead tr');
+        theadRow.innerHTML = '<th class="room-header bg-light">강의실</th>';
+        
+        let loopDate = new Date(currentWeekStart);
+        const weekDates = [];
+        
+        // 제목 업데이트
+        document.getElementById('matrix-title').innerText = `${loopDate.getFullYear()}년 ${loopDate.getMonth()+1}월 주간 현황`;
+
+        // 헤더(날짜) 그리기
+        for(let i=0; i<7; i++) {
+            const dStr = loopDate.toISOString().slice(0,10);
+            const dName = ['일','월','화','수','목','금','토'][loopDate.getDay()];
+            
+            // ★ 색상 적용
+            const color = getDateColor(loopDate);
+
+            theadRow.innerHTML += `<th class="matrix-header" style="color: ${color};">${loopDate.getDate()} (${dName})</th>`;
+            
+            weekDates.push(dStr);
+            loopDate.setDate(loopDate.getDate() + 1);
+        }
+
+        // 데이터 가져오기
+        const startStr = weekDates[0] + 'T00:00:00';
+        const endStr = weekDates[6] + 'T23:59:59';
+        
+        fetch(`{% url "quiz:facility_events" %}?start=${startStr}&end=${endStr}`)
+        .then(res => res.json())
+        .then(events => { renderMatrixBody(weekDates, events); });
+    }
+
+    // 주간 매트릭스 본문 렌더링
+    function renderMatrixBody(weekDates, events) {
+        const tbody = document.getElementById('matrix-body');
+        tbody.innerHTML = '';
+
+        roomList.forEach(room => {
+            let tr = document.createElement('tr');
+            
+            // 강의실 이름 칸
+            let tdName = document.createElement('td');
+            tdName.className = 'fw-bold bg-light';
+            tdName.innerText = room.name;
+            tr.appendChild(tdName);
+
+            // 날짜별 칸 생성
+            weekDates.forEach(date => {
+                let td = document.createElement('td');
+                // 해당 방 & 날짜 & 반려되지 않은 예약 필터링
+                const roomEvents = events.filter(e => {
+                    return e.room_id == room.id && e.start.startsWith(date) && e.extendedProps.status_code !== 'rejected';
+                });
+
+                let amInfo = null, pmInfo = null;
+                roomEvents.forEach(e => {
+                    const h = new Date(e.start).getHours();
+                    const endH = new Date(e.end).getHours();
+                    // 오전/오후 판별 (기준: 13시)
+                    if (h < 13) amInfo = e; 
+                    if (endH > 12 || h >= 12) pmInfo = e; 
+                });
+
+                // 오전 UI
+                let divAm = document.createElement('div');
+                divAm.className = 'time-slot';
+                if(amInfo) {
+                    divAm.innerText = '예약됨';
+                    divAm.classList.add('booked-am');
+                    divAm.onclick = () => openDetail(amInfo); // 클릭 시 상세 팝업
+                } else {
+                    divAm.innerText = '오전';
+                    divAm.onclick = () => openReserveWithDate(date, 'am', room.id); // 클릭 시 예약 팝업
+                }
+
+                // 오후 UI
+                let divPm = document.createElement('div');
+                divPm.className = 'time-slot';
+                if(pmInfo) {
+                    divPm.innerText = '예약됨';
+                    divPm.classList.add('booked-pm');
+                    divPm.onclick = () => openDetail(pmInfo); // 클릭 시 상세 팝업
+                } else {
+                    divPm.innerText = '오후';
+                    divPm.onclick = () => openReserveWithDate(date, 'pm', room.id); // 클릭 시 예약 팝업
+                }
+
+                td.appendChild(divAm);
+                td.appendChild(divPm);
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+    }
+
+    // 주차 이동 함수
+    function changeWeek(d) {
+        currentWeekStart.setDate(currentWeekStart.getDate() + (d * 7));
+        loadWeeklyMatrix();
+    }
+
+    // ----------------------------------------------------
+    // 3. 상세 팝업 및 예약/수정 관련 기능
+    // ----------------------------------------------------
+    
+    // [상세 팝업] 열기
+    function openDetail(evt) {
+        try {
+            // FullCalendar Event 객체 또는 API JSON 객체 호환 처리
+            const p = evt.extendedProps || evt; 
+            const eId = evt.id;
+
+            // HTML 요소 값 채우기
+            const idInput = document.getElementById('d_id');
+            if (idInput) {
+                idInput.value = eId;
+            } else {
+                console.error("오류: HTML에 id='d_id'인 태그가 없습니다.");
+                return; 
+            }
+            
+            document.getElementById('d_title').innerText = p.full_desc || evt.title;
+            document.getElementById('d_user').innerText = p.username || '-';
+            document.getElementById('d_info').innerText = (p.company || '') + ' ' + (p.process || '');
+            
+            // 날짜 포맷팅
+            const sDate = new Date(evt.start);
+            const eDate = new Date(evt.end);
+            document.getElementById('d_time').innerText = sDate.toLocaleString() + ' ~ ' + eDate.toLocaleString();
+            
+            // 상태 배지 설정
+            const badge = document.getElementById('d_status');
+            badge.innerText = p.status_label;
+            badge.className = 'badge'; 
+            if (p.status_code === 'confirmed') badge.classList.add('bg-success');
+            else if (p.status_code === 'rejected') badge.classList.add('bg-danger');
+            else badge.classList.add('bg-secondary');
+
+            // ★ 버튼 권한 제어 (Admin vs User)
+            const adminBtns = document.getElementById('adminBtns');
+            const userBtns = document.getElementById('userBtns');
+            
+            // 초기화: 모두 숨김
+            if(adminBtns) adminBtns.classList.add('d-none');
+            if(userBtns) userBtns.classList.add('d-none');
+
+            // 조건에 따라 보이기
+            if(p.can_approve && adminBtns) {
+                adminBtns.classList.remove('d-none'); // 관리자 버튼
+            } else if(p.can_edit && userBtns) {
+                userBtns.classList.remove('d-none');  // 본인(수정/취소) 버튼
+            }
+            
+            // 모달 표시
+            const modalEl = document.getElementById('detailModal');
+            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+
+        } catch (error) {
+            console.error(error);
+            alert("상세 정보를 여는 중 오류가 발생했습니다.");
+        }
+    }
+
+    // [예약 수정] 모달 열기 (기존 데이터 채우기)
+    function editEvent() {
+        // 1. 현재 상세 모달 닫기
+        const detailEl = document.getElementById('detailModal');
+        const detailModal = bootstrap.Modal.getInstance(detailEl);
+        if(detailModal) detailModal.hide();
+
+        // 2. 예약 폼 초기화
+        document.getElementById('reserveForm').reset();
+        
+        // 3. 데이터 가져오기 (캘린더 객체 활용)
+        const id = document.getElementById('d_id').value;
+        const event = calendar.getEventById(id);
+        
+        if (event) {
+            document.getElementById('reserve_id').value = id; // 수정 모드 식별자
+            document.getElementById('reserveModalTitle').innerText = "예약 정보 수정";
+            
+            // 폼 필드 채우기 (name 속성 기준)
+            const titleInput = document.querySelector('input[name="title"]');
+            if(titleInput) titleInput.value = event.extendedProps.full_desc || event.title;
+
+            document.getElementById('modalRoomSelect').value = event.extendedProps.room_id;
+            
+            // 날짜/시간 타임존 보정 (datetime-local 입력폼 호환)
+            const s = new Date(event.start);
+            const e = new Date(event.end);
+            s.setMinutes(s.getMinutes() - s.getTimezoneOffset());
+            e.setMinutes(e.getMinutes() - e.getTimezoneOffset());
+            
+            document.getElementById('start_time').value = s.toISOString().slice(0, 16);
+            document.getElementById('end_time').value = e.toISOString().slice(0, 16);
+        }
+
+        // 4. 예약 모달 열기
+        const reserveEl = document.getElementById('reserveModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(reserveEl);
+        modal.show();
+    }
+
+    // [액션] 승인/반려/삭제
+    function doAction(act) {
+        if(!confirm('진행하시겠습니까?')) return;
+        const id = document.getElementById('d_id').value;
+        const fd = new FormData(); fd.append('action', act);
+        
+        fetch('/quiz/manager/facility/action/'+id+'/', { 
+            method:'POST', 
+            headers:{'X-CSRFToken':'{{csrf_token}}'}, 
+            body:fd 
+        })
+        .then(r=>r.json()).then(d=>{ 
+            alert(d.message); 
+            if(d.status==='success') location.reload(); 
+        });
+    }
+
+    // [액션] 시간 변경 (드래그 앤 드롭)
+    function updateTime(info) {
+        if(!confirm('시간을 변경하시겠습니까? \n(일반 사용자는 승인 대기로 변경됩니다)')) { 
+            info.revert(); 
+            return; 
+        }
+        const fd = new FormData(); 
+        fd.append('id', info.event.id);
+        fd.append('start', info.event.start.toISOString()); 
+        fd.append('end', info.event.end.toISOString());
+        
+        fetch('{% url "quiz:facility_update" %}', { 
+            method:'POST', 
+            headers:{'X-CSRFToken':'{{csrf_token}}'}, 
+            body:fd 
+        })
+        .then(r=>r.json())
+        .then(d=>{ 
+            if(d.status !== 'success'){ 
+                alert(d.message); 
+                info.revert(); 
+            } else { 
+                location.reload(); 
+            }
+        });
+    }
+
+    // [헬퍼] 날짜 지정 예약창 열기 (주간 뷰용)
+    function openReserveWithDate(dateStr, timeSlot, roomId) {
+        const el = document.getElementById('reserveModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(el);
+        
+        document.getElementById('reserveForm').reset();
+        document.getElementById('reserve_id').value = ''; // 신규 생성이므로 ID 초기화
+        document.getElementById('reserveModalTitle').innerText = "시설 예약 신청";
+        
+        document.getElementById('modalRoomSelect').value = roomId;
+        
+        const radio = document.getElementById(timeSlot === 'am' ? 'p_am' : 'p_pm');
+        if(radio) radio.checked = true;
+        
+        const s = document.getElementById('start_time');
+        const e = document.getElementById('end_time');
+        
+        if(timeSlot === 'am') { s.value = dateStr + 'T08:00'; e.value = dateStr + 'T13:00'; }
+        else { s.value = dateStr + 'T13:00'; e.value = dateStr + 'T17:00'; }
+        
+        modal.show();
+    }
+    
+    // [헬퍼] 드래그 선택 예약창 열기 (월간 뷰용)
+    function openReserve(s, e) {
+        const el = document.getElementById('reserveModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(el);
+        
+        document.getElementById('reserveForm').reset();
+        document.getElementById('reserve_id').value = '';
+        document.getElementById('reserveModalTitle').innerText = "시설 예약 신청";
+        
+        if(s) document.getElementById('start_time').value = s.slice(0, 16);
+        if(e) document.getElementById('end_time').value = e.slice(0, 16);
+        
+        modal.show();
+    }
+    
+    // [헬퍼] 수동 예약 버튼용
+    window.openReserveModal = function() {
+        const el = document.getElementById('reserveModal');
+        const modal = bootstrap.Modal.getOrCreateInstance(el);
+        const now = new Date();
+        
+        // 타임존 보정 (현재 시간 기준 +1시간)
+        const start = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0,16);
+        now.setHours(now.getHours() + 1);
+        const end = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0,16);
+        
+        document.getElementById('reserveForm').reset();
+        document.getElementById('reserve_id').value = ''; 
+        document.getElementById('reserveModalTitle').innerText = "시설 예약 신청";
+        document.getElementById('start_time').value = start;
+        document.getElementById('end_time').value = end;
+        
+        modal.show();
+    }
+</script>
+{% endblock %}

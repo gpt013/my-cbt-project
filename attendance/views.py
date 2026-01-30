@@ -557,8 +557,8 @@ def check_in_api(request):
             return JsonResponse({'status': 'fail', 'message': '보안 앱(MDM)이 감지되지 않았습니다.'})
 
         # 2. 위치 검사 (300m)
-        CENTER_LAT = 37.027  # ⚠️ 실제 위도로 수정하세요
-        CENTER_LON = 127.047 # ⚠️ 실제 경도로 수정하세요
+        CENTER_LAT = 37.039159  # ⚠️ 실제 위도로 수정하세요
+        CENTER_LON = 127.060482 # ⚠️ 실제 경도로 수정하세요
         RADIUS_LIMIT = 0.3
 
         distance = calculate_distance(lat, lon, CENTER_LAT, CENTER_LON)

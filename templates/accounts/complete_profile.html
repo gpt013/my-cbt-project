@@ -42,6 +42,17 @@
                         {{ profile_form.employee_id.errors }}
                         <input type="text" name="employee_id" value="{{ profile_form.employee_id.value|default:'' }}" class="form-control" required id="{{ profile_form.employee_id.id_for_label }}">
                     </div>
+                    <div class="mb-3">
+
+<label for="{{ profile_form.joined_at.id_for_label }}" class="form-label">입사일</label>
+
+{{ profile_form.joined_at }}
+
+{% if profile_form.joined_at.errors %}
+
+<div class="text-danger">{{ profile_form.joined_at.errors }}</div>
+
+{% endif %}</div>
 
                     <div class="mb-3">
                         <label for="{{ profile_form.cohort.id_for_label }}" class="form-label">{{ profile_form.cohort.label }}</label>

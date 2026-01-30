@@ -642,17 +642,42 @@ def take_quiz(request, quiz_id):
                         save_text = val
                         if q.choice_set.filter(is_correct=True, choice_text__iexact=val).exists(): is_correct = True
                 
-                else: # 주관식
+                else: # 주관식 (Short Answer) - [수정된 정규화 로직 적용]
                     save_text = str(user_val).strip()
+                    
                     if save_text:
-                        # [패치] answer 필드 안전 확인
-                        ans_field = getattr(q, 'answer', None)
-                        if ans_field and str(ans_field).strip().lower() == save_text.lower(): is_correct = True
-                        elif q.choice_set.filter(is_correct=True, choice_text__iexact=save_text).exists(): is_correct = True
+                        # [1] 정답 비교를 위한 정규화 함수 (내부 함수 정의)
+                        def normalize_text(text):
+                            if not text: return ""
+                            # 소문자 변환 -> 점(.) 제거 -> 공백 제거
+                            return str(text).lower().replace(".", "").replace(" ", "").strip()
 
+                        # 사용자 입력 정규화 (예: "D. I" -> "di")
+                        user_norm = normalize_text(save_text)
+                        
+                        # 모델의 정답 필드 가져오기 (안전장치)
+                        ans_field = getattr(q, 'answer', None)
+                        
+                        # [비교 1] answer 필드와 비교
+                        if ans_field and normalize_text(ans_field) == user_norm:
+                            is_correct = True
+                        
+                        # [비교 2] Choice(유사 정답/복수 정답)들과 비교
+                        else:
+                            # Choice 모델의 텍스트들도 똑같이 정규화해서 비교해야 함
+                            choices = q.choice_set.filter(is_correct=True)
+                            for c in choices:
+                                if normalize_text(c.choice_text) == user_norm:
+                                    is_correct = True
+                                    break
+
+                # [공통] 점수 합산 및 저장 데이터 수집
                 if is_correct: earned_score += q_score
                 answers_to_save.append({'q':q, 'text':save_text, 'sel':sel_obj, 'is_c':is_correct})
 
+            # ---------------------------------------------------------
+            # [루프 종료] 최종 점수 계산 및 결과 저장
+            # ---------------------------------------------------------
             final_score = min(int(round(earned_score)), 100)
             is_pass = final_score >= quiz.pass_score
 
@@ -1695,7 +1720,7 @@ def export_student_data(request):
         'user__testresult_set', 
         'badges', 
         'managerevaluation_set__selected_items', 
-        'logs', 
+        'student_logs', 
         'dailyschedule_set__work_type'
     ).order_by('cohort__start_date', 'user__username')
 
@@ -1791,7 +1816,7 @@ def export_student_data(request):
         row['체크리스트'] = "\n".join([i.description for i in last_eval.selected_items.all()]) if last_eval else ""
 
         # 특이사항/경고 이력
-        logs = profile.logs.all().order_by('created_at')
+        logs = profile.student_logs.all().order_by('created_at')
         log_txt = ""
         for l in logs:
             log_txt += f"[{l.created_at.date()}] {l.get_log_type_display()}: {l.reason}"
@@ -1916,7 +1941,7 @@ def export_student_data(request):
         row_data['체크리스트 평가'] = checklist_str
 
         # (E) 특이사항/경고 이력 (StudentLog)
-        logs = profile.logs.all().order_by('created_at')
+        logs = profile.student_logs.all().order_by('created_at')
         log_str = ""
         for log in logs:
             log_str += f"[{log.created_at.strftime('%Y-%m-%d')}] {log.get_log_type_display()}: {log.reason}\n"

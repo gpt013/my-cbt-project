@@ -116,6 +116,9 @@
                     </div>
                 </div>
 
+                <input type="hidden" name="correct_answer_text" id="real_short_answer">
+                <input type="hidden" name="ox_answer" id="real_ox_answer">
+
                 <div id="hidden_payload" class="d-none">
                     {% for i in "1234" %}
                         <input type="hidden" name="choice_text_{{ forloop.counter }}" id="h_text_{{ forloop.counter }}">
@@ -133,10 +136,6 @@
                         {% endif %}
                     </button>
                 </div>
-            </form>
-        </div>
-    </div>
-</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tagify/4.17.9/tagify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tagify/4.17.9/tagify.polyfills.min.js"></script>
@@ -247,34 +246,33 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('questionForm').addEventListener('submit', function(e) {
         const type = typeSelect.value;
         
-        // 숨겨진 필드 일단 초기화
+        // [초기화] 기존 숨겨진 필드들 일단 비우기
+        document.getElementById('real_short_answer').value = '';
+        document.getElementById('real_ox_answer').value = '';
         for(let i=1; i<=4; i++) {
             document.getElementById(`h_text_${i}`).value = '';
             document.getElementById(`h_correct_${i}`).checked = false;
         }
 
         if (type === 'short_answer') {
-            // [주관식] 입력값 -> 1번 보기에 저장
+            // [주관식 수정됨] UI 입력값 -> correct_answer_text 로 저장
             const val = document.getElementById('ui_short_input').value.trim();
             if(!val) { alert('정답 단어를 입력하세요!'); e.preventDefault(); return; }
             
-            document.getElementById('h_text_1').value = val;
-            document.getElementById('h_correct_1').checked = true;
+            // ★ 여기가 핵심 변경점! 백엔드가 찾는 이름에 값을 넣어줍니다.
+            document.getElementById('real_short_answer').value = val;
 
         } else if (type === 'true_false') {
-            // [OX] O/X 선택 -> 1번(O), 2번(X) 보기에 분배 저장
+            // [OX 수정됨] O/X 선택 -> ox_answer 로 저장
             const o = document.getElementById('ui_ox_o').checked;
             const x = document.getElementById('ui_ox_x').checked;
             if (!o && !x) { alert('O 또는 X 중 정답을 선택하세요!'); e.preventDefault(); return; }
 
-            document.getElementById('h_text_1').value = 'O';
-            document.getElementById('h_correct_1').checked = o;
-            
-            document.getElementById('h_text_2').value = 'X';
-            document.getElementById('h_correct_2').checked = x;
+            // ★ 여기가 핵심 변경점!
+            document.getElementById('real_ox_answer').value = o ? 'O' : 'X';
 
         } else {
-            // [객관식/다중] UI 입력값 -> 1~4번 보기에 그대로 저장
+            // [객관식/다중] 기존 로직 유지 (1~4번 보기에 저장)
             const texts = document.querySelectorAll('.ui-choice-text');
             const checks = document.querySelectorAll('.ui-choice-correct');
             let checkedCount = 0;

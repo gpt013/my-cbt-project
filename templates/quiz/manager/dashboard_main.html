@@ -98,29 +98,43 @@
     </div>
 
     <h4 class="fw-bold mb-3"><i class="bi bi-grid-fill"></i> 빠른 메뉴</h4>
-    <div class="row g-3">
-        <div class="col-md-3">
-            <a href="{% url 'quiz:manager_trainee_list' %}" class="card shadow-sm text-decoration-none hover-card h-100">
-                <div class="card-body text-center py-4">
-                    <div class="icon-box bg-light text-primary mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
-                        <i class="bi bi-people fs-3"></i>
-                    </div>
-                    <h5 class="text-dark fw-bold">교육생 전체 관리</h5>
-                    <p class="text-muted small mb-0">명부, 비번 초기화, 상세 조회</p>
+
+<div class="row g-3">
+    <div class="col-md-3">
+        <a href="{% url 'quiz:manager_trainee_list' %}" class="card shadow-sm text-decoration-none hover-card h-100">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-primary mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-people fs-3"></i>
                 </div>
-            </a>
-        </div>
-        <div class="col-md-3">
-            <a href="{% url 'attendance:schedule_index' %}?role=manager" class="card shadow-sm text-decoration-none hover-card h-100">
-                <div class="card-body text-center py-4">
-                    <div class="icon-box bg-light text-success mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
-                        <i class="bi bi-calendar3 fs-3"></i>
-                    </div>
-                    <h5 class="text-dark fw-bold">근무표 관리</h5>
-                    <p class="text-muted small mb-0">출석, 근무 수정, 결재</p>
+                <h5 class="text-dark fw-bold">교육생 전체 관리</h5>
+                <p class="text-muted small mb-0">명부, 비번 초기화, 상세 조회</p>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3">
+        <a href="{% url 'quiz:facility_dashboard' %}" class="card shadow-sm text-decoration-none hover-card h-100">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-primary mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-building-gear fs-3"></i>
                 </div>
-            </a>
-        </div>
+                <h5 class="text-dark fw-bold">시설 예약 관리</h5>
+                <p class="text-muted small mb-0">예약 현황 확인, 승인/반려</p>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3">
+        <a href="{% url 'attendance:schedule_index' %}?role=manager" class="card shadow-sm text-decoration-none hover-card h-100">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-success mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-calendar3 fs-3"></i>
+                </div>
+                <h5 class="text-dark fw-bold">근무표 관리</h5>
+                <p class="text-muted small mb-0">출석, 근무 수정, 결재</p>
+            </div>
+        </a>
+    </div>
         <div class="col-md-3">
             <a href="{% url 'quiz:upload_quiz' %}" class="card shadow-sm text-decoration-none hover-card h-100">
                 <div class="card-body text-center py-4">

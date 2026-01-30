@@ -318,15 +318,29 @@ class StudentLog(models.Model):
 # 10. 알림 (Notification)
 # ------------------------------------------------------------------
 class Notification(models.Model):
+    # 받는 사람 (필수)
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications', verbose_name="받는 사람")
-    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_notifications', verbose_name="보낸 사람")
     
+    # 보낸 사람 (옵션 - 시스템 알림일 경우 비워둘 수 있게 null=True 설정 ★에러 해결 핵심★)
+    sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_notifications', null=True, blank=True, verbose_name="보낸 사람")
+    
+    # 알림 내용
     message = models.CharField(max_length=255, verbose_name="알림 내용")
+    
+    # 알림 유형 (general:일반, facility:시설예약 등 구분 가능)
     notification_type = models.CharField(max_length=50, default='general', verbose_name="알림 유형") 
+    
+    # 클릭 시 이동할 링크 (옵션)
     related_url = models.CharField(max_length=255, blank=True, null=True, verbose_name="이동할 링크")
     
+    # 읽음 여부 및 시간
     is_read = models.BooleanField(default=False, verbose_name="읽음 여부")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
+
+    def __str__(self):
+        sender_name = self.sender.username if self.sender else "System"
+        return f"[{self.notification_type}] {sender_name} -> {self.recipient.username}: {self.message}"
+    
 
     class Meta:
         ordering = ['-created_at']
@@ -386,3 +400,65 @@ def update_final_assessment_stats(sender, instance, created, **kwargs):
             
     except Exception as e:
         print(f"❌ [통계 갱신 오류] {e}")
+
+
+
+# [1] 알림 모델 (필수)
+
+
+# [2] 강의실 모델
+class Room(models.Model):
+    ROOM_TYPES = [
+        ('large', '대강의실'),
+        ('process', '공정별 강의실'),
+        ('computer', '컴퓨터실'),
+    ]
+    name = models.CharField(max_length=50, verbose_name="강의실명")
+    room_type = models.CharField(max_length=20, choices=ROOM_TYPES, default='process')
+    
+    # 공정 연동 (기존 유지)
+    target_process = models.ForeignKey('accounts.Process', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="우선 배정 공정")
+    
+    # ★ [추가됨] 관리자가 직접 지정한 '공동 관리자들' (여러명 선택 가능)
+    managers = models.ManyToManyField(User, related_name='managed_rooms', blank=True, verbose_name="지정 관리자(공동 관리)")
+    
+    capacity = models.IntegerField(default=30, verbose_name="수용인원")
+    color = models.CharField(max_length=20, default='#3788d8', verbose_name="달력 표시 색상")
+    is_active = models.BooleanField(default=True, verbose_name="사용 가능 여부")
+
+    def __str__(self):
+        return self.name
+
+# [3] 예약 모델
+class Reservation(models.Model):
+    STATUS_CHOICES = [
+        ('pending', '승인 대기'),
+        ('confirmed', '예약 확정'),
+        ('rejected', '반려됨'),
+    ]
+
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, verbose_name="강의실")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="예약자")
+    
+    # 통계용 스냅샷
+    company_name = models.CharField(max_length=100, blank=True, null=True)
+    process_name = models.CharField(max_length=100, blank=True, null=True)
+
+    title = models.CharField(max_length=100, verbose_name="사용 목적")
+    start_time = models.DateTimeField(verbose_name="시작 시간")
+    end_time = models.DateTimeField(verbose_name="종료 시간")
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"[{self.room.name}] {self.title}"
+
+    # 중복 체크 (자신 제외)
+    def check_overlap(self):
+        return Reservation.objects.filter(
+            room=self.room,
+            status__in=['pending', 'confirmed'],
+            start_time__lt=self.end_time,
+            end_time__gt=self.start_time
+        ).exclude(pk=self.pk).exists()

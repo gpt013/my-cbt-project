@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from . import views_facility
 
 app_name = 'quiz'
 
@@ -136,5 +137,13 @@ urlpatterns = [
     path('status/counseling/', views.counseling_required_view, name='counseling_required'), # 퇴소 안내 (기간 중)
     path('status/dropout/', views.dropout_alert_view, name='dropout_alert'),               # 퇴소 확정 (기간 후)
     path('status/completed/', views.completed_alert_view, name='completed_alert'),         # 수료증
+
+    # 시설 예약 시스템
+    path('manager/facility/', views_facility.facility_dashboard, name='facility_dashboard'),
+    path('manager/facility/events/', views_facility.facility_events, name='facility_events'),
+    path('manager/facility/reserve/', views_facility.facility_reserve, name='facility_reserve'),
+    path('manager/facility/update/', views_facility.facility_update, name='facility_update'),
+    path('manager/facility/action/<int:event_id>/', views_facility.facility_action, name='facility_action'),
+    
 
 ]

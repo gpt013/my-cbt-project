@@ -36,7 +36,7 @@ class CustomUserCreationForm(UserCreationForm):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = Profile
-        fields = ['company', 'name', 'employee_id', 'cohort', 'process', 'line', 'pl']
+        fields = ['company', 'name', 'employee_id', 'cohort', 'process', 'line', 'pl','joined_at']
         
         labels = {
             'company': '소속 회사',
@@ -46,6 +46,7 @@ class ProfileForm(forms.ModelForm):
             'process': '공정',
             'line': '라인',
             'pl': '담당 PL',
+            'joined_at': '입사일',
         }
         
         widgets = {
@@ -56,7 +57,12 @@ class ProfileForm(forms.ModelForm):
             'process': forms.Select(attrs={'class': 'form-select', 'id': 'id_process'}), # ID 추가 (AJAX용)
             'line': forms.TextInput(attrs={'class': 'form-control', 'placeholder': '상세 라인을 입력하세요'}),
             'pl': forms.Select(attrs={'class': 'form-select', 'id': 'id_pl'}), # ID 추가
-        }
+            'joined_at': forms.DateInput(attrs={
+                'class': 'form-control',
+                'type': 'date',
+                'placeholder': '입사일을 선택하세요'
+            }),  
+        } 
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -74,6 +80,9 @@ class ProfileForm(forms.ModelForm):
         for name, field in self.fields.items():
             if name != 'line':
                 field.required = True
+
+        self.fields['joined_at'].required = True 
+        self.fields['joined_at'].help_text = "회사 입사일을 선택해주세요."
 
     def clean_cohort(self):
         cohort = self.cleaned_data.get('cohort')
