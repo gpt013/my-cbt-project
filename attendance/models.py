@@ -116,7 +116,7 @@ class Attendance(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='attendance_records')
     date = models.DateField(default=timezone.now) # 출근 날짜
     check_in_time = models.DateTimeField(null=True, blank=True) # 실제 찍은 시간
-    
+    daily_schedule = models.ForeignKey('DailySchedule', on_delete=models.SET_NULL, null=True, blank=True)
     # 상태 (출근/지각/조퇴/결석)
     status = models.CharField(max_length=20, default='미출근') 
     

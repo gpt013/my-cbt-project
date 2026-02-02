@@ -542,7 +542,7 @@ def check_in_page(request):
 @login_required
 @csrf_exempt
 def check_in_api(request):
-    """출근 체크 API"""
+    """출근 체크 API (수정됨)"""
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': '잘못된 접근입니다.'})
 
@@ -554,11 +554,11 @@ def check_in_api(request):
 
         # 1. MDM 검사
         if not is_mdm_active:
-            return JsonResponse({'status': 'fail', 'message': '보안 앱(MDM)이 감지되지 않았습니다.'})
+            return JsonResponse({'status': 'fail', 'message': '보안 앱(MDM)이 감지되지 않았습니다. 카메라가 차단되었는지 확인해주세요.'})
 
         # 2. 위치 검사 (300m)
-        CENTER_LAT = 37.039159  # ⚠️ 실제 위도로 수정하세요
-        CENTER_LON = 127.060482 # ⚠️ 실제 경도로 수정하세요
+        CENTER_LAT = 37.039159  # ⚠️ 실제 위도로 수정 필요
+        CENTER_LON = 127.060482 # ⚠️ 실제 경도로 수정 필요
         RADIUS_LIMIT = 0.3
 
         distance = calculate_distance(lat, lon, CENTER_LAT, CENTER_LON)
@@ -566,23 +566,23 @@ def check_in_api(request):
         if distance > RADIUS_LIMIT:
             return JsonResponse({
                 'status': 'fail', 
-                'message': f'사업장 반경 {RADIUS_LIMIT*1000}m 이내에서만 출근 가능합니다.\n(현재 거리: {int(distance*1000)}m)'
+                'message': f'사업장 반경 {int(RADIUS_LIMIT*1000)}m 이내에서만 출근 가능합니다.\n(현재 거리: {int(distance*1000)}m)'
             })
 
-        # 3. 출근 기록
+        # 3. 출근 기록 (★ 여기가 수정되었습니다 ★)
         today = timezone.now().date()
-        daily_schedule, _ = DailySchedule.objects.get_or_create(
-            profile=request.user.profile,
-            date=today
-        )
 
-        if Attendance.objects.filter(daily_schedule=daily_schedule).exists():
+        # daily_schedule 대신 user와 date로 중복 검사
+        if Attendance.objects.filter(user=request.user, date=today).exists():
             return JsonResponse({'status': 'fail', 'message': '이미 금일 출근 기록이 있습니다.'})
 
+        # daily_schedule 없이 직접 저장
         Attendance.objects.create(
-            daily_schedule=daily_schedule,
+            user=request.user,           # ★ user 저장
+            date=today,                  # ★ date 저장
             check_in_time=timezone.now(),
-            status='present'
+            status='출근',               # 상태 (한글 or 영문 통일 필요)
+            is_verified=True             # MDM/GPS 통과했으므로 인증됨
         )
 
         return JsonResponse({'status': 'success', 'message': '출근 인증이 완료되었습니다!'})
