@@ -97,10 +97,18 @@ class BadgeAdmin(admin.ModelAdmin):
 
 @admin.register(PartLeader)
 class PartLeaderAdmin(admin.ModelAdmin):
-    list_display = ('name', 'email', 'company', 'process')
+    # 1. process 대신 get_process 사용
+    list_display = ('name', 'email', 'company', 'get_process')
     list_filter = ('company', 'process') 
+    
+    # 2. 사용자님이 원래 쓰시던 훌륭한 검색 조건 그대로 유지!
     search_fields = ('name', 'email', 'company__name', 'process__name') 
     autocomplete_fields = ('company', 'process') 
+
+    # 3. 여러 공정을 쉼표로 묶어서 보여주는 함수
+    def get_process(self, obj):
+        return ", ".join([p.name for p in obj.process.all()])
+    get_process.short_description = '담당 공정'
 
 @admin.register(Process)
 class ProcessAdmin(admin.ModelAdmin):
@@ -168,20 +176,24 @@ class FinalAssessmentInline(admin.StackedInline):
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'status', 'warning_count', 'is_profile_complete', 'get_is_active', 'is_manager')
+    # [수정] is_approved(승인여부)를 리스트에 표시
+    list_display = ('user', 'name', 'company', 'get_cohort', 'get_process_name', 'status', 'warning_count', 'is_approved', 'is_profile_complete', 'get_is_active', 'is_manager')
     
-    # warning_count(경고횟수)도 리스트에서 바로 수정 가능하게 추가
-    list_editable = ('status', 'warning_count') 
+    # [수정] is_approved를 체크박스로 바로 수정 가능하게 추가 (빠른 승인 처리)
+    list_editable = ('status', 'warning_count', 'is_approved') 
 
-    # 인라인 연결
+    # 인라인 연결 (기존 유지)
     inlines = [FinalAssessmentInline] 
 
     search_fields = ('user__username', 'name', 'employee_id', 'cohort__name')
-    list_filter = ('status', 'user__is_active', 'is_manager', 'must_change_password', 'process', 'cohort', 'company')
+    
+    # [수정] 필터에 승인 여부 추가 (미승인 인원만 보기 편함)
+    list_filter = ('is_approved', 'status', 'user__is_active', 'is_manager', 'must_change_password', 'process', 'cohort', 'company')
+    
     autocomplete_fields = ('user', 'company', 'process', 'pl', 'cohort')
     filter_horizontal = ('badges',)
 
-    # 액션 추가 (가입승인, 비번초기화, 수료처리)
+    # 액션 추가 (기존 유지)
     actions = [activate_users, reset_password_to_default, mark_as_completed]
 
     # [보안 1] 매니저에게는 '슈퍼유저' 목록 숨김

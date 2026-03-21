@@ -1,8 +1,12 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth.models import User, Group
+from django.contrib.auth.signals import user_logged_in  # ★ [추가됨] 로그인 감지용 부품
 from .models import Profile
 
+# =====================================================================
+# 1. [기존 로직] 프로필 저장 시 그룹 자동 할당
+# =====================================================================
 @receiver(post_save, sender=Profile)
 def auto_assign_user_to_groups(sender, instance, created, **kwargs):
     """
@@ -13,10 +17,8 @@ def auto_assign_user_to_groups(sender, instance, created, **kwargs):
     profile = instance
 
     # --- 1. 기존에 자동으로 생성된 그룹은 모두 제거 (정보 변경 시 그룹 이동을 위해) ---
-    # '기수:', '공정:', '팀:', '회사:' 로 시작하는 그룹만 타겟으로 합니다.
     auto_group_prefixes = ['기수:', '공정:', '팀:', '회사:']
     
-    # 사용자가 속한 그룹 중 자동 생성 그룹만 필터링하여 제거
     groups_to_remove = []
     for group in user.groups.all():
         for prefix in auto_group_prefixes:
@@ -30,33 +32,41 @@ def auto_assign_user_to_groups(sender, instance, created, **kwargs):
     # --- 2. 새로운 정보에 맞춰 그룹 생성 및 추가 ---
     groups_to_add = []
     
-    # [수정] 기수 그룹 (예: "기수: 25-01기")
-    # profile.cohort는 객체이므로 .name으로 접근합니다.
     if profile.cohort:
         group_name = f"기수: {profile.cohort.name}"
         group, _ = Group.objects.get_or_create(name=group_name)
         groups_to_add.append(group)
 
-    # [수정] 공정 그룹 (예: "공정: CMP")
-    # profile.process는 객체이므로 .name으로 접근합니다.
     if profile.process:
         group_name = f"공정: {profile.process.name}"
         group, _ = Group.objects.get_or_create(name=group_name)
         groups_to_add.append(group)
         
-    # [수정] 기수-공정 연합 팀 그룹 (예: "팀: 25-01기-CMP")
     if profile.cohort and profile.process:
         group_name = f"팀: {profile.cohort.name}-{profile.process.name}"
         group, _ = Group.objects.get_or_create(name=group_name)
         groups_to_add.append(group)
     
-    # [수정] 회사 그룹 (예: "회사: 삼성전자")
-    # profile.company는 객체이므로 .name으로 접근합니다.
     if profile.company:
         group_name = f"회사: {profile.company.name}"
         group, _ = Group.objects.get_or_create(name=group_name)
         groups_to_add.append(group)
         
-    # 찾거나 생성한 모든 그룹에 사용자를 한 번에 추가합니다.
     if groups_to_add:
         user.groups.add(*groups_to_add)
+
+# =====================================================================
+# 2. ★ [신규 로직] 중복 로그인 방지를 위한 '최신 접속증' 기록
+# =====================================================================
+@receiver(user_logged_in)
+def update_session_key(sender, user, request, **kwargs):
+    """로그인 시 현재 발급받은 '최신 접속증 번호'를 프로필에 적어둡니다."""
+    
+    # 아직 접속증(세션)이 안 만들어졌다면 생성
+    if not request.session.session_key:
+        request.session.create() 
+        
+    # 내 프로필에 현재 발급받은 최신 접속증 번호를 도장 쾅! 찍어둠
+    if hasattr(user, 'profile'):
+        user.profile.session_key = request.session.session_key
+        user.profile.save()

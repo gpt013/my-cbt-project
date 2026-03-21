@@ -51,13 +51,13 @@
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge bg-light text-dark border">Q{{ forloop.counter }}</span>
                         
-                        {% if question.difficulty == '상' %}
-                            <span class="badge bg-danger">상</span>
-                        {% elif question.difficulty == '중' %}
-                            <span class="badge bg-warning text-dark">중</span>
-                        {% else %}
-                            <span class="badge bg-success">하</span>
-                        {% endif %}
+                        {% if question.difficulty|stringformat:"s" == '3' %}
+    <span class="badge bg-danger">상</span>
+{% elif question.difficulty|stringformat:"s" == '2' %}
+    <span class="badge bg-warning text-dark">중</span>
+{% else %}
+    <span class="badge bg-success">하</span>
+{% endif %}
 
                         <span class="badge bg-secondary">{{ question.question_type }}</span>
 
@@ -102,10 +102,14 @@
                                 {% endif %}
                                 
                                 {% if choice.image %}
-                                    <a href="{{ choice.image.url }}" target="_blank" class="ms-2 badge bg-light text-dark border">
-                                        <i class="bi bi-image"></i> 이미지
-                                    </a>
-                                {% endif %}
+    <div class="ms-3"> <a href="{{ choice.image.url }}" target="_blank" class="d-block">
+            <img src="{{ choice.image.url }}" 
+                 alt="보기 이미지" 
+                 class="rounded border shadow-sm" 
+                 style="width: 120px; height: 120px; object-fit: cover;">
+        </a>
+    </div>
+{% endif %}
                             </li>
                         {% endfor %}
                     </ul>

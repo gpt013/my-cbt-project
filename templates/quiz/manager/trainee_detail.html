@@ -45,9 +45,21 @@
                     <h4 class="fw-bold mb-0">{{ profile.name }}</h4>
                     <p class="text-muted mb-3">{{ profile.employee_id }}</p>
                     
-                    <div class="d-flex justify-content-center gap-2 mb-4">
+                    <div class="d-flex justify-content-center gap-2 mb-2">
+                        <span class="badge bg-secondary">{{ profile.company.name|default:"회사 미지정" }}</span>
                         <span class="badge bg-dark">{{ profile.cohort.name|default:"기수없음" }}</span>
                         <span class="badge bg-info text-dark">{{ profile.process.name|default:"공정없음" }}</span>
+                    </div>
+                    
+                    <div class="d-flex justify-content-center mb-4">
+                        <span class="badge border border-primary text-primary bg-white shadow-sm">
+                            <i class="bi bi-person-workspace me-1"></i> 담당 PL: 
+                            {% if profile.pl %}
+                                [{{ profile.pl.company.name|default:"소속없음" }}] {{ profile.pl.name }}
+                            {% else %}
+                                미지정
+                            {% endif %}
+                        </span>
                     </div>
 
                     <div class="d-grid gap-2 mb-4">
@@ -374,85 +386,37 @@
                                 
                                 <div class="table-responsive">
                                     <table class="table table-hover align-middle">
-                                        <thead class="table-light">
+                                        <thead class="table-light text-center">
                                             <tr>
-                                                <th>시험명</th>
+                                                <th class="text-start">시험명</th>
+                                                <th>응시 회차</th>
                                                 <th>점수</th>
                                                 <th>결과</th>
-                                                <th style="min-width: 380px;">상세 진행 내역</th>
-                                                <th>응시일</th>
+                                                <th>응시일시</th>
                                             </tr>
                                         </thead>
-                                        <tbody>
+                                        <tbody class="text-center">
                                             {% for r in results %}
                                             <tr>
-                                                <td class="fw-bold">{{ r.quiz.title }}</td>
-                                                <td class="fw-bold text-center {% if r.score >= 80 %}text-success{% else %}text-danger{% endif %}">
+                                                <td class="text-start fw-bold">{{ r.quiz.title }}</td>
+                                                
+                                                <td>
+                                                    <span class="badge bg-secondary">{{ r.attempt_number }}회차</span>
+                                                </td>
+                                                
+                                                <td class="fw-bold {% if r.score >= 80 %}text-success{% else %}text-danger{% endif %}">
                                                     {{ r.score }}점
                                                 </td>
-                                                <td class="text-center">
+                                                
+                                                <td>
                                                     {% if r.is_pass %}
                                                         <span class="badge bg-success">합격</span>
                                                     {% else %}
                                                         <span class="badge bg-danger">불합격</span>
                                                     {% endif %}
                                                 </td>
-                                                <td>
-                                                    <div class="step-container d-flex align-items-center gap-2">
-                                                        <div class="step-item p-1 border rounded {% if r.log_1st %}bg-light border-primary{% endif %}">
-                                                            <div class="d-flex align-items-center gap-1">
-                                                                <span class="status-dot {% if r.log_1st %}dot-blue{% elif r.is_pass %}dot-green{% else %}dot-red{% endif %}"></span>
-                                                                <span class="small fw-bold">1차</span>
-                                                                {% if r.log_1st %}
-                                                                    <button class="btn btn-sm btn-secondary py-0 px-2" 
-                                                                            onclick="viewLog('{{ r.log_1st.reason|escapejs }}', '{{ r.log_1st.action_taken|default:''|escapejs }}', '{{ r.log_1st.created_at|date:'Y-m-d' }}')">
-                                                                        내용
-                                                                    </button>
-                                                                {% elif not r.is_pass %}
-                                                                    <button type="button" 
-                                                                            class="btn btn-sm btn-danger py-0 px-2 open-manager-modal"
-                                                                            data-id="{{ profile.id }}"
-                                                                            data-title="{{ r.quiz.title }}"
-                                                                            data-score="{{ r.score }}"
-                                                                            data-quizid="{{ r.quiz.id }}"
-                                                                            data-stage="1"
-                                                                            data-bs-toggle="modal" 
-                                                                            data-bs-target="#managerCounselModal">
-                                                                        작성
-                                                                    </button>
-                                                                {% endif %}
-                                                            </div>
-                                                        </div>
-                                                        <i class="bi bi-chevron-right text-muted small"></i>
-                                                        <div class="step-item p-1 border rounded {% if r.log_2nd %}bg-light border-primary{% else %}opacity-50{% endif %}">
-                                                            <div class="d-flex align-items-center gap-1">
-                                                                <span class="status-dot {% if r.log_2nd %}dot-blue{% else %}dot-gray{% endif %}"></span>
-                                                                <span class="small fw-bold {% if not r.log_2nd %}text-muted{% endif %}">2차</span>
-                                                                {% if r.log_2nd %}
-                                                                    <button class="btn btn-sm btn-secondary py-0 px-2" 
-                                                                            onclick="viewLog('{{ r.log_2nd.reason|escapejs }}', '{{ r.log_2nd.action_taken|default:''|escapejs }}', '{{ r.log_2nd.created_at|date:'Y-m-d' }}')">
-                                                                        내용
-                                                                    </button>
-                                                                {% else %}
-                                                                    <span class="small text-muted ms-1">대기</span>
-                                                                {% endif %}
-                                                            </div>
-                                                        </div>
-                                                        <i class="bi bi-chevron-right text-muted small"></i>
-                                                        <div class="step-item p-1 border rounded {% if r.log_final %}bg-dark text-white{% else %}opacity-50{% endif %}">
-                                                             <div class="d-flex align-items-center gap-1">
-                                                                <span class="status-dot {% if r.log_final %}dot-black{% else %}dot-gray{% endif %}"></span>
-                                                                <span class="small fw-bold {% if not r.log_final %}text-muted{% endif %}">퇴소</span>
-                                                                {% if r.log_final %}
-                                                                     <span class="badge bg-light text-dark" style="font-size: 0.7rem;">처리됨</span>
-                                                                {% else %}
-                                                                     <span class="small text-muted ms-1">대기</span>
-                                                                {% endif %}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td class="text-center small text-muted">{{ r.completed_at|date:"Y-m-d" }}</td>
+                                                
+                                                <td class="small text-muted">{{ r.completed_at|date:"Y-m-d H:i" }}</td>
                                             </tr>
                                             {% empty %}
                                             <tr><td colspan="5" class="text-center py-5 text-muted">응시 기록이 없습니다.</td></tr>

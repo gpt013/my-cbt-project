@@ -1,0 +1,171 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<style>
+    /* 테이블 스타일 */
+    .table-hover tbody tr:hover {
+        background-color: #f8f9fa;
+    }
+    
+    /* 점수 뱃지 */
+    .score-badge {
+        width: 60px;
+        display: inline-block;
+        text-align: center;
+        font-weight: 700;
+        padding: 4px 0;
+        border-radius: 6px;
+        font-size: 0.85rem;
+    }
+    .bg-score-high { background-color: #d1e7dd; color: #0f5132; }
+    .bg-score-mid  { background-color: #fff3cd; color: #664d03; }
+    .bg-score-low  { background-color: #f8d7da; color: #842029; }
+
+    /* 아코디언 스타일 */
+    .accordion-button:not(.collapsed) {
+        background-color: #f0f4ff;
+        color: #0d6efd;
+        font-weight: bold;
+    }
+    .accordion-button:focus {
+        box-shadow: none;
+        border-color: rgba(0,0,0,.125);
+    }
+    .category-icon {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        margin-right: 10px;
+    }
+
+    /* 합격률 링크 스타일 (클릭 가능 효과) */
+    .pass-rate-link {
+        display: block;
+        text-decoration: none;
+        color: inherit;
+        padding: 5px;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+    }
+    .pass-rate-link:hover {
+        background-color: #e9ecef;
+        cursor: pointer;
+    }
+    .pass-rate-link:hover .rate-text {
+        text-decoration: underline;
+        color: #0d6efd;
+    }
+</style>
+
+<div class="container-fluid mt-4 mb-5" style="max-width: 1400px;">
+    
+    <div class="d-flex justify-content-between align-items-end mb-4">
+        <div>
+            <h3 class="fw-bold text-dark mb-1">
+                <i class="bi bi-bar-chart-line-fill text-success me-2"></i>PMTC 시험 분석 센터
+            </h3>
+            <p class="text-muted mb-0 small">시험별 정답률 분석, 난이도 자동 조절 및 문항 관리</p>
+        </div>
+        <div class="d-flex gap-3">
+            <div class="card border-0 shadow-sm px-3 py-2 text-center bg-light">
+                <small class="text-muted d-block">총 등록 시험</small>
+                <span class="fw-bold fs-5">{{ total_stats.exam_count }}개</span>
+            </div>
+            <div class="card border-0 shadow-sm px-3 py-2 text-center bg-light">
+                <small class="text-muted d-block">총 누적 응시</small>
+                <span class="fw-bold fs-5 text-primary">{{ total_stats.total_attempts }}회</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="accordion" id="analyticsAccordion">
+        {% for cat_key, cat_data in grouped_data.items %}
+        <div class="accordion-item shadow-sm border-0 mb-3 rounded-3 overflow-hidden">
+            <h2 class="accordion-header">
+                <button class="accordion-button {% if cat_key != 'process' %}collapsed{% endif %} py-3" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ cat_key }}">
+                    <div class="category-icon bg-{{ cat_data.color }} bg-opacity-10 text-{{ cat_data.color }}">
+                        <i class="bi {{ cat_data.icon }}"></i>
+                    </div>
+                    <span class="fs-5">{{ cat_data.label }}</span>
+                    <span class="badge bg-light text-secondary ms-3 border">{{ cat_data.exams|length }}개 과목</span>
+                </button>
+            </h2>
+            <div id="collapse{{ cat_key }}" class="accordion-collapse collapse {% if cat_key == 'process' %}show{% endif %}">
+                <div class="accordion-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 text-center">
+                            <thead class="bg-light text-secondary small">
+                                <tr>
+                                    <th class="py-3 ps-4 text-start" style="width: 35%;">시험명</th>
+                                    <th style="width: 15%;">대상 공정</th>
+                                    <th style="width: 10%;">문항수</th>
+                                    <th style="width: 10%;">누적 응시</th>
+                                    <th style="width: 10%;">평균 점수</th>
+                                    <th style="width: 20%;">합격률 (통계)</th>
+                                    </tr>
+                            </thead>
+                            <tbody>
+                                {% for exam in cat_data.exams %}
+                                <tr>
+                                    <td class="text-start ps-4 fw-bold text-dark">
+                                        {{ exam.title }}
+                                    </td>
+                                    
+                                    <td>
+                                        {% if exam.process_name == '전체' %}
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary border">전체 공통</span>
+                                        {% else %}
+                                            <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle">{{ exam.process_name }}</span>
+                                        {% endif %}
+                                    </td>
+                                    
+                                    <td class="text-muted">{{ exam.question_count }}문항</td>
+                                    
+                                    <td><span class="fw-bold">{{ exam.total_attempts }}</span>회</td>
+                                    
+                                    <td>
+                                        <span class="score-badge 
+                                            {% if exam.avg_score >= 80 %}bg-score-high
+                                            {% elif exam.avg_score >= 60 %}bg-score-mid
+                                            {% else %}bg-score-low{% endif %}">
+                                            {{ exam.avg_score }}
+                                        </span>
+                                    </td>
+                                    
+                                    <td>
+                                        <a href="{% url 'quiz:exam_analytics_detail' exam.id %}" class="pass-rate-link" title="클릭하여 상세 분석 및 난이도 관리">
+                                            <div class="d-flex align-items-center justify-content-center">
+                                                <div class="progress flex-grow-1 me-2" style="height: 6px; max-width: 80px;">
+                                                    <div class="progress-bar {% if exam.pass_rate >= 80 %}bg-success{% elif exam.pass_rate >= 50 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                                         role="progressbar" 
+                                                         style="width: {{ exam.pass_rate }}%">
+                                                    </div>
+                                                </div>
+                                                <span class="fw-bold small rate-text">{{ exam.pass_rate }}%</span>
+                                                <i class="bi bi-chevron-right ms-1 text-muted small"></i>
+                                            </div>
+                                        </a>
+                                    </td>
+                                    </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="py-5 text-muted">
+                                        <i class="bi bi-inbox fs-1 d-block mb-2 opacity-50"></i>
+                                        등록된 시험이 없습니다.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,357 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<style>
+    /* 테이블 디자인 고도화 */
+    .table-container {
+        overflow-x: auto;
+        position: relative;
+        border: 1px solid #dee2e6;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* 1. 고정 컬럼 (이름/소속) */
+    .sticky-col-1 {
+        position: sticky;
+        left: 0;
+        z-index: 10;
+        background-color: #fff !important;
+        border-right: 2px solid #e9ecef;
+        width: 180px;
+        min-width: 180px;
+    }
+    thead th.sticky-col-1 { z-index: 20; background-color: #f8f9fa !important; }
+
+    /* 2. 시험 컬럼 (3분할 디자인) */
+    .quiz-col {
+        min-width: 120px;
+        max-width: 120px;
+        padding: 0 !important;
+        border-right: 1px solid #dee2e6;
+    }
+    
+    .score-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        height: 100%;
+        width: 100%;
+    }
+    
+    .score-cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        height: 50px;
+        border-right: 1px solid #eee;
+    }
+    .score-cell:last-child { border-right: none; }
+
+    /* 점수별 색상 테마 */
+    .bg-pass { background-color: #d1e7dd; color: #0f5132; }
+    .bg-fail { background-color: #f8d7da; color: #842029; }
+    .bg-none { background-color: #fcfcfc; color: #ced4da; }
+
+    /* 헤더 디자인 */
+    .sub-header {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        font-size: 0.7rem;
+        color: #6c757d;
+        background: #f8f9fa;
+        border-top: 1px solid #eee;
+    }
+    .sub-header div { text-align: center; padding: 2px 0; border-right: 1px solid #eee; }
+    .sub-header div:last-child { border-right: none; }
+
+    .status-link { text-decoration: none; transition: transform 0.2s; display: block; }
+    .status-link:hover { transform: scale(1.05); }
+
+    /* 필터링 모드 전용 스타일 */
+    .filter-mode-header {
+        background: linear-gradient(45deg, #f8f9fa, #ffffff);
+        border-left: 5px solid #0d6efd;
+    }
+</style>
+
+<div class="container-fluid mt-4 mb-5">
+    
+    <div class="row align-items-end mb-4 g-3">
+        <div class="col-lg-3">
+            <h3 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-grid-3x3-gap-fill text-primary"></i> 교육생 성적 관리
+            </h3>
+            <small class="text-muted">
+                3단계 상세 점수판 
+                {% if is_filtered %}
+                    <span class="badge bg-info text-dark ms-2">필터링 적용 중</span>
+                {% endif %}
+            </small>
+        </div>
+
+        <div class="col-lg-9">
+            <form class="row g-2 justify-content-lg-end" method="get" id="filterForm">
+                <div class="col-auto">
+                    <select name="company" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">🏢 전체 회사</option>
+                        {% for c in companies %}
+                        <option value="{{ c.id }}" {% if sel_company == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <select name="process" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">⚙️ 전체 공정</option>
+                        {% for p in processes %}
+                        <option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <select name="cohort" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">📅 전체 기수</option>
+                        {% for c in cohorts %}
+                        <option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="q" class="form-control" placeholder="이름/사번 검색" value="{{ search_query }}">
+                        <button class="btn btn-primary" type="submit">검색</button>
+                    </div>
+                </div>
+                <div class="col-auto">
+                    <a href="{% url 'quiz:student_dashboard' %}" class="btn btn-outline-secondary btn-sm" title="필터 초기화"><i class="bi bi-arrow-counterclockwise"></i></a>
+                </div>
+                
+                <div class="col-auto">
+                    <button type="button" class="btn btn-warning btn-sm fw-bold" data-bs-toggle="modal" data-bs-target="#accessRequestModal">
+                        <i class="bi bi-key-fill"></i> 권한 요청
+                    </button>
+                </div>
+                <div class="col-auto border-start ps-2">
+                    <button type="button" class="btn btn-success btn-sm" onclick="downloadExcel()">
+                        <i class="bi bi-file-earmark-excel"></i> 엑셀 저장
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if total_risk_count > 0 %}
+    <div class="alert alert-danger d-flex align-items-center py-2 shadow-sm rounded-3 mb-4 border-0">
+        <i class="bi bi-exclamation-triangle-fill me-2 fs-5"></i>
+        <div>
+            <strong>집중 관리 대상: {{ total_risk_count }}명</strong> (평균 60점 미만 또는 경고 누적)
+        </div>
+    </div>
+    {% endif %}
+
+    {# --- 분기 처리: 필터링 시에는 통합 테이블, 평소에는 아코디언 --- #}
+    {% if is_filtered %}
+        <div class="card shadow-sm border-0 rounded-3 overflow-hidden">
+            <div class="card-header filter-mode-header py-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0 fw-bold text-dark"><i class="bi bi-filter-square me-2"></i>검색 및 필터 통합 결과</h5>
+                    <span class="text-muted small">총 {{ dashboard_data|length }}개 그룹 데이터</span>
+                </div>
+            </div>
+            <div class="table-container" style="border:none; border-radius:0;">
+                <table class="table table-bordered mb-0 text-center" style="font-size: 0.85rem;">
+                    <thead class="bg-light">
+                        <tr>
+                            <th class="sticky-col-1 align-middle" rowspan="2">교육생 정보 (기수)</th>
+                            <th class="align-middle bg-primary bg-opacity-10 text-primary" rowspan="2" style="width: 70px;">1차<br>평균</th>
+                            {% for quiz in header_quizzes %}
+                            <th class="quiz-col align-middle">
+                                <div class="text-truncate px-1" title="{{ quiz.title }}">{{ quiz.title }}</div>
+                                <div class="sub-header mt-1">
+                                    <div>1차</div><div>2차</div><div>3차</div>
+                                </div>
+                            </th>
+                            {% endfor %}
+                            <th class="align-middle" rowspan="2" style="width: 100px;">상태/분석</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for data in dashboard_data %}
+                            {% for s in data.students %}
+                            <tr>
+                                <td class="sticky-col-1 text-start ps-3 py-2">
+                                    <div class="fw-bold text-dark fs-6">
+                                        {{ s.profile.name }}
+                                        <span class="badge bg-light text-dark fw-normal border ms-1" style="font-size: 0.65rem;">{{ data.cohort.name }}</span>
+                                    </div>
+                                    <div class="text-muted small d-flex gap-2 mt-1" style="font-size: 0.7rem;">
+                                        <span class="text-truncate" style="max-width: 70px;">{{ s.profile.company.name|default:"-" }}</span>
+                                        <span class="border-start ps-2 text-truncate" style="max-width: 70px;">{{ s.profile.process.name|default:"-" }}</span>
+                                    </div>
+                                </td>
+                                <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6">{{ s.avg_score }}</td>
+                                {% for quiz_data in s.scores_map %}
+                                <td class="quiz-col p-0">
+                                    <div class="score-grid">
+                                        {% for attempt in quiz_data.attempts %}
+                                            {% if attempt %}
+                                                <div class="score-cell {% if attempt.is_pass %}bg-pass{% else %}bg-fail{% endif %}" title="{{ attempt.score }}점">
+                                                    {{ attempt.score }}
+                                                </div>
+                                            {% else %}
+                                                <div class="score-cell bg-none">-</div>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </div>
+                                </td>
+                                {% endfor %}
+                                <td class="align-middle">
+                                    <a href="{% url 'quiz:student_analysis_detail' s.profile.id %}" class="status-link">
+                                        <span class="badge {% if s.profile.status == 'attending' %}bg-success{% elif s.profile.status == 'counseling' %}bg-warning text-dark{% else %}bg-secondary{% endif %} w-100 py-2">
+                                            {{ s.profile.get_status_display }}
+                                        </span>
+                                        <div class="small text-primary mt-1"><i class="bi bi-search"></i> 분석</div>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% else %}
+        <div class="accordion" id="dashboardAccordion">
+            {% for data in dashboard_data %}
+            <div class="accordion-item shadow-sm mb-4 border-0 overflow-hidden">
+                <h2 class="accordion-header">
+                    <button class="accordion-button fw-bold text-dark py-3 {% if not forloop.first %}collapsed{% endif %}" 
+                            type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ data.cohort.id }}"
+                            aria-expanded="{% if forloop.first %}true{% else %}false{% endif %}">
+                        <span class="badge bg-primary me-2">{{ data.cohort.name }}</span>
+                        <span class="text-secondary small me-auto">({{ data.total_students }}명)</span>
+                        <span class="text-muted small me-3">기수 1차 평균: <strong>{{ data.cohort_avg }}점</strong></span>
+                        {% if data.risk_count > 0 %}<span class="badge bg-danger rounded-pill">위험 {{ data.risk_count }}</span>{% endif %}
+                    </button>
+                </h2>
+
+                <div id="collapse{{ data.cohort.id }}" class="accordion-collapse collapse {% if forloop.first %}show{% endif %}" data-bs-parent="#dashboardAccordion">
+                    <div class="accordion-body p-0">
+                        <div class="table-container">
+                            <table class="table table-bordered mb-0 text-center" style="font-size: 0.85rem;">
+                                <thead class="bg-light">
+                                    <tr>
+                                        <th class="sticky-col-1 align-middle" rowspan="2">교육생 정보</th>
+                                        <th class="align-middle bg-primary bg-opacity-10 text-primary" rowspan="2" style="width: 70px;">1차<br>평균</th>
+                                        {% for quiz in header_quizzes %}
+                                        <th class="quiz-col align-middle">
+                                            <div class="text-truncate px-1">{{ quiz.title }}</div>
+                                            <div class="sub-header mt-1">
+                                                <div>1차</div><div>2차</div><div>3차</div>
+                                            </div>
+                                        </th>
+                                        {% endfor %}
+                                        <th class="align-middle" rowspan="2" style="width: 100px;">상태/분석</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for s in data.students %}
+                                    <tr>
+                                        <td class="sticky-col-1 text-start ps-3 py-2">
+                                            <div class="fw-bold text-dark fs-6">
+                                                {{ s.profile.name }}
+                                                {% if s.is_risk %}<i class="bi bi-dot text-danger fs-3 position-absolute"></i>{% endif %}
+                                            </div>
+                                            <div class="text-muted small d-flex gap-2 mt-1">
+                                                <span class="text-truncate" style="max-width: 70px;">{{ s.profile.company.name|default:"-" }}</span>
+                                                <span class="border-start ps-2 text-truncate" style="max-width: 70px;">{{ s.profile.process.name|default:"-" }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6">{{ s.avg_score }}</td>
+                                        {% for quiz_data in s.scores_map %}
+                                        <td class="quiz-col p-0">
+                                            <div class="score-grid">
+                                                {% for attempt in quiz_data.attempts %}
+                                                    {% if attempt %}
+                                                        <div class="score-cell {% if attempt.is_pass %}bg-pass{% else %}bg-fail{% endif %}" title="{{ attempt.score }}점">
+                                                            {{ attempt.score }}
+                                                        </div>
+                                                    {% else %}
+                                                        <div class="score-cell bg-none">-</div>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </div>
+                                        </td>
+                                        {% endfor %}
+                                        <td class="align-middle">
+                                            <a href="{% url 'quiz:student_analysis_detail' s.profile.id %}" class="status-link">
+                                                <span class="badge {% if s.profile.status == 'attending' %}bg-success{% elif s.profile.status == 'counseling' %}bg-warning text-dark{% else %}bg-secondary{% endif %} w-100 py-2">
+                                                    {{ s.profile.get_status_display }}
+                                                </span>
+                                                <div class="small text-primary mt-1"><i class="bi bi-search"></i> 분석</div>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="accessRequestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-10">
+                <h5 class="modal-title fw-bold text-dark"><i class="bi bi-shield-lock-fill me-2"></i>타 공정 열람 권한 요청</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <form action="{% url 'quiz:request_process_access' %}" method="post">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        다른 공정의 교육생 성적을 열람하려면 관리자의 승인이 필요합니다.<br>
+                        요청할 공정을 선택해주세요.
+                    </p>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">대상 공정</label>
+                        <select name="target_process_id" class="form-select" required>
+                            <option value="" disabled selected>공정을 선택하세요</option>
+                            
+                            <option value="ALL" class="fw-bold">🌍 전체 공정 (모든 권한)</option>
+                            <option disabled>──────────</option>
+
+                            {% for p in processes %}
+                                {# 내 공정은 제외하고 표시 #}
+                                {% if request.user.profile.process.id != p.id %}
+                                    <option value="{{ p.id }}">{{ p.name }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-warning fw-bold">요청 보내기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+    function downloadExcel() {
+        const urlParams = new URLSearchParams(window.location.search);
+        window.location.href = "{% url 'quiz:student_dashboard_excel' %}?" + urlParams.toString();
+    }
+</script>
+{% endblock %}

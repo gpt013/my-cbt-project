@@ -190,6 +190,8 @@ class Quiz(models.Model):
         verbose_name="선택된 문제 세트 (구버전)", related_name='+' 
     )
 
+    is_published = models.BooleanField(default=False, verbose_name="공개 여부 (체크 시 응시 가능)")
+
     class Meta:
         verbose_name = '퀴즈'
         verbose_name_plural = '퀴즈'
@@ -318,17 +320,27 @@ class StudentLog(models.Model):
 # 10. 알림 (Notification)
 # ------------------------------------------------------------------
 class Notification(models.Model):
+    # 알림 유형 정의 (코드 관리 편의를 위해)
+    TYPE_CHOICES = [
+        ('general', '일반'),
+        ('signup', '신규가입'),   # 관리자 승인 필요
+        ('exam', '시험요청'),     # 재시험/시험 응시 요청
+        ('work', '근무변경'),     # 스케줄 변경 요청
+        ('consult', '면담요청'),  # 면담 신청
+        ('facility', '시설예약'), # 회의실 등 예약
+    ]
+
     # 받는 사람 (필수)
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications', verbose_name="받는 사람")
     
-    # 보낸 사람 (옵션 - 시스템 알림일 경우 비워둘 수 있게 null=True 설정 ★에러 해결 핵심★)
+    # 보낸 사람 (옵션 - 시스템 알림일 경우 비워둘 수 있게 null=True 설정)
     sender = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_notifications', null=True, blank=True, verbose_name="보낸 사람")
     
     # 알림 내용
     message = models.CharField(max_length=255, verbose_name="알림 내용")
     
-    # 알림 유형 (general:일반, facility:시설예약 등 구분 가능)
-    notification_type = models.CharField(max_length=50, default='general', verbose_name="알림 유형") 
+    # 알림 유형
+    notification_type = models.CharField(max_length=50, choices=TYPE_CHOICES, default='general', verbose_name="알림 유형") 
     
     # 클릭 시 이동할 링크 (옵션)
     related_url = models.CharField(max_length=255, blank=True, null=True, verbose_name="이동할 링크")
@@ -337,18 +349,14 @@ class Notification(models.Model):
     is_read = models.BooleanField(default=False, verbose_name="읽음 여부")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="생성일시")
 
-    def __str__(self):
-        sender_name = self.sender.username if self.sender else "System"
-        return f"[{self.notification_type}] {sender_name} -> {self.recipient.username}: {self.message}"
-    
-
     class Meta:
         ordering = ['-created_at']
         verbose_name = '알림'
         verbose_name_plural = '알림 목록'
 
     def __str__(self):
-        return f"{self.recipient}에게: {self.message}"
+        sender_name = self.sender.username if self.sender else "System"
+        return f"[{self.get_notification_type_display()}] {sender_name} -> {self.recipient.username}: {self.message}"
 
 
 # ------------------------------------------------------------------
@@ -447,6 +455,10 @@ class Reservation(models.Model):
     title = models.CharField(max_length=100, verbose_name="사용 목적")
     start_time = models.DateTimeField(verbose_name="시작 시간")
     end_time = models.DateTimeField(verbose_name="종료 시간")
+
+    attendees = models.PositiveIntegerField(default=0, verbose_name="사용 인원")
+    company_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="업체명")
+    process_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="공정명")
     
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)

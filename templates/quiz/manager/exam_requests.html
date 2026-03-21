@@ -23,50 +23,69 @@
 
     <div class="tab-content">
         <div class="tab-pane fade show active" id="exam-content">
-            <div class="card shadow-sm border-0">
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover align-middle mb-0">
-                            <thead class="table-light">
-                                <tr>
-                                    <th class="ps-4">요청일시</th>
-                                    <th>교육생 (사번)</th>
-                                    <th>시험명</th>
-                                    <th>공정</th>
-                                    <th>상태</th>
-                                    <th class="text-end pe-4">관리</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for req in requests %}
-                                <tr>
-                                    <td class="ps-4 text-muted small">{{ req.requested_at|date:"Y-m-d H:i" }}</td>
-                                    <td class="fw-bold">
-                                        {{ req.user.profile.name }} 
-                                        <small class="text-muted fw-normal">({{ req.user.profile.employee_id }})</small>
-                                    </td>
-                                    <td>{{ req.quiz.title }}</td>
-                                    <td><span class="badge bg-info text-dark">{{ req.user.profile.process.name }}</span></td>
-                                    <td><span class="badge bg-warning text-dark">대기중</span></td>
-                                    <td class="text-end pe-4">
-                                        <a href="{% url 'quiz:approve_attempt' req.id %}" class="btn btn-sm btn-success fw-bold" onclick="return confirm('승인하시겠습니까?');">
-                                            <i class="bi bi-check-lg"></i> 승인
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="6" class="text-center py-5 text-muted">
-                                        <i class="bi bi-check2-circle fs-1 d-block mb-3 opacity-25"></i>
-                                        대기 중인 시험 요청이 없습니다.
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+            
+            <form method="post" action="{% url 'quiz:bulk_approve_attempts' %}" id="bulkForm">
+                {% csrf_token %}
+                
+                {% if requests %}
+                <div class="mb-3 d-flex justify-content-end">
+                    <button type="submit" class="btn btn-primary fw-bold" onclick="return confirm('선택한 항목을 모두 승인하시겠습니까?');">
+                        <i class="bi bi-check-all"></i> 선택 항목 일괄 승인
+                    </button>
+                </div>
+                {% endif %}
+
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-4" style="width: 50px;">
+                                            <input type="checkbox" class="form-check-input" id="checkAll">
+                                        </th>
+                                        <th>요청일시</th>
+                                        <th>교육생 (사번)</th>
+                                        <th>시험명</th>
+                                        <th>공정</th>
+                                        <th>상태</th>
+                                        <th class="text-end pe-4">관리</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for req in requests %}
+                                    <tr>
+                                        <td class="ps-4">
+                                            <input type="checkbox" class="form-check-input attempt-check" name="attempt_ids" value="{{ req.id }}">
+                                        </td>
+                                        <td class="text-muted small">{{ req.requested_at|date:"Y-m-d H:i" }}</td>
+                                        <td class="fw-bold">
+                                            {{ req.user.profile.name }} 
+                                            <small class="text-muted fw-normal">({{ req.user.profile.employee_id }})</small>
+                                        </td>
+                                        <td>{{ req.quiz.title }}</td>
+                                        <td><span class="badge bg-info text-dark">{{ req.user.profile.process.name }}</span></td>
+                                        <td><span class="badge bg-warning text-dark">대기중</span></td>
+                                        <td class="text-end pe-4">
+                                            <a href="{% url 'quiz:approve_attempt' req.id %}" class="btn btn-sm btn-outline-success fw-bold">
+                                                개별 승인
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="7" class="text-center py-5 text-muted">
+                                            <i class="bi bi-check2-circle fs-1 d-block mb-3 opacity-25"></i>
+                                            대기 중인 시험 요청이 없습니다.
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </form>
         </div>
 
         <div class="tab-pane fade" id="access-content">
@@ -128,4 +147,11 @@
         </div>
     </div>
 </div>
+
+<script>
+    document.getElementById('checkAll').addEventListener('change', function() {
+        const checkboxes = document.querySelectorAll('.attempt-check');
+        checkboxes.forEach(cb => cb.checked = this.checked);
+    });
+</script>
 {% endblock %}

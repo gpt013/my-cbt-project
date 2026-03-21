@@ -3,47 +3,65 @@ import random
 import pandas as pd
 import os
 import urllib.parse
-from openpyxl import Workbook  # 👈 [추가 2] 엑셀 생성을 위해 필요 (만약 pandas만 쓴다면 생략 가능)
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from django.http import HttpResponse
+from openpyxl import Workbook
 from collections import defaultdict
 from datetime import timedelta
-from django.core.mail import EmailMessage
 from io import BytesIO
+
+
+# Django Core
+from django.core.mail import EmailMessage, send_mail
 from django.utils import timezone
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.urls import reverse
+from django.conf import settings
+from django.db import transaction
+from django.forms import inlineformset_factory
+
+# Django Auth & Decorators
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.models import User
-from django.contrib.auth import get_user_model
-from django.views.decorators.cache import cache_control
-from django.core.mail import send_mail
 from django.contrib.admin.views.decorators import staff_member_required
 from django.views.decorators.http import require_POST
-from django.db import transaction
+from django.views.decorators.cache import cache_control
+from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 
-from django.forms import inlineformset_factory
-# [핵심] 데이터 분석 및 집계를 위한 필수 모듈 (누락된 부분 추가됨)
-from django.db.models import Avg, Count, Q, Max,Min, F, Case, When, Value, CharField, Window
-from attendance.models import DailySchedule, ScheduleRequest
+# [핵심] DB Aggregation & Functions
+from django.db.models import (
+    Avg, Count, Q, Max, Min, F, Case, When, Value, 
+    CharField, Window, IntegerField
+)
 from django.db.models.functions import DenseRank, Coalesce
+
+# Local Apps & Models
+from attendance.models import DailySchedule, ScheduleRequest
 from .utils import calculate_tag_stats
-from django.conf import settings
-# accounts 앱의 모델들
+
+# accounts 앱 모델 (중복 제거됨)
 from accounts.models import (
     Profile, Badge, EvaluationRecord, EvaluationCategory, 
-    ManagerEvaluation, Cohort, Company, Process, ProcessAccessRequest, FinalAssessment, PartLeader,Profile, 
+    ManagerEvaluation, Cohort, Company, Process, 
+    ProcessAccessRequest, FinalAssessment, PartLeader
 )
 
-# quiz 앱의 모델들
+# quiz 앱 모델
 from .models import (
     Quiz, Question, Choice, TestResult, UserAnswer, 
-    QuizAttempt, ExamSheet, Tag, StudentLog, Notification, QuizResult, StudentAnswer
+    QuizAttempt, ExamSheet, Tag, StudentLog, Notification, 
+    QuizResult, StudentAnswer
 )
 
-# 폼
-from .forms import EvaluationForm, TraineeFilterForm, QuizForm, QuestionForm, StudentLogForm, ChoiceForm
+# Forms
+from .forms import (
+    EvaluationForm, TraineeFilterForm, QuizForm, 
+    QuestionForm, StudentLogForm, ChoiceForm
+)
 
 def is_process_manager(user, target_profile):
     """
@@ -93,20 +111,18 @@ def my_page(request):
     for result in raw_results:
         counseling_status = None
         
-        # 불합격(is_pass=False)인 경우에만 면담 로직 체크
         if not result.is_pass:
-            # 이미 해당 시험 제목으로 면담/특이사항 기록이 있는지 확인
-            # (로그 내용에 시험 제목이 포함되어 있는지로 단순 판단)
-            exists_log = StudentLog.objects.filter(
+            # ★ [수정됨] 자동 생성된 시험 불합격(exam_fail) 잠금 로그의 상태를 확인!
+            fail_log = StudentLog.objects.filter(
                 profile=profile,
-                log_type='counseling',
-                reason__contains=result.quiz.title 
-            ).exists()
+                log_type='exam_fail',
+                related_quiz=result.quiz
+            ).last()
 
-            if exists_log:
-                counseling_status = '완료' # 이미 상담함
+            if fail_log and not fail_log.is_resolved:
+                counseling_status = '대기중' # 잠겨 있음 -> 매니저 호출 대기 중
             else:
-                counseling_status = '예정' # 상담 버튼이 떠야 함 ('면담 요청' 필요)
+                counseling_status = '완료'   # 매니저가 조치 완료(잠금 해제) 함
         
         # 템플릿에서 사용할 데이터 구조 만들기
         enhanced_results.append({
@@ -327,7 +343,8 @@ def index(request):
     # [A] 공통 과목 (Common) 쿼리
     # -------------------------------------------------------
     all_common_quizzes = Quiz.objects.filter(
-        category=Quiz.Category.COMMON
+        category=Quiz.Category.COMMON,
+        is_published=True
     ).distinct()
 
     # -------------------------------------------------------
@@ -345,7 +362,8 @@ def index(request):
 
     my_process_quizzes_list = Quiz.objects.filter(
         Q(category=Quiz.Category.PROCESS) & 
-        (my_process_condition)
+        (my_process_condition) &
+        Q(is_published=True)
     ).distinct()
 
     # -------------------------------------------------------
@@ -353,15 +371,31 @@ def index(request):
     # -------------------------------------------------------
     # 전체 프로세스 퀴즈 중 '나의 공정 퀴즈'를 제외한 나머지
     other_process_quizzes_list = Quiz.objects.filter(
-        category=Quiz.Category.PROCESS
+        category=Quiz.Category.PROCESS,
+        is_published=True
     ).exclude(
         id__in=my_process_quizzes_list.values('id')
     ).distinct()
 
     # -------------------------------------------------------
-    # [E] 합격 여부 카운팅 (대시보드 상단 요약용)
+    # 안전(Safety) & 기타(Etc) 과목 쿼리 추가
     # -------------------------------------------------------
-    # E-1. 공통 과목 합격률
+    safety_quizzes_list = Quiz.objects.filter(
+        category=Quiz.Category.SAFETY,
+        is_published=True
+    ).distinct()
+
+    etc_quizzes_list = Quiz.objects.filter(
+        category=Quiz.Category.ETC,
+        is_published=True
+    ).distinct()
+
+# -------------------------------------------------------
+    # [E] 합격 여부 & 잠금 해제 조건 체크 (분리 적용)
+    # -------------------------------------------------------
+    
+    # 1. 공통 과목 체크
+    # (A) "합격" 여부 (수료증/통계용 -> 80점 이상)
     all_common_passed = False
     passed_common_count = TestResult.objects.filter(
         user=user, quiz__in=all_common_quizzes, is_pass=True
@@ -372,7 +406,20 @@ def index(request):
     elif all_common_quizzes.count() == 0:
         all_common_passed = True
 
-    # E-2. 내 공정 과목 합격률
+    # (B) "잠금 해제" 여부 (다음 단계 오픈용 -> 응시만 하면 OK)
+    all_common_unlocked = False
+    attempted_common_count = TestResult.objects.filter(
+        user=user, quiz__in=all_common_quizzes
+    ).values('quiz').distinct().count()
+
+    if all_common_quizzes.count() > 0 and attempted_common_count >= all_common_quizzes.count():
+        all_common_unlocked = True
+    elif all_common_quizzes.count() == 0:
+        all_common_unlocked = True
+
+
+    # 2. 내 공정 과목 체크
+    # (A) "합격" 여부
     all_my_process_passed = False
     passed_my_process_count = TestResult.objects.filter(
         user=user, quiz__in=my_process_quizzes_list, is_pass=True
@@ -383,23 +430,43 @@ def index(request):
     elif my_process_quizzes_list.count() == 0:
         all_my_process_passed = True
 
+    # (B) "잠금 해제" 여부
+    all_my_process_unlocked = False
+    attempted_my_process_count = TestResult.objects.filter(
+        user=user, quiz__in=my_process_quizzes_list
+    ).values('quiz').distinct().count()
+
+    if my_process_quizzes_list.count() > 0 and attempted_my_process_count >= my_process_quizzes_list.count():
+        all_my_process_unlocked = True
+    elif my_process_quizzes_list.count() == 0:
+        all_my_process_unlocked = True
+
     # -------------------------------------------------------
     # [F] 상태 매핑 (위에 있는 헬퍼 함수 호출)
     # -------------------------------------------------------
     common_quizzes = process_quiz_list(all_common_quizzes, user)
     my_process_quizzes = process_quiz_list(my_process_quizzes_list, user)
     other_process_quizzes = process_quiz_list(other_process_quizzes_list, user)
+    safety_quizzes = process_quiz_list(safety_quizzes_list, user)
+    etc_quizzes = process_quiz_list(etc_quizzes_list, user)
 
     # -------------------------------------------------------
     # [G] 배지 표시 여부 (진행중인 건이 있는지 체크)
     # -------------------------------------------------------
     my_process_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in my_process_quizzes)
     other_process_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in other_process_quizzes)
+    safety_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in safety_quizzes)
+    etc_has_override = any(quiz.user_status in ['승인됨', '대기중'] for quiz in etc_quizzes)
 
     context = {
         'common_quizzes': common_quizzes,
         'my_process_quizzes': my_process_quizzes,
         'other_process_quizzes': other_process_quizzes,
+        
+        'safety_quizzes': safety_quizzes,
+        'etc_quizzes': etc_quizzes,
+        'safety_has_override': safety_has_override,
+        'etc_has_override': etc_has_override,
         
         'all_common_passed': all_common_passed,
         'all_my_process_passed': all_my_process_passed,
@@ -408,6 +475,9 @@ def index(request):
         'other_process_has_override': other_process_has_override,
         
         'profile': getattr(user, 'profile', None),
+
+        'all_common_unlocked': all_common_unlocked,
+        'all_my_process_unlocked': all_my_process_unlocked,
     }
 
     return render(request, 'quiz/index.html', context)
@@ -418,7 +488,7 @@ def request_quiz(request, quiz_id):
     quiz = get_object_or_404(Quiz, pk=quiz_id)
 
     # ===============================================================
-    # [NEW] 입구컷: 잠금 상태라면 요청 자체를 차단
+    # 입구컷: 잠금 상태라면 요청 자체를 차단
     # ===============================================================
     if hasattr(request.user, 'profile'):
         blocking_log = StudentLog.objects.filter(
@@ -642,34 +712,47 @@ def take_quiz(request, quiz_id):
                         save_text = val
                         if q.choice_set.filter(is_correct=True, choice_text__iexact=val).exists(): is_correct = True
                 
-                else: # 주관식 (Short Answer) - [수정된 정규화 로직 적용]
+                else: 
                     save_text = str(user_val).strip()
                     
                     if save_text:
-                        # [1] 정답 비교를 위한 정규화 함수 (내부 함수 정의)
+                        # 1. 정답 정규화 함수 (특수문자 제거)
                         def normalize_text(text):
                             if not text: return ""
-                            # 소문자 변환 -> 점(.) 제거 -> 공백 제거
-                            return str(text).lower().replace(".", "").replace(" ", "").strip()
+                            text = str(text).lower()
+                            # 콤마(,)는 여기서 지우지 않습니다. (구분자로 써야 하니까요)
+                            for char in ['.', ' ', '-', '_', '/', '(', ')']: 
+                                text = text.replace(char, '')
+                            return text.strip()
 
-                        # 사용자 입력 정규화 (예: "D. I" -> "di")
+                        # 사용자 입력 정규화
                         user_norm = normalize_text(save_text)
                         
-                        # 모델의 정답 필드 가져오기 (안전장치)
+                        # DB에 저장된 정답 가져오기
                         ans_field = getattr(q, 'answer', None)
                         
-                        # [비교 1] answer 필드와 비교
-                        if ans_field and normalize_text(ans_field) == user_norm:
-                            is_correct = True
-                        
-                        # [비교 2] Choice(유사 정답/복수 정답)들과 비교
-                        else:
-                            # Choice 모델의 텍스트들도 똑같이 정규화해서 비교해야 함
-                            choices = q.choice_set.filter(is_correct=True)
-                            for c in choices:
-                                if normalize_text(c.choice_text) == user_norm:
+                        # [비교 1] answer 필드와 비교 (콤마 쪼개기 적용!)
+                        if ans_field:
+                            # 콤마(,)로 쪼개서 리스트로 만듦. 예: "사과, apple" -> ["사과", "apple"]
+                            possible_answers = [x.strip() for x in ans_field.split(',')]
+                            
+                            for possible in possible_answers:
+                                # 쪼갠 것들 중 하나라도 맞으면 정답!
+                                if normalize_text(possible) == user_norm:
                                     is_correct = True
                                     break
+                        
+                        # [비교 2] Choice(복수 정답)들과 비교 (기존 유지)
+                        if not is_correct:
+                            choices = q.choice_set.filter(is_correct=True)
+                            for c in choices:
+                                # Choice 텍스트에도 콤마가 있을 수 있으니 똑같이 쪼개서 비교
+                                c_answers = [x.strip() for x in c.choice_text.split(',')]
+                                for c_ans in c_answers:
+                                    if normalize_text(c_ans) == user_norm:
+                                        is_correct = True
+                                        break
+                                if is_correct: break
 
                 # [공통] 점수 합산 및 저장 데이터 수집
                 if is_correct: earned_score += q_score
@@ -719,6 +802,12 @@ def take_quiz(request, quiz_id):
             # [4] 불합격 시 3단계 제재 실행 (기존 코드 100% 복구)
             # =========================================================
             if not is_pass:
+
+                if attempt.quiz.category in ['safety', 'etc']:
+                    messages.warning(request, f"불합격입니다. ({final_score}점) 하지만 이 과목은 패널티가 없습니다.")
+                    # 여기서 바로 리턴하거나, 아래 로직을 else로 감싸야 합니다.
+                    return redirect('quiz:exam_result', result_id=tr.id)
+                
                 last_pass = TestResult.objects.filter(
                     user=request.user, quiz=quiz, is_pass=True
                 ).order_by('-completed_at').first()
@@ -734,8 +823,41 @@ def take_quiz(request, quiz_id):
                 if hasattr(request.user, 'profile'):
                     profile = request.user.profile
                     
+                    # -----------------------------------------------------
+                    # ★ [신규 자동 알림 함수] 최고 관리자 + 해당 공정 매니저에게 발송
+                    # -----------------------------------------------------
+                    def send_auto_fail_noti():
+                        from django.urls import reverse
+                        target_url = reverse('quiz:manager_trainee_detail', args=[profile.id])
+                        cat_str = "공통" if quiz.category == 'common' else "공정"
+                        
+                        msg = f"🚨 {profile.name}님 {cat_str} '{quiz.title}' 시험 {final_score}점으로 재시험 전 면담이 필요합니다."
+                        
+                        # 1. 최고 관리자 전원 수집 (set을 이용해 중복 방지)
+                        receivers = set(User.objects.filter(is_superuser=True))
+                        
+                        # 2. 해당 학생과 같은 공정을 담당하는 매니저 수집
+                        if profile.process:
+                            managers = User.objects.filter(
+                                is_staff=True, 
+                                profile__is_manager=True, 
+                                profile__process=profile.process
+                            )
+                            receivers.update(managers)
+                            
+                        # 3. 수집된 인원들에게 알림 생성
+                        for recv in receivers:
+                            Notification.objects.create(
+                                recipient=recv,
+                                sender=request.user,
+                                message=msg,
+                                notification_type='counseling',
+                                related_url=target_url
+                            )
+                    # -----------------------------------------------------
+
                     if fail_count == 1:
-                        # 1차: 잠금
+                        # 1차: 잠금 및 자동 알림
                         if not StudentLog.objects.filter(profile=profile, related_quiz=quiz, log_type='exam_fail', stage=1, is_resolved=False).exists():
                             StudentLog.objects.create(
                                 profile=profile,
@@ -745,10 +867,11 @@ def take_quiz(request, quiz_id):
                                 stage=1,
                                 is_resolved=False
                             )
-                        messages.error(request, "1차 불합격입니다. 잠금이 설정되었습니다. 매니저 면담이 필요합니다.")
+                            send_auto_fail_noti() # ★ 제출 즉시 알림 빵!
+                        messages.error(request, "1차 불합격입니다. 매니저에게 면담 요청 알림이 자동 전송되었습니다.")
 
                     elif fail_count == 2:
-                        # 2차: 잠금 + 메일
+                        # 2차: 잠금 및 자동 알림
                         if not StudentLog.objects.filter(profile=profile, related_quiz=quiz, log_type='exam_fail', stage=2, is_resolved=False).exists():
                             StudentLog.objects.create(
                                 profile=profile,
@@ -758,22 +881,30 @@ def take_quiz(request, quiz_id):
                                 stage=2,
                                 is_resolved=False
                             )
-                        messages.error(request, "2차 불합격입니다. PL에게 교육 요청이 전송되었습니다.")
+                            send_auto_fail_noti() # ★ 제출 즉시 알림 빵!
+                        messages.error(request, "2차 불합격입니다. 매니저/PL에게 면담 요청 알림이 자동 전송되었습니다.")
 
                     elif fail_count >= 3:
-                        # 3차: 계정 차단
+                        # 3차: 계정 차단 및 확실한 퇴소 처리
                         if not StudentLog.objects.filter(profile=profile, related_quiz=quiz, log_type='exam_fail', stage=3, is_resolved=False).exists():
+                            reason_text = f"[시스템 자동] '{quiz.title}' 시험 3회 불합격으로 인한 퇴소"
                             StudentLog.objects.create(
                                 profile=profile,
                                 log_type='exam_fail',
-                                reason=f"[{quiz.title}] 3차 불합격 - 퇴소 기준 도달 (계정 비활성화)",
+                                reason=reason_text, # 구체적인 사유 기록
                                 related_quiz=quiz,
                                 stage=3,
                                 is_resolved=False
                             )
+                            # 계정 차단
                             request.user.is_active = False
                             request.user.save()
-                        messages.error(request, "3차 불합격으로 계정이 비활성화되었습니다. 관리자에게 문의하세요.")
+                            
+                            # ★ [핵심 추가] 프로필 상태를 확실하게 '퇴소'로 변경
+                            profile.status = 'dropout'
+                            profile.save()
+                            
+                        messages.error(request, "3차 불합격으로 퇴소 처리 및 계정이 비활성화되었습니다.")
             else:
                 messages.success(request, f"합격입니다! 점수: {final_score}점")
 
@@ -1214,18 +1345,40 @@ def my_results_by_quiz(request, quiz_id):
 
 @login_required
 def result_detail(request, result_id):
-    
-    if not request.user.is_staff:
-        messages.error(request, "보안 정책상 상세 문항 확인은 제한됩니다. (점수만 확인 가능)")
-        return redirect('quiz:my_results_index')
-    
-    result = get_object_or_404(TestResult, pk=result_id, user=request.user)
-    incorrect_answers = result.useranswer_set.filter(is_correct=False)
-    
+    """
+    [수정] 결과 상세 및 오답 노트
+    - 10점인데 만점이라고 뜨는 오류 수정
+    - HTML이 'user_answers'를 찾든 'incorrect_answers'를 찾든 다 작동하게 처리
+    """
+    result = get_object_or_404(TestResult, pk=result_id)
+
+    # 1. 권한 체크 (관리자 OK, 본인 OK)
+    if not request.user.is_staff and result.user != request.user:
+        raise Http404("권한이 없습니다.")
+
+    # 2. [핵심] '오답'인 것만 따로 필터링해서 가져옵니다.
+    # (점수가 10점이면 is_correct=False인 데이터가 분명히 존재함)
+    only_incorrect = UserAnswer.objects.filter(test_result=result, is_correct=False).select_related('question')
+
+    # 3. 전체 답안도 필요할 수 있으니 가져옵니다.
+    all_answers = UserAnswer.objects.filter(test_result=result).select_related('question')
+
     context = {
         'result': result,
-        'incorrect_answers': incorrect_answers
+        'quiz': result.quiz,
+        
+        # ★ [치트키] HTML이 뭘 원할지 몰라서 다 넣어줍니다.
+        # 만약 HTML이 "오답 목록"을 원하면 이게 들어갑니다.
+        'incorrect_answers': only_incorrect, 
+        
+        # 만약 HTML이 "답안 목록"을 변수로 쓴다면, 오답만 보여주도록 이걸 연결합니다.
+        # (상세 오답 확인 페이지이므로 틀린 것만 보여주는 게 맞습니다)
+        'user_answers': only_incorrect, 
+        
+        # 혹시 전체 리스트가 필요하면 이걸 씁니다.
+        'all_answers': all_answers,
     }
+    
     return render(request, 'quiz/result_detail.html', context)
 
 @login_required
@@ -1435,228 +1588,304 @@ def approve_attempt(request, attempt_id):
     attempt = get_object_or_404(QuizAttempt, pk=attempt_id)
     
     # [수정] 여기서 target_profile을 정의해줘야 에러가 안 납니다!
-    target_profile = attempt.user.profile 
+    target_profile = attempt.user.profile
     
     # 2. [핵심] 매니저의 공정과 교육생의 공정 비교 (최고 관리자는 제외)
     # 이제 target_profile 변수가 정의되었으므로 에러가 나지 않습니다.
     if not is_process_manager(request.user, target_profile):
-        # 교수의 공정과 학생의 공정이 다르면 거절
         messages.error(request, f"🚫 본인 담당 공정({target_profile.process})의 교육생만 승인할 수 있습니다.")
-        return redirect('quiz:dashboard')
+        return redirect('quiz:manager_exam_requests')
 
     # 3. 승인 처리
     attempt.status = '승인됨'
     attempt.save()
     messages.success(request, f"{target_profile.name}님의 시험 요청을 승인했습니다.")
     
-    return redirect('quiz:dashboard')
+    return redirect('quiz:manager_exam_requests')
 
 @login_required
 def dashboard(request):
     """
-    통합 분석 대시보드 (최종 수정본)
-    - 권한 제어: 슈퍼유저(전체), 매니저(본인 공정 + 티켓 허용 공정)
-    - 집중 관리: DB 쿼리 기반 자동 선별
-    - 오답 분석: 문제 은행 대응
+    [Final Upgrade] 교육생 성적 관리 대시보드
+    - 3단 분할 점수판 (1차/2차/3차)
+    - 회사/공정/기수 다중 필터링 적용
+    - 안전/기타 과목 제외 및 정렬 로직
+    - ★ 핵심 추가: 본인 공정 외 '권한 승인된 타 공정' 조회 기능
     """
     user = request.user
-    if not user.is_staff:
+    
+    # 1. 권한 체크 (스태프이거나, 매니저/PL 프로필 보유자)
+    if not (user.is_staff or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))):
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
 
-    # 1. [필터링 조건 가져오기]
-    selected_cohort = request.GET.get('cohort')
-    selected_company = request.GET.get('company')
-    selected_process = request.GET.get('process')
-    selected_quiz = request.GET.get('quiz')
-    selected_student = request.GET.get('student')
+    # 2. 필터링 옵션 데이터 조회
+    companies = Company.objects.all()
+    processes = Process.objects.all()
+    all_cohorts = Cohort.objects.all().order_by('-start_date')
 
-    # 2. [접근 권한 및 공정 필터링 로직]
-    # 관리자가 아니면 본인 공정으로 강제하거나, 티켓 확인
-    if not user.is_superuser and hasattr(user, 'profile') and user.profile.process:
-        my_process_id = str(user.profile.process.id)
-        
-        # 전역 조회 티켓(모든 공정 열람 가능) 확인
-        has_global_ticket = ProcessAccessRequest.objects.filter(
-            requester=user, target_process__isnull=True, status='approved'
-        ).exists()
+    # 3. 검색 조건 받기
+    sel_company = request.GET.get('company')
+    sel_process = request.GET.get('process')
+    sel_cohort = request.GET.get('cohort')
+    search_query = request.GET.get('q', '')
 
-        if not selected_process:
-            # 선택 안 했으면 내 공정이 기본값 (단, 글로벌 티켓 있으면 전체 허용)
-            if not has_global_ticket: 
-                selected_process = my_process_id
-        elif str(selected_process) != my_process_id:
-            # 남의 공정을 보려고 할 때 티켓 확인
-            has_specific_ticket = ProcessAccessRequest.objects.filter(
-                requester=user, target_process_id=selected_process, status='approved'
-            ).exists()
+    # -----------------------------------------------------------
+    # [핵심 로직] 조회 가능한 공정인지 권한 검증 (Permission Check)
+    # -----------------------------------------------------------
+    my_process = None
+    if hasattr(user, 'profile'):
+        my_process = user.profile.process
 
-            if not (has_global_ticket or has_specific_ticket):
-                messages.error(request, "⛔ 해당 공정에 대한 조회 권한이 없습니다.")
-                selected_process = my_process_id
+    # 실제로 데이터를 조회할 기준 공정 (None이면 전체-관리자용)
+    viewing_process = None 
 
-    # 3. [Base QuerySet 준비]
-    # 학생(Trainee) 프로필만 가져오기 (관리자 제외)
-    profiles = Profile.objects.select_related('cohort', 'company', 'process').filter(
-        user__is_staff=False,
-        user__is_superuser=False
-    )
-
-    # 4. [필터 적용]
-    if selected_cohort:
-        profiles = profiles.filter(cohort_id=selected_cohort)
-    if selected_company:
-        profiles = profiles.filter(company_id=selected_company)
-    if selected_process:
-        profiles = profiles.filter(process_id=selected_process)
-    if selected_student:
-        profiles = profiles.filter(user_id=selected_student)
-
-    # 필터링된 학생들의 ID 리스트
-    target_user_ids = profiles.values_list('user_id', flat=True)
-
-    # 시험 결과 가져오기 (위 학생들의 결과만)
-    results = TestResult.objects.select_related('quiz', 'user__profile').filter(
-        user__id__in=target_user_ids
-    )
-
-    if selected_quiz:
-        results = results.filter(quiz_id=selected_quiz)
-
-    # 5. [KPI 계산]
-    total_students_filtered = profiles.count()
-    total_attempts = results.count()
-    
-    if total_attempts > 0:
-        avg_data = results.aggregate(Avg('score'))
-        avg_score = avg_data['score__avg'] or 0
-        pass_count = results.filter(is_pass=True).count()
-        pass_rate = (pass_count / total_attempts) * 100
+    if user.is_superuser:
+        # 관리자는 선택한 공정 자유롭게 조회
+        if sel_process:
+            viewing_process = Process.objects.get(id=sel_process)
     else:
-        avg_score = 0
-        pass_rate = 0
-
-    # 6. [집중 관리 필요 교육생 (Risk Students)]
-    # ★ 핵심 수정: Python 루프 대신 DB Query로 한 번에 조회 (속도/정확도 향상)
-    # 기준: 평균 60점 미만 OR 불합격 2회 이상
-    
-    risk_profiles = profiles.annotate(
-        avg_score=Avg('user__testresult__score'),
-        fail_count=Count('user__testresult', filter=Q(user__testresult__is_pass=False))
-    ).filter(
-        Q(avg_score__lt=60) | Q(fail_count__gte=2)
-    ).order_by('-fail_count', 'avg_score')
-
-    at_risk_students = []
-    for p in risk_profiles:
-        # 면담 해결 여부 확인 (최신 로그 vs 최신 시험일)
-        # 쿼리 최적화를 위해 여기서 개별 조회하지만, 대량 데이터 시 prefetch_related 권장
-        last_test = TestResult.objects.filter(user=p.user).order_by('-completed_at').first()
-        last_log = StudentLog.objects.filter(profile=p, log_type='counseling').order_by('-created_at').first()
+        # 매니저는 기본적으로 내 공정
+        viewing_process = my_process
         
-        # 최근에 면담을 해서 해결된 경우 목록에서 제외 (단, 학생을 직접 선택해서 검색한 경우는 보여줌)
-        if not selected_student and last_test and last_log and last_log.created_at > last_test.completed_at:
+        # 만약 필터에서 '다른 공정'을 선택했다면? -> 티켓 확인
+        if sel_process and str(sel_process) != str(my_process.id if my_process else ''):
+            # 승인된 티켓이 있는지 확인
+            has_ticket = ProcessAccessRequest.objects.filter(
+                requester=user,
+                status='approved'
+            ).filter(
+                Q(target_process_id=sel_process) | Q(target_process__isnull=True)
+            ).exists()
+            
+            if has_ticket:
+                viewing_process = Process.objects.get(id=sel_process)
+            else:
+                # 티켓 없으면 내 공정으로 강제 리셋 + 경고
+                messages.warning(request, "⛔ 해당 공정 조회 권한이 없습니다. (권한 요청 필요)")
+                # sel_process 값도 리셋해야 HTML selectbox가 제대로 표시됨
+                sel_process = str(my_process.id) if my_process else ''
+                viewing_process = my_process
+
+    # -----------------------------------------------------------
+    # 4. 표시할 시험 헤더 (공통 + 조회 중인 공정)
+    # -----------------------------------------------------------
+    header_quizzes = Quiz.objects.filter(category='common')
+    
+    if viewing_process:
+        header_quizzes = header_quizzes | Quiz.objects.filter(related_process=viewing_process)
+    
+    # 안전/기타 제외하고 정렬
+    header_quizzes = header_quizzes.exclude(category__in=['safety', 'etc']).order_by('category', 'title')
+
+    # -----------------------------------------------------------
+    # 5. 기수별 데이터 루프
+    # -----------------------------------------------------------
+    if sel_cohort:
+        target_cohorts = all_cohorts.filter(id=sel_cohort)
+    else:
+        target_cohorts = all_cohorts
+    
+    dashboard_data = []
+    total_risk_count = 0
+
+    for cohort in target_cohorts:
+        # 기본 쿼리셋 (스태프 제외)
+        profiles = Profile.objects.filter(cohort=cohort, user__is_staff=False).select_related('company', 'process')
+        
+        # [필터링] viewing_process(검증된 공정) 기준
+        if viewing_process: 
+            profiles = profiles.filter(process=viewing_process)
+            
+        if sel_company:
+            profiles = profiles.filter(company_id=sel_company)
+        
+        if search_query:
+            profiles = profiles.filter(Q(name__icontains=search_query) | Q(employee_id__icontains=search_query))
+
+        # 데이터가 없으면 건너뜀
+        if not profiles.exists():
             continue
 
-        at_risk_students.append({
-            'name': p.name,
-            'cohort': p.cohort.name if p.cohort else '-',
-            'process': p.process.name if p.process else '-',
-            'avg_score': round(p.avg_score or 0, 1),
-            'fail_count': p.fail_count,
-            'profile_id': p.id
+        student_data = []
+        cohort_1st_scores = [] 
+
+        for p in profiles:
+            student_scores_map = [] 
+            
+            total_1st_score = 0
+            count_1st = 0
+
+            for quiz in header_quizzes:
+                # 해당 퀴즈의 기록 (시간순, 최대 3개)
+                attempts = TestResult.objects.filter(user=p.user, quiz=quiz).order_by('completed_at')[:3]
+                
+                attempt_list = [None, None, None]
+                
+                if attempts.exists():
+                    # 1. 1차 점수 집계 (평균용)
+                    s1 = attempts[0].score
+                    total_1st_score += s1
+                    count_1st += 1
+                    
+                    # 2. 1~3차 상세 데이터 채우기
+                    for i, att in enumerate(attempts):
+                        attempt_list[i] = {
+                            'score': att.score,
+                            'is_pass': att.is_pass
+                        }
+                
+                student_scores_map.append({
+                    'quiz_id': quiz.id,
+                    'attempts': attempt_list 
+                })
+
+            # 평균 계산 (1차 점수 기준)
+            avg_1st = round(total_1st_score / count_1st, 1) if count_1st > 0 else 0
+            if count_1st > 0:
+                cohort_1st_scores.append(avg_1st)
+
+            # 위험군 판별
+            is_risk = False
+            if (avg_1st > 0 and avg_1st < 60) or p.warning_count >= 2:
+                is_risk = True
+                total_risk_count += 1
+
+            student_data.append({
+                'profile': p,
+                'scores_map': student_scores_map,
+                'avg_score': avg_1st,
+                'is_risk': is_risk,
+                'warning_count': p.warning_count
+            })
+
+        # 기수 평균 계산
+        cohort_avg = round(sum(cohort_1st_scores) / len(cohort_1st_scores), 1) if cohort_1st_scores else 0
+        
+        # 최종 데이터 추가
+        dashboard_data.append({
+            'cohort': cohort,
+            'students': student_data,
+            'cohort_avg': cohort_avg,
+            'risk_count': sum(1 for s in student_data if s['is_risk']),
+            'total_students': len(student_data)
         })
 
-    # 7. [심층 오답 분석]
-    # 결과가 있는 시험들의 답안만 분석
-    filtered_answers = UserAnswer.objects.filter(
-        test_result__in=results, is_correct=False
-    ).select_related('question')
+    # 필터 적용 여부 확인 (UI 표시용)
+    is_filtered = True if (sel_company or sel_process or sel_cohort or search_query) else False
 
-    # 많이 틀린 문제 Top 5 추출
-    top_wrong_questions = filtered_answers.values('question').annotate(
-        wrong_count=Count('id')
-    ).order_by('-wrong_count')[:5]
+    # 6. 컨텍스트 구성
+    context = {
+        'process_name': viewing_process.name if viewing_process else "전체 공정",
+        'header_quizzes': header_quizzes,
+        'dashboard_data': dashboard_data,
+        'total_risk_count': total_risk_count,
+        
+        # 필터링 옵션 전달
+        'companies': companies,
+        'processes': processes,
+        'cohorts': all_cohorts,
+        
+        # 현재 선택된 필터값 유지
+        'sel_company': int(sel_company) if sel_company else '',
+        'sel_process': int(sel_process) if sel_process else '', # HTML selectbox에서 selected 처리용
+        'sel_cohort': int(sel_cohort) if sel_cohort else '',
+        'search_query': search_query,
+        'is_filtered': is_filtered,
+    }
+    
+    return render(request, 'quiz/manager/new_dashboard.html', context)
 
-    incorrect_analysis = []
-    for item in top_wrong_questions:
-        q_id = item['question']
-        try:
-            question = Question.objects.get(pk=q_id)
+    # 6. 컨텍스트 구성
+    context = {
+        'process_name': target_process.name if target_process else "전체 공정",
+        'header_quizzes': header_quizzes,
+        'dashboard_data': dashboard_data,
+        'total_risk_count': total_risk_count,
+        
+        
+        # 필터링 옵션 전달 (검색바 유지용)
+        'companies': companies,
+        'processes': processes,
+        'cohorts': all_cohorts,
+        'sel_company': int(sel_company) if sel_company else '',
+        'sel_process': int(sel_process) if sel_process else '',
+        'sel_cohort': int(sel_cohort) if sel_cohort else '',
+        'search_query': search_query,
+
+        'is_filtered': is_filtered,
+    }
+    
+    return render(request, 'quiz/manager/new_dashboard.html', context)
+
+@login_required
+def student_analysis_detail(request, profile_id):
+    """
+    [Upgrade Final] 교육생 심층 분석
+    - 기능 1: 태그별 정답률 분석 (Radar Chart)
+    - 기능 2: AI 맞춤형 학습 처방 (Prescription)
+    - 기능 3: 시험 이력 리스트 (오답노트 바로가기 연결용)
+    """
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+    
+    target_profile = get_object_or_404(Profile, pk=profile_id)
+    
+    # 1. [보안] 내 공정인지 확인 (관리자는 프리패스)
+    if not request.user.is_superuser:
+        if hasattr(request.user, 'profile') and request.user.profile.process != target_profile.process:
+            messages.error(request, "타 공정 교육생 정보는 조회할 수 없습니다.")
+            return redirect('quiz:manager_dashboard')
+
+    # 2. [태그 분석] Radar Chart용 데이터 생성
+    # 해당 학생이 푼 모든 문제의 정답 여부를 태그별로 집계
+    user_answers = UserAnswer.objects.filter(test_result__user=target_profile.user).select_related('question')
+    tag_stats = {} 
+
+    for ua in user_answers:
+        for tag in ua.question.tags.all():
+            if tag.name not in tag_stats:
+                tag_stats[tag.name] = {'total': 0, 'correct': 0}
             
-            # 전체 시도 횟수 등 계산
-            # (주의: 전체 시도 횟수는 '정답+오답'이므로 별도 쿼리 필요)
-            q_total_attempts = UserAnswer.objects.filter(
-                test_result__in=results, question=question
-            ).count()
-            q_wrong = item['wrong_count']
-            
-            error_rate = (q_wrong / q_total_attempts * 100) if q_total_attempts > 0 else 0
-            
-            # 관련 퀴즈명
-            related_quizzes = ", ".join([q.title for q in question.quizzes.all()[:2]])
-            
-            # 분포도 (가장 많이 선택한 오답 등)
-            distribution = UserAnswer.objects.filter(
-                test_result__in=results, question=question
-            ).values(
-                answer_text=Case(
-                    When(selected_choice__isnull=False, then=F('selected_choice__choice_text')),
-                    default=F('short_answer_text'),
-                    output_field=CharField(),
-                )
-            ).annotate(count=Count('id')).order_by('-count')[:3] # Top 3 답안만
+            tag_stats[tag.name]['total'] += 1
+            if ua.is_correct:
+                tag_stats[tag.name]['correct'] += 1
+    
+    analysis_data = []
+    for tag_name, stat in tag_stats.items():
+        if stat['total'] > 0:
+            rate = (stat['correct'] / stat['total']) * 100
+        else:
+            rate = 0
+        analysis_data.append({
+            'tag': tag_name, 
+            'rate': round(rate, 1), 
+            'count': stat['total']
+        })
+    
+    # 정답률 낮은 순(취약점 우선) 정렬
+    analysis_data.sort(key=lambda x: x['rate'])
 
-            dist_labels = [d['answer_text'] or '무응답' for d in distribution]
-            dist_counts = [d['count'] for d in distribution]
+    # 3. [AI 학습 처방] 맞춤형 코멘트 생성
+    weak_tags = [item['tag'] for item in analysis_data if item['rate'] < 60]
+    prescription = "취약점이 발견되지 않았습니다. 우수한 성취도를 보이고 있습니다."
+    
+    if weak_tags:
+        tags_str = ', '.join(weak_tags[:3]) # 상위 3개만 표시
+        prescription = f"'{tags_str}' 태그의 정답률이 저조합니다. 관련 문제 은행 풀이를 권장합니다."
 
-            incorrect_analysis.append({
-                'question_text': question.question_text,
-                'quiz_title': related_quizzes,
-                'difficulty': question.difficulty,
-                'total': q_total_attempts,
-                'wrong': q_wrong,
-                'rate': round(error_rate, 1),
-                'dist_labels': json.dumps(dist_labels),
-                'dist_counts': json.dumps(dist_counts),
-                'question_id': question.id
-            })
-        except Question.DoesNotExist:
-            continue
-
-    # 8. [차트 데이터] (퀴즈별 평균 점수)
-    quiz_stats = results.values('quiz__title').annotate(avg=Avg('score')).order_by('quiz__title')
-    chart_labels = [item['quiz__title'] for item in quiz_stats]
-    chart_data = [round(item['avg'], 1) for item in quiz_stats]
+    # 4. [시험 이력] 최근 응시한 시험 리스트 (오답노트 바로가기용)
+    exam_history = TestResult.objects.filter(
+        user=target_profile.user
+    ).select_related('quiz').order_by('-completed_at')
 
     context = {
-        'total_students': total_students_filtered,
-        'total_attempts': total_attempts,
-        'average_score': round(avg_score, 1),
-        'pass_rate': round(pass_rate, 1),
-        
-        'incorrect_analysis': incorrect_analysis,
-        'at_risk_students': at_risk_students,
-        'chart_labels': chart_labels,
-        'chart_data': chart_data,
-
-        # 필터링 옵션용 데이터
-        'cohorts': Cohort.objects.all(),
-        'companies': Company.objects.all(),
-        'processes': Process.objects.all(),
-        'quizzes': Quiz.objects.all(),
-        # 관리자가 선택 가능한 학생 목록
-        'all_profiles': profiles.order_by('name'), 
-        
-        # 현재 선택된 값 유지
-        'sel_cohort': int(selected_cohort) if selected_cohort else '',
-        'sel_company': int(selected_company) if selected_company else '',
-        'sel_process': int(selected_process) if selected_process else '',
-        'sel_quiz': int(selected_quiz) if selected_quiz else '',
-        'sel_student': int(selected_student) if selected_student else '',
+        'profile': target_profile,
+        'tag_analysis': analysis_data,   # 차트/표 데이터
+        'prescription': prescription,    # AI 처방 멘트
+        'exam_history': exam_history,    # 시험 리스트 (오답 버튼용)
     }
-
-    return render(request, 'quiz/dashboard.html', context)
+    return render(request, 'quiz/manager/student_analysis.html', context)
 
 @login_required
 def personal_dashboard(request):
@@ -1803,12 +2032,12 @@ def export_student_data(request):
         # 종합 평가
         fa = getattr(profile, 'final_assessment', None)
         row.update({
-            '시험평균': fa.exam_avg_score if fa else 0,
-            '실습': fa.practice_score if fa else 0,
-            '노트': fa.note_score if fa else 0,
-            '태도': fa.attitude_score if fa else 0,
-            '최종점수': fa.final_score if fa else '-',
-            '매니저의견': fa.manager_comment if fa else '-',
+            '시험 평균 (85%)': fa.exam_avg_score if fa else 0,
+            '실습 점수 (5%)': fa.practice_score if fa else 0,
+            '수학태도 점수 (10%)': fa.attitude_score if fa else 0, 
+            '최종 환산 점수': fa.final_score if fa else '-',
+            '석차': fa.rank if fa else '-',
+            '매니저 종합 의견': fa.manager_comment if fa else '-',
         })
 
         # 체크리스트
@@ -2027,102 +2256,6 @@ def export_student_data(request):
     return redirect('quiz:manager_dashboard')
 
 
-# [수정 2] PL 대시보드 뷰 (슈퍼유저 권한 추가)
-@login_required
-def pl_dashboard(request):
-    # (1) 권한 체크
-    if not (request.user.is_staff and (request.user.profile.is_pl or request.user.is_superuser)):
-        messages.error(request, "접근 권한이 없습니다.")
-        return redirect('quiz:index')
-    
-    # (2) 기본 대상 설정
-    if request.user.is_superuser:
-        # 관리자는 전체 보기
-        trainees = Profile.objects.select_related('user', 'cohort', 'process').all()
-    else:
-        try:
-            pl_obj = PartLeader.objects.get(email=request.user.email)
-            trainees = Profile.objects.filter(pl=pl_obj).select_related('user', 'cohort', 'process')
-        except PartLeader.DoesNotExist:
-            trainees = Profile.objects.none()
-
-    # (3) 검색 및 필터링 적용
-    search_query = request.GET.get('q', '')
-    filter_cohort = request.GET.get('cohort', '')
-    filter_process = request.GET.get('process', '')
-
-    if search_query:
-        trainees = trainees.filter(name__icontains=search_query)
-    if filter_cohort:
-        trainees = trainees.filter(cohort_id=filter_cohort)
-    if filter_process:
-        trainees = trainees.filter(process_id=filter_process)
-
-    # (4) 통계 데이터 계산
-    total_count = trainees.count()
-    no_data = total_count == 0
-
-    status_counts = {
-        'attending': trainees.filter(status='attending').count(),
-        'counseling': trainees.filter(status='counseling').count(),
-        'dropout': trainees.filter(status='dropout').count(),
-        'completed': trainees.filter(status='completed').count(),
-    }
-
-    assessed = trainees.filter(final_assessment__isnull=False)
-    if assessed.exists():
-        avg_final = assessed.aggregate(Avg('final_assessment__final_score'))['final_assessment__final_score__avg']
-        radar_data = assessed.aggregate(
-            avg_exam=Avg('final_assessment__exam_avg_score'),
-            avg_prac=Avg('final_assessment__practice_score'),
-            avg_note=Avg('final_assessment__note_score'),
-            avg_atti=Avg('final_assessment__attitude_score')
-        )
-        top_trainees = assessed.order_by('-final_assessment__final_score')[:3]
-    else:
-        avg_final = 0
-        radar_data = {'avg_exam':0, 'avg_prac':0, 'avg_note':0, 'avg_atti':0}
-        top_trainees = []
-
-    risk_trainees = trainees.filter(
-        Q(status='counseling') | 
-        (Q(final_assessment__final_score__lt=60) & Q(final_assessment__isnull=False))
-    )
-
-    # (5) 리스트 데이터 가공
-    trainee_list = []
-    for t in trainees:
-        fa = getattr(t, 'final_assessment', None)
-        trainee_list.append({
-            'profile': t,
-            'final_score': fa.final_score if fa else '-',
-            'rank': fa.rank if fa else '-',
-            'exam_avg': fa.exam_avg_score if fa else 0,
-        })
-
-    context = {
-        'no_data': no_data,
-        'total_count': total_count,
-        'status_counts': list(status_counts.values()),
-        'avg_final': round(avg_final, 1) if avg_final else 0,
-        'radar_data': [
-            round(radar_data['avg_exam'] or 0, 1),
-            round(radar_data['avg_prac'] or 0, 1), 
-            round(radar_data['avg_note'] or 0, 1), 
-            round(radar_data['avg_atti'] or 0, 1)
-        ],
-        'top_trainees': top_trainees,
-        'risk_trainees': risk_trainees,
-        'trainee_list': trainee_list,
-        
-        'cohorts': Cohort.objects.all(),
-        'processes': Process.objects.all(),
-        'sel_q': search_query,
-        'sel_cohort': int(filter_cohort) if filter_cohort else '',
-        'sel_process': int(filter_process) if filter_process else '',
-    }
-
-    return render(request, 'quiz/pl_dashboard.html', context)
 
 def get_pl_dashboard_data(pl_user):
     """
@@ -2168,100 +2301,195 @@ def get_pl_dashboard_data(pl_user):
         
     return data_list
 
+def process_expired_dropouts():
+    """승인된 퇴사 요청 중 예정일이 어제 날짜인 인원들을 일괄 퇴소 처리"""
+    from accounts.models import DropOutRequest
+    from django.utils import timezone
+    today = timezone.now().date()
+    
+    expired_requests = DropOutRequest.objects.filter(
+        status='approved',
+        drop_date__lt=today
+    ).exclude(trainee__status='dropout')
+    
+    for req in expired_requests:
+        trainee = req.trainee
+        trainee.status = 'dropout'
+        trainee.save()
+
 @login_required
 def manager_dashboard(request):
-    """
-    매니저 대시보드: 각종 요청 및 현황 요약
-    """
-    user = request.user
+    process_expired_dropouts() 
     
-    # 0. 권한 체크 (스태프, 매니저, PL 중 하나여야 함)
-    if not (user.is_staff or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))):
+    from accounts.models import Profile, Cohort, Process, Company, ProcessAccessRequest
+    from quiz.models import QuizAttempt, StudentLog 
+    from django.db.models import Q, Case, When, Value, IntegerField # Q 등 필수 임포트 확인
+    
+    user = request.user
+    user_profile = getattr(user, 'profile', None)
+
+    # 0. 권한 체크
+    if not (user.is_staff or (user_profile and (user_profile.is_manager or user_profile.is_pl))):
+        from django.contrib import messages
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
 
-    # -----------------------------------------------------------
-    # 1. 가입 승인 대기 (전체 대상 - 관리자 공통)
-    # -----------------------------------------------------------
-    signup_pending_count = User.objects.filter(is_active=False).count()
+    # 카운트 1~6 (기존 로직 유지)
+    signup_pending_count = Profile.objects.filter(is_approved=False).count()
     
-    # -----------------------------------------------------------
-    # 2. 시험 응시 대기 (내 공정)
-    # -----------------------------------------------------------
     exam_q = Q(status='대기중')
-    if not user.is_superuser and hasattr(user, 'profile') and user.profile.process:
-        exam_q &= Q(user__profile__process=user.profile.process)
+    if not user.is_superuser and user_profile and user_profile.process:
+        exam_q &= Q(user__profile__process=user_profile.process)
     exam_pending_count = QuizAttempt.objects.filter(exam_q).count()
 
-    # -----------------------------------------------------------
-    # 3. 위험군 (잠금 상태 - counseling)
-    # -----------------------------------------------------------
     risk_q = Q(status='counseling')
-    if not user.is_superuser and hasattr(user, 'profile') and user.profile.process:
-        risk_q &= Q(process=user.profile.process)
+    if not user.is_superuser and user_profile and user_profile.process:
+        risk_q &= Q(process=user_profile.process)
     risk_count = Profile.objects.filter(risk_q).count()
 
-    # -----------------------------------------------------------
-    # 4. 권한 요청 대기 (타 매니저 -> 나)
-    # -----------------------------------------------------------
     access_req_count = 0
-    try:
-        # 관리자는 전체, 매니저는 내 공정으로 온 요청만
-        if user.is_superuser:
-            access_req_count = ProcessAccessRequest.objects.filter(status='pending').count()
-        elif hasattr(user, 'profile') and user.profile.process:
-            access_req_count = ProcessAccessRequest.objects.filter(
-                target_process=user.profile.process, status='pending'
-            ).count()
-    except NameError: 
-        pass # 모델이 아직 없거나 import 안 된 경우 패스
+    if user.is_superuser:
+        access_req_count = ProcessAccessRequest.objects.filter(status='pending').count()
+    elif user_profile and user_profile.process:
+        access_req_count = ProcessAccessRequest.objects.filter(
+            target_process=user_profile.process, status='pending'
+        ).count()
 
-    # -----------------------------------------------------------
-    # 5. 근무표 변경 요청 대기
-    # -----------------------------------------------------------
     schedule_pending_count = 0
-    if hasattr(user, 'profile'):
+    if user_profile:
         try:
-            from attendance.models import ScheduleRequest # 지연 import
+            from attendance.models import ScheduleRequest
             if user.is_superuser:
                 schedule_pending_count = ScheduleRequest.objects.filter(status='pending').count()
-            elif user.profile.is_manager:
+            elif user_profile.is_manager:
                 schedule_pending_count = ScheduleRequest.objects.filter(
-                    requester__process=user.profile.process, status='pending'
-                ).exclude(requester=user.profile).count()
+                    requester__process=user_profile.process, status='pending'
+                ).exclude(requester=user_profile).count()
         except ImportError:
             pass
 
-    # -----------------------------------------------------------
-    # [신규 추가] 6. 면담 필요 (미해결 상담 요청)
-    # -----------------------------------------------------------
-    # 조건: 상담(counseling) 타입이면서 + 아직 해결되지 않은(is_resolved=False) 건
     counseling_q = Q(log_type='counseling', is_resolved=False)
-    
-    # 관리자가 아니고 내 공정이 있다면 -> 내 공정 학생들의 요청만 카운트
-    if not user.is_superuser and hasattr(user, 'profile') and user.profile.process:
-        counseling_q &= Q(profile__process=user.profile.process)
-        
+    if not user.is_superuser and user_profile and user_profile.process:
+        counseling_q &= Q(profile__process=user_profile.process)
     counseling_count = StudentLog.objects.filter(counseling_q).count()
 
-    # -----------------------------------------------------------
-    # 템플릿 렌더링
-    # -----------------------------------------------------------
-    return render(request, 'quiz/manager/dashboard_main.html', {
+    # --- 드릴다운 필터용 데이터 추출 및 전달 ---
+    active_profiles = Profile.objects.filter(
+        status='attending', is_manager=False, is_pl=False
+    ).exclude(user__is_staff=True)
+    
+    filter_cohorts = Cohort.objects.filter(profile__in=active_profiles).distinct()
+    filter_processes = Process.objects.filter(profile__in=active_profiles).distinct()
+    filter_companies = Company.objects.filter(profile__in=active_profiles).distinct()
+
+    active_trainees = active_profiles.annotate(
+        is_priority=Case(
+            When(cohort=user_profile.cohort if user_profile else None, process=user_profile.process if user_profile else None, then=Value(2)),
+            When(cohort=user_profile.cohort if user_profile else None, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    ).order_by('-is_priority', 'name')
+
+    # ========================================================
+    # ★ [새로 추가된 로직] 스마트 비서: 공정별 위기 현황 데이터 생성
+    # ========================================================
+    process_summary = []
+    
+    # 1. 대상 공정 설정 (최고 관리자는 전체, 일반 매니저는 본인 공정만)
+    if user.is_superuser:
+        target_processes = filter_processes 
+    elif user_profile and user_profile.process:
+        target_processes = [user_profile.process]
+    else:
+        target_processes = []
+
+    # 2. 공정별로 학생들을 위험/주의/정상으로 분류
+    for p in target_processes:
+        p_students = active_trainees.filter(process=p)
+        
+        danger_list, caution_list, normal_list = [], [], []
+        
+        for student in p_students:
+            # 🔴 위험: 경고 2회 이상 또는 상태가 면담/잠금인 경우
+            if student.warning_count >= 2 or student.status == 'counseling':
+                danger_list.append(student)
+            # 🟡 주의: 경고 1회 또는 상태가 주의(caution)인 경우
+            elif student.warning_count == 1 or student.status == 'caution':
+                caution_list.append(student)
+            # 🟢 정상: 그 외
+            else:
+                normal_list.append(student)
+                
+        # 공정에 학생이 있거나, 매니저 본인 공정이면 리스트에 추가
+        if p_students.exists() or not user.is_superuser: 
+            process_summary.append({
+                'process_name': p.name if p else "공정 미지정",
+                'danger': danger_list,
+                'caution': caution_list,
+                'normal': normal_list,
+                'danger_count': len(danger_list),
+                'caution_count': len(caution_list),
+                'normal_count': len(normal_list),
+                'total_count': len(p_students)
+            })
+    # ========================================================
+
+    context = {
         'signup_pending_count': signup_pending_count,
         'exam_pending_count': exam_pending_count,
         'risk_count': risk_count,
         'access_req_count': access_req_count,
         'schedule_pending_count': schedule_pending_count,
-        'counseling_count': counseling_count, # [추가됨] 템플릿에서 {{ counseling_count }} 사용 가능
-    })
+        'counseling_count': counseling_count,
+        'active_trainees': active_trainees,
+        'filter_cohorts': filter_cohorts,
+        'filter_processes': filter_processes,
+        'filter_companies': filter_companies,
+        'process_summary': process_summary, # ★ 템플릿으로 전달!
+    }
+    
+    return render(request, 'quiz/manager/dashboard_main.html', context)
+
+
+
+
 
 @login_required
 def manager_trainee_list(request):
     if not request.user.is_staff: return redirect('quiz:index')
 
-    # 현재 기수 자동 선택
     today = timezone.now().date()
+    
+    # =========================================================
+    # 1. 기간 만료자 자동 비활성화 (상태는 건드리지 않음)
+    # =========================================================
+    expired_profiles = Profile.objects.filter(
+        cohort__end_date__lt=today, 
+        user__is_active=True
+    ).exclude(
+        Q(user__is_superuser=True) | Q(user__is_staff=True) | 
+        Q(is_manager=True) | Q(is_pl=True)
+    ).select_related('user')
+
+    if expired_profiles.exists():
+        expired_user_ids = expired_profiles.values_list('user_id', flat=True)
+        # 계정 로그인만 차단시킴 (상태는 아직 '재직중'으로 냅둠)
+        User.objects.filter(id__in=expired_user_ids).update(is_active=False)
+        print(f"⚠️ [System] 기간 만료된 교육생 {len(expired_user_ids)}명의 로그인을 차단했습니다.")
+
+    # =========================================================
+    # [신규 추가] 1-5. 평가 대기(미수료) 인원 계산
+    # (기수는 끝났는데 상태가 아직 수료/퇴소가 아닌 사람들)
+    # =========================================================
+    pending_eval_count = Profile.objects.filter(
+        cohort__end_date__lt=today,
+        status__in=['attending', 'caution', 'counseling']
+    ).exclude(user__is_superuser=True).exclude(is_manager=True).count()
+
+    # =========================================================
+    # 2. 리스트 조회 및 필터링
+    # =========================================================
     active_cohort = Cohort.objects.filter(start_date__lte=today, end_date__gte=today).first()
     default_cohort_id = active_cohort.id if active_cohort else ''
 
@@ -2270,6 +2498,7 @@ def manager_trainee_list(request):
         data['cohort'] = default_cohort_id
 
     form = TraineeFilterForm(data)
+    
     profiles = Profile.objects.select_related('user', 'cohort', 'process').exclude(
         user__is_superuser=True, is_manager=True
     ).order_by('cohort__start_date', 'name')
@@ -2277,17 +2506,52 @@ def manager_trainee_list(request):
     if form.is_valid():
         if form.cleaned_data['cohort']: profiles = profiles.filter(cohort=form.cleaned_data['cohort'])
         if form.cleaned_data['process']: profiles = profiles.filter(process=form.cleaned_data['process'])
-        if form.cleaned_data['status']: profiles = profiles.filter(status=form.cleaned_data['status'])
+        
+        status_val = form.cleaned_data['status']
+        if status_val:
+            if status_val == 'inactive': profiles = profiles.filter(is_approved=False)
+            else: profiles = profiles.filter(status=status_val, is_approved=True)
+
         if form.cleaned_data['search']:
             q = form.cleaned_data['search']
-            profiles = profiles.filter(Q(name__icontains=q)|Q(employee_id__icontains=q)|Q(user__username__icontains=q))
+            profiles = profiles.filter(
+                Q(name__icontains=q)|Q(employee_id__icontains=q)|Q(user__username__icontains=q)
+            )
+
+
+    # URL에 ?filter=pending_eval 이 있으면 수료 대기자만 필터링!
+    if request.GET.get('filter') == 'pending_eval':
+        profiles = profiles.filter(
+            cohort__end_date__lt=today,
+            status__in=['attending', 'caution', 'counseling']
+        )
 
     paginator = Paginator(profiles, 50)
     page_obj = paginator.get_page(request.GET.get('page'))
-    pending_users = User.objects.filter(is_active=False).order_by('-date_joined')
+    
+    pending_profiles = Profile.objects.filter(is_approved=False).select_related('user').order_by('-user__date_joined')
 
     return render(request, 'quiz/manager/trainee_list.html', {
-        'form': form, 'profiles': page_obj, 'pending_users': pending_users,
+        'form': form, 
+        'profiles': page_obj, 
+        'pending_users': pending_profiles,
+        'total_count': profiles.count(),
+        'pending_eval_count': pending_eval_count # ★ 알림용 변수 전달
+    })
+
+    # 4. 페이지네이션
+    paginator = Paginator(profiles, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    
+    # 5. [핵심 수정] 가입 대기자 목록 (Pending Users)
+    # 기존: User.objects.filter(is_active=False) -> 이제는 모두 active=True이므로 0명 나옴
+    # 변경: Profile.objects.filter(is_approved=False) -> 승인 안 된 사람 조회
+    pending_profiles = Profile.objects.filter(is_approved=False).select_related('user').order_by('-user__date_joined')
+
+    return render(request, 'quiz/manager/trainee_list.html', {
+        'form': form, 
+        'profiles': page_obj, 
+        'pending_users': pending_profiles, # 템플릿 변수명 호환을 위해 pending_users 유지 (내용은 프로필 리스트)
         'total_count': profiles.count()
     })
 
@@ -2635,16 +2899,13 @@ def manage_student_logs(request, profile_id):
     })
 
 
+
 # =========================================================
-# 4. 최종 평가서 작성 (데이터 통계 포함)
+# 4. 특이사항/경고 관리 페이지 (블라인드 + 부분 권한 허용)
 # =========================================================
 @login_required
 def manage_student_logs(request, profile_id):
-    """
-    [관리자용] 교육생 특이사항/로그 관리 페이지 (완전 수정본)
-    - 기능: 시험 프로세스 조회, 경고/면담 기록 저장, 잠금 해제
-    """
-    # 1. 권한 체크
+    # 1. 스태프 권한 체크
     if not request.user.is_staff:
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
@@ -2652,64 +2913,63 @@ def manage_student_logs(request, profile_id):
     profile = get_object_or_404(Profile, pk=profile_id)
     student = profile.user
 
-    # ========================================================
-    # [1] View Data: 시험 진행 프로세스 표 데이터 생성
-    # ========================================================
-    # 필드명 related_process 로 수정완료
-    target_quizzes = Quiz.objects.filter(
-        Q(category='common') | Q(related_process=profile.process)
-    ).distinct().order_by('category', 'title')
+    # ★ [핵심 추가] 내 담당 공정 학생인지(또는 내가 슈퍼유저인지) 판별
+    is_my_student = is_process_manager(request.user, profile)
 
     exam_process_list = []
-    for quiz in target_quizzes:
-        # created_at -> completed_at (수정완료)
-        history = TestResult.objects.filter(user=student, quiz=quiz).order_by('completed_at')
-        attempts = list(history)
-        count = len(attempts)
-        last_result = attempts[-1] if count > 0 else None
-        
-        status = 'not_taken'
-        score = '-'
-        date = None # 변수명 통일
-        
-        if last_result:
-            score = f"{last_result.score}점"
-            date = last_result.completed_at
-            status = 'pass' if last_result.is_pass else 'fail'
-
-        # 잠금 여부 확인
-        is_locked = False
-        if status == 'fail':
-            is_locked = StudentLog.objects.filter(
-                profile=profile, related_quiz=quiz, log_type='exam_fail', is_resolved=False
-            ).exists()
-        
-        # 쪽지 기능용 로그
-        quiz_logs = StudentLog.objects.filter(profile=profile, related_quiz=quiz).order_by('-created_at')
-
-        exam_process_list.append({
-            'quiz': quiz,
-            'status': status,
-            'score': score,
-            'date': date, # last_date 오타 수정완료
-            'try_1': attempts[0] if count >= 1 else None,
-            'try_2': attempts[1] if count >= 2 else None,
-            'try_3': attempts[2] if count >= 3 else None,
-            'is_locked': is_locked,
-            'logs': quiz_logs
-        })
+    locked_logs = []
 
     # ========================================================
-    # [2] View Data: 잠긴 시험 로그 (드롭다운 선택용)
+    # [1] View Data: 시험 진행 프로세스 및 잠긴 로그
+    # ★ 내 학생일 때만 성적을 불러오고, 남의 학생이면 빈 리스트(블라인드) 처리!
     # ========================================================
-    locked_logs = StudentLog.objects.filter(
-        profile=profile,
-        log_type='exam_fail',
-        is_resolved=False
-    ).select_related('related_quiz').order_by('-created_at')
+    if is_my_student:
+        target_quizzes = Quiz.objects.filter(
+            Q(category='common') | Q(related_process=profile.process)
+        ).distinct().order_by('category', 'title')
+
+        for quiz in target_quizzes:
+            history = TestResult.objects.filter(user=student, quiz=quiz).order_by('completed_at')
+            attempts = list(history)
+            count = len(attempts)
+            last_result = attempts[-1] if count > 0 else None
+            
+            status = 'not_taken'
+            score = '-'
+            date = None
+            
+            if last_result:
+                score = f"{last_result.score}점"
+                date = last_result.completed_at
+                status = 'pass' if last_result.is_pass else 'fail'
+
+            is_locked = False
+            if status == 'fail':
+                is_locked = StudentLog.objects.filter(
+                    profile=profile, related_quiz=quiz, log_type='exam_fail', is_resolved=False
+                ).exists()
+            
+            quiz_logs = StudentLog.objects.filter(profile=profile, related_quiz=quiz).order_by('-created_at')
+
+            exam_process_list.append({
+                'quiz': quiz,
+                'status': status,
+                'score': score,
+                'date': date,
+                'try_1': attempts[0] if count >= 1 else None,
+                'try_2': attempts[1] if count >= 2 else None,
+                'try_3': attempts[3] if count >= 3 else None,
+                'is_locked': is_locked,
+                'logs': quiz_logs
+            })
+
+        locked_logs = StudentLog.objects.filter(
+            profile=profile, log_type='exam_fail', is_resolved=False
+        ).select_related('related_quiz').order_by('-created_at')
+
 
     # ========================================================
-    # [3] POST 요청 처리: 로그 저장 및 로직 실행
+    # [2] POST 요청 처리: 로그 저장 및 로직 실행
     # ========================================================
     if request.method == 'POST':
         log_type = request.POST.get('log_type')
@@ -2720,6 +2980,12 @@ def manage_student_logs(request, profile_id):
         pl_check = request.POST.get('pl_check') == 'on'
         related_quiz_id = request.POST.get('related_quiz_id')
         related_quiz = get_object_or_404(Quiz, pk=related_quiz_id) if related_quiz_id else None
+
+        # ★ [백엔드 철통 보안] 타 매니저가 해킹(소스 조작)으로 시험 잠금을 풀려 하면 튕겨냄!
+        if not is_my_student:
+            if is_unlocked or related_quiz_id or log_type in ['exam_fail', 'warning_letter']:
+                messages.error(request, "⛔ 타 공정 학생의 성적 관련 조치나 경고장 발부는 불가능합니다. (태도 경고만 가능)")
+                return redirect('quiz:manage_student_logs', profile_id=profile.id)
 
         try:
             with transaction.atomic():
@@ -2735,7 +3001,7 @@ def manage_student_logs(request, profile_id):
                     created_at=timezone.now()
                 )
 
-                # (2) 경고 누적 로직
+                # (2) 경고 누적 로직 (내 학생이든 남의 학생이든 태도 불량 경고 횟수는 올라감)
                 if log_type == 'warning':
                     profile.warning_count += 1
                     if profile.warning_count == 2:
@@ -2761,7 +3027,7 @@ def manage_student_logs(request, profile_id):
                         profile.status = 'caution'
                         messages.info(request, "경고가 1회 적립되었습니다.")
 
-                # (3) 경고장 수동 발부
+                # (3) 경고장 수동 발부 (내 담당 학생일 때만 가능)
                 elif log_type == 'warning_letter':
                     if profile.warning_count < 2: profile.warning_count = 2
                     else: profile.warning_count += 1
@@ -2774,7 +3040,7 @@ def manage_student_logs(request, profile_id):
                         profile.status = 'counseling'
                     messages.warning(request, f"⛔ 경고장이 발부되었습니다.")
 
-                # (4) 면담 및 잠금 해제
+                # (4) 면담 및 잠금 해제 (내 담당 학생일 때만 가능)
                 elif log_type == 'counseling' or log_type == 'exam_fail':
                     if is_unlocked:
                         if related_quiz:
@@ -2799,7 +3065,7 @@ def manage_student_logs(request, profile_id):
                                 profile.user.save()
                             messages.success(request, "계정이 정상화되었습니다.")
                     else:
-                        messages.info(request, "면담 기록이 저장되었습니다.")
+                        messages.info(request, "일반 면담/경고 기록이 저장되었습니다.")
 
                 profile.save()
         except Exception as e:
@@ -2808,17 +3074,18 @@ def manage_student_logs(request, profile_id):
         return redirect('quiz:manage_student_logs', profile_id=profile.id)
 
     # ========================================================
-    # [4] GET: 최종 데이터 렌더링
+    # [3] GET: 최종 데이터 렌더링
     # ========================================================
     logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
 
-    # ★ 템플릿 연결 확인: manage_student_logs.html
     return render(request, 'quiz/manager/manage_student_logs.html', {
         'profile': profile,
         'exam_process_list': exam_process_list,
         'logs': logs,
         'locked_logs': locked_logs,
+        'is_my_student': is_my_student, # ★ [핵심] HTML에 권한 정보 전달!
     })
+
 
 # =========================================================
 # 3. 최종 평가서 작성 (데이터 채워넣기)
@@ -2915,6 +3182,7 @@ def approve_signup_bulk(request):
     users = User.objects.filter(id__in=data.get('user_ids', []))
     if data.get('action') == 'approve':
         users.update(is_active=True)
+        Profile.objects.filter(user__in=users).update(is_approved=True)
         return JsonResponse({'status':'success', 'message': f'{users.count()}명 승인 완료'})
     else:
         users.delete()
@@ -2985,22 +3253,31 @@ def manager_exam_requests(request):
 # 1. PL 대시보드
 @login_required
 def pl_dashboard(request):
+    # ==========================================
     # (1) 권한 체크
-    if not (request.user.is_staff and (request.user.profile.is_pl or request.user.is_superuser)):
+    # ==========================================
+    # 스태프 권한이 있으면서, (PL 프로필이 있거나 슈퍼유저인 경우)만 통과
+    if not (request.user.is_staff and (getattr(request.user, 'profile', None) and (request.user.profile.is_pl or request.user.is_superuser))):
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
     
-    # (2) 기본 대상 설정
+    # ==========================================
+    # (2) 기본 대상 설정 (슈퍼유저 vs PL)
+    # ==========================================
     if request.user.is_superuser:
+        # 관리자는 전체 보기
         trainees = Profile.objects.select_related('user', 'cohort', 'process').all()
     else:
         try:
+            # PL은 본인 파트의 교육생만 조회
             pl_obj = PartLeader.objects.get(email=request.user.email)
             trainees = Profile.objects.filter(pl=pl_obj).select_related('user', 'cohort', 'process')
         except PartLeader.DoesNotExist:
             trainees = Profile.objects.none()
 
-    # (3) 검색 및 필터링
+    # ==========================================
+    # (3) 검색 및 필터링 적용
+    # ==========================================
     search_query = request.GET.get('q', '')
     filter_cohort = request.GET.get('cohort', '')
     filter_process = request.GET.get('process', '')
@@ -3012,10 +3289,13 @@ def pl_dashboard(request):
     if filter_process:
         trainees = trainees.filter(process_id=filter_process)
 
+    # ==========================================
     # (4) 통계 데이터 계산
+    # ==========================================
     total_count = trainees.count()
     no_data = total_count == 0
 
+    # 상태별 카운트
     status_counts = {
         'attending': trainees.filter(status='attending').count(),
         'counseling': trainees.filter(status='counseling').count(),
@@ -3023,58 +3303,91 @@ def pl_dashboard(request):
         'completed': trainees.filter(status='completed').count(),
     }
 
-    # 평균 및 Top 3
+    # 평가 데이터 집계 (평가 데이터가 있는 인원만 대상)
     assessed = trainees.filter(final_assessment__isnull=False)
+    
     if assessed.exists():
+        # 전체 평균 점수
         avg_final = assessed.aggregate(Avg('final_assessment__final_score'))['final_assessment__final_score__avg']
+        
+        # 레이더 차트용 영역별 평균
         radar_data = assessed.aggregate(
             avg_exam=Avg('final_assessment__exam_avg_score'),
             avg_prac=Avg('final_assessment__practice_score'),
             avg_note=Avg('final_assessment__note_score'),
             avg_atti=Avg('final_assessment__attitude_score')
         )
+        # 성적 우수자 Top 3
         top_trainees = assessed.order_by('-final_assessment__final_score')[:3]
     else:
         avg_final = 0
-        radar_data = {'avg_exam':0, 'avg_prac':0, 'avg_note':0, 'avg_atti':0}
+        radar_data = {'avg_exam': 0, 'avg_prac': 0, 'avg_note': 0, 'avg_atti': 0}
         top_trainees = []
 
+    # 위험군 식별 (상담요망 상태이거나, 점수가 60점 미만인 경우)
     risk_trainees = trainees.filter(
         Q(status='counseling') | 
         (Q(final_assessment__final_score__lt=60) & Q(final_assessment__isnull=False))
     )
 
-    # (5) 리스트 데이터 가공
+    # ==========================================
+    # (5) 리스트 데이터 가공 (템플릿 출력용)
+    # ==========================================
     trainee_list = []
     for t in trainees:
+        # 1. 최종 성적 (FinalAssessment)
         fa = getattr(t, 'final_assessment', None)
+        
+        # 2. 매니저 평가 (ManagerEvaluation) 가져오기
+        # [수정됨] profile -> t 로 변경 (여기가 에러 원인이었습니다)
+        last_eval = t.managerevaluation_set.last() 
+        
+        # 3. 데이터 추출 (평가서가 없을 경우 대비)
+        checklist = last_eval.selected_items.all() if last_eval else []
+        manager_comment = last_eval.overall_comment if last_eval else ""
+
+        # 4. 리스트에 담기
         trainee_list.append({
             'profile': t,
-            'final_score': fa.final_score if fa else '-',
-            'rank': fa.rank if fa else '-',
+            'final_score': fa.final_score if fa else 0,
             'exam_avg': fa.exam_avg_score if fa else 0,
+            'rank': getattr(fa, 'rank', '-'), 
+            
+            # 템플릿으로 보낼 데이터
+            'manager_comment': manager_comment, 
+            'checklist': checklist,
         })
-
+    # ==========================================
+    # (6) 컨텍스트 구성 및 렌더링
+    # ==========================================
     context = {
         'no_data': no_data,
         'total_count': total_count,
-        'status_counts': list(status_counts.values()),
+        'status_counts': list(status_counts.values()), # 차트용 리스트 변환
         'avg_final': round(avg_final, 1) if avg_final else 0,
+        
+        # 레이더 차트 순서: [시험, 실습, 노트, 태도]
         'radar_data': [
             round(radar_data['avg_exam'] or 0, 1),
             round(radar_data['avg_prac'] or 0, 1), 
             round(radar_data['avg_note'] or 0, 1), 
             round(radar_data['avg_atti'] or 0, 1)
         ],
+        
         'top_trainees': top_trainees,
         'risk_trainees': risk_trainees,
         'trainee_list': trainee_list,
+        
+        # 필터링 드롭다운 옵션
         'cohorts': Cohort.objects.all(),
         'processes': Process.objects.all(),
+        
+        # 현재 선택된 필터 유지
         'sel_q': search_query,
         'sel_cohort': int(filter_cohort) if filter_cohort else '',
         'sel_process': int(filter_process) if filter_process else '',
     }
+
     return render(request, 'quiz/pl_dashboard.html', context)
 
 
@@ -3082,40 +3395,53 @@ def pl_dashboard(request):
 @login_required
 def pl_trainee_detail(request, profile_id):
     """
-    PL용 교육생 상세 리포트
-    - 태도/역량: 매니저 평가서 체크리스트
-    - 특이사항: 경고 횟수 및 재시험 과목 수 계산
-    - AI 분석: 퀴즈 결과 기반 태그별 정답률 분석 (UserAnswer 필드명 수정됨)
+    PL용 교육생 상세 리포트 (통합 버전)
+    - 기본 정보 및 권한 체크
+    - 시험 이력 (전체)
+    - AI 취약점 분석 (태그별 정답률)
+    - 매니저 평가 (체크리스트 & 종합의견)
+    - 특이사항 (로그 & 재시험 횟수)
     """
-    # 1. 권한 체크
-    if not (request.user.is_superuser or (hasattr(request.user, 'profile') and request.user.profile.is_pl)):
-         return redirect('quiz:index')
-
-    profile = get_object_or_404(Profile, pk=profile_id)
     
-    # 2. 시험 결과 (최신순)
-    # [확인 완료] 슬라이싱 없이 전체 데이터를 가져옵니다. (HTML 스크롤바 사용)
+    # 1. 프로필 가져오기
+    profile = get_object_or_404(Profile, id=profile_id)
+
+    # 2. 권한 체크 (슈퍼유저 OR 본인 파트 PL)
+    if not request.user.is_superuser:
+        # PL 프로필이 있는지 확인
+        if not (hasattr(request.user, 'profile') and request.user.profile.is_pl):
+            messages.error(request, "접근 권한이 없습니다.")
+            return redirect('quiz:index')
+        
+        # 본인 파트인지 확인
+        try:
+            pl_obj = PartLeader.objects.get(email=request.user.email)
+            if profile.pl != pl_obj:
+                messages.error(request, "담당 교육생이 아닙니다.")
+                return redirect('quiz:pl_dashboard')
+        except PartLeader.DoesNotExist:
+            messages.error(request, "PL 정보를 찾을 수 없습니다.")
+            return redirect('quiz:pl_dashboard')
+
+    # 3. 시험 결과 이력 (최신순 전체)
     results = TestResult.objects.filter(user=profile.user).select_related('quiz').order_by('-completed_at')
     
-    # 3. AI 분석 (태그 필터링)
-    # (1) 사용자가 응시한 퀴즈 ID 목록
+
+    # 4. AI 취약점 분석 (태그별 정답률 계산)
     taken_quiz_ids = results.values_list('quiz_id', flat=True).distinct()
-    
-    # (2) 해당 퀴즈들에 포함된 질문들 (Question-Quiz 관계가 N:M일 경우 quizzes__in 사용)
     relevant_questions = Question.objects.filter(quizzes__in=taken_quiz_ids).distinct()
-    
-    # (3) 그 질문들에 달린 태그들
     relevant_tags = Tag.objects.filter(question__in=relevant_questions).distinct()
     
     tag_analysis = []
     for tag in relevant_tags:
-        # [수정] attempt__user -> test_result__user (모델 필드명 일치)
+        # 해당 태그가 달린 문제의 총 시도 횟수
         total = UserAnswer.objects.filter(
             test_result__user=profile.user, 
             question__tags=tag
         ).count()
         
         if total > 0:
+            # 그 중에서 맞춘 횟수
             correct = UserAnswer.objects.filter(
                 test_result__user=profile.user, 
                 question__tags=tag, 
@@ -3129,38 +3455,52 @@ def pl_trainee_detail(request, profile_id):
                 'status': 'weak' if accuracy < 60 else 'strong' if accuracy >= 80 else 'normal'
             })
     
-    # 정답률 높은 순으로 정렬
-    tag_analysis.sort(key=lambda x: x['accuracy'], reverse=True)
+    # 정답률 낮은 순(취약점 우선) 또는 높은 순 정렬
+    tag_analysis.sort(key=lambda x: x['accuracy'])
 
-    # 4. 태도 및 역량 (매니저 평가 체크리스트)
+    # 5. 매니저 평가 데이터 (체크리스트 & 종합의견)
+    # 가장 최근 평가 1건을 가져옴
     manager_eval = ManagerEvaluation.objects.filter(trainee_profile=profile).last()
-    checklist_items = []
-    if manager_eval:
-        checklist_items = manager_eval.selected_items.all().select_related('category').order_by('category__order')
-
-    # 5. 특이사항 통계 (경고 및 재시험)
-    # (A) 경고/경고장 횟수
-    warning_count = StudentLog.objects.filter(profile=profile, log_type='warning').count()
-    warning_letter_count = StudentLog.objects.filter(profile=profile, log_type='warning_letter').count()
     
-    # (B) 재시험 횟수 계산 (과목별 응시 횟수 집계)
+    checklist = []
+    manager_comment = None
+    
+    if manager_eval:
+        # 체크리스트 항목 가져오기 (카테고리 순서대로 정렬 추천)
+        checklist = manager_eval.selected_items.all().select_related('category').order_by('category__order')
+        manager_comment = manager_eval.overall_comment
+
+    # 6. 특이사항 및 통계
+    # (A) 로그 기록 가져오기
+    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
+    warning_count = logs.filter(log_type='warning').count()
+    warning_letter_count = logs.filter(log_type='warning_letter').count() # 필드명 주의 (letter vs warning_letter)
+    
+    # (B) 재시험 횟수 계산
+    # (같은 퀴즈를 몇 번 응시했는지 카운트)
     quiz_counts = TestResult.objects.filter(user=profile.user).values('quiz').annotate(attempt_cnt=Count('id'))
     
     retake_2_count = 0 
     retake_3_count = 0 
     
     for q in quiz_counts:
-        if q['attempt_cnt'] >= 2:
+        if q['attempt_cnt'] == 2:   # 정확히 2번 응시 (재시험 1회)
             retake_2_count += 1
-        if q['attempt_cnt'] >= 3:
+        elif q['attempt_cnt'] >= 3: # 3번 이상 응시 (재시험 2회 이상)
             retake_3_count += 1
 
+    # 7. 템플릿 전달
     context = {
         'profile': profile,
-        'results': results, # [재확인] 전체 목록 전달
+        'results': results,
         'tag_analysis': tag_analysis,
-        'manager_eval': manager_eval,
-        'checklist_items': checklist_items,
+        
+        # 매니저 평가 관련
+        'checklist': checklist,          # 템플릿에서 {% for item in checklist %} 사용
+        'manager_comment': manager_comment, # 템플릿에서 {{ manager_comment }} 사용
+        
+        # 특이사항 관련
+        'logs': logs,
         'warning_count': warning_count,
         'warning_letter_count': warning_letter_count,
         'retake_2_count': retake_2_count,
@@ -3364,6 +3704,7 @@ def quiz_create(request):
             q_count = request.POST.get('question_count') or 25
             p_score = request.POST.get('pass_score') or 80
             t_limit = request.POST.get('time_limit') or 30
+            is_pub = request.POST.get('is_published') == 'on'
 
             # ★ [일단 작성자 없이 시도해봅니다]
             # 만약 작성자 필드가 필수라면 여기서 에러가 나겠지만,
@@ -3376,6 +3717,7 @@ def quiz_create(request):
                 question_count=int(q_count),
                 pass_score=int(p_score),
                 time_limit=int(t_limit),
+                is_published=is_pub
                 # recorder=request.user  <-- 삭제 (범인 후보 1)
                 # created_by=request.user <-- 삭제 (범인 후보 2)
             )
@@ -3444,6 +3786,8 @@ def quiz_update(request, quiz_id):
             quiz.question_count = int(q_count)
             quiz.pass_score = int(p_score)
             quiz.time_limit = int(t_limit)
+
+            quiz.is_published = (request.POST.get('is_published') == 'on')
 
             # (4) 저장
             quiz.save()
@@ -3596,14 +3940,18 @@ def question_update(request, question_id):
             # 1. 정보 업데이트
             question.question_text = request.POST.get('question_text')
             question.question_type = request.POST.get('question_type')
-            question.difficulty = request.POST.get('difficulty')
+            new_difficulty = request.POST.get('difficulty')
+            if new_difficulty:
+                question.difficulty = new_difficulty
             
-            if request.FILES.get('question_image'):
+            # [수정] 이미지 업데이트 (파일이 새로 업로드된 경우에만 교체)
+            if 'question_image' in request.FILES:
                 question.image = request.FILES['question_image']
             
             question.save()
 
             # 2. [변경] 태그 업데이트 (Tagify JSON 처리)
+            # (기존 로직 유지)
             question.tags.clear()
             tags_json = request.POST.get('tags', '')
             if tags_json:
@@ -3620,35 +3968,65 @@ def question_update(request, question_id):
                             tag_obj, _ = Tag.objects.get_or_create(name=t.strip())
                             question.tags.add(tag_obj)
 
-            # 3. 보기/정답 초기화 및 재생성
-            question.choice_set.all().delete() 
+            # 3. 보기/정답 처리
             q_type = question.question_type
 
-            # (A) [변경] 주관식 (복수 정답 허용)
-            if q_type == 'short_answer':
-                answer_text = request.POST.get('correct_answer_text', '')
-                if answer_text:
-                    answers = [a.strip() for a in answer_text.split(',') if a.strip()]
-                    for ans in answers:
-                        Choice.objects.create(question=question, choice_text=ans, is_correct=True)
+            # (A) 주관식 / OX -> 기존처럼 삭제 후 재생성 (간단하므로)
+            if q_type in ['short_answer', 'true_false']:
+                question.choice_set.all().delete()
+                
+                if q_type == 'short_answer':
+                    answer_text = request.POST.get('correct_answer_text', '')
+                    if answer_text:
+                        answers = [a.strip() for a in answer_text.split(',') if a.strip()]
+                        for ans in answers:
+                            Choice.objects.create(question=question, choice_text=ans, is_correct=True)
+                
+                elif q_type == 'true_false':
+                    ox_val = request.POST.get('ox_answer')
+                    Choice.objects.create(question=question, choice_text='O', is_correct=(ox_val == 'O'))
+                    Choice.objects.create(question=question, choice_text='X', is_correct=(ox_val == 'X'))
 
-            # (B) 객관식
+            # (B) [핵심 수정] 객관식 (이미지 보존을 위해 Update 방식 사용)
             elif q_type in ['multiple_choice', 'multiple_select']:
+                # 기존 보기들을 ID 순서대로 가져옴 (최대 4개라고 가정)
+                old_choices = list(question.choice_set.all().order_by('id'))
+                
+                # 1번부터 4번까지 루프
                 for i in range(1, 5):
                     c_text = request.POST.get(f'choice_text_{i}', '').strip()
-                    c_img = request.FILES.get(f'choice_image_{i}')
+                    c_file = request.FILES.get(f'choice_image_{i}') # 파일 객체 (HTML name="choice_image_1" 등)
                     is_corr = request.POST.get(f'is_correct_{i}') == 'on'
 
-                    if c_text or c_img:
-                        Choice.objects.create(
-                            question=question, choice_text=c_text, image=c_img, is_correct=is_corr
-                        )
-
-            # (C) OX
-            elif q_type == 'true_false':
-                ox_val = request.POST.get('ox_answer')
-                Choice.objects.create(question=question, choice_text='O', is_correct=(ox_val == 'O'))
-                Choice.objects.create(question=question, choice_text='X', is_correct=(ox_val == 'X'))
+                    # 텍스트나 파일이 있는 경우에만 저장 (또는 기존 데이터가 있으면 수정)
+                    if c_text or c_file or (i <= len(old_choices)):
+                        
+                        # 해당 순서에 기존 보기가 있으면 -> 수정 (Update)
+                        if i <= len(old_choices):
+                            choice_obj = old_choices[i-1]
+                            choice_obj.choice_text = c_text
+                            choice_obj.is_correct = is_corr
+                            
+                            # ★ 핵심: 새 파일이 올라왔을 때만 이미지 교체
+                            if c_file:
+                                choice_obj.image = c_file
+                            
+                            choice_obj.save()
+                        
+                        # 없으면 -> 새로 생성 (Create)
+                        else:
+                            if c_text or c_file: # 내용이 있을 때만
+                                Choice.objects.create(
+                                    question=question,
+                                    choice_text=c_text,
+                                    image=c_file, # 새 파일 저장
+                                    is_correct=is_corr
+                                )
+                
+                # (선택 사항) 4개 넘어가거나 불필요하게 남은 기존 보기 삭제
+                if len(old_choices) > 4:
+                    for del_choice in old_choices[4:]:
+                        del_choice.delete()
 
             messages.success(request, "문제가 수정되었습니다.")
             
@@ -3658,17 +4036,17 @@ def question_update(request, question_id):
                 return redirect('quiz:manager_quiz_list')
 
         except Exception as e:
+            # 에러 발생 시 로그 출력 (디버깅용)
+            print(f"Update Error: {e}")
             messages.error(request, f"수정 중 오류 발생: {e}")
 
-    # GET 요청 처리
-    # [변경] Tagify 초기값을 위해 콤마로 구분된 문자열 생성
+    # GET 요청 처리 (화면 그리기) - 기존 코드 유지
     current_tags = ",".join(question.tags.values_list('name', flat=True))
     
-    # [변경] 주관식 정답 가져오기 (여러 개일 경우 콤마로 합쳐서 보여줌)
     short_answer_val = ""
     if question.question_type == 'short_answer':
         correct_choices = question.choice_set.filter(is_correct=True).values_list('choice_text', flat=True)
-        short_answer_val = ", ".join(correct_choices)
+        short_answer_val = ",".join(correct_choices)
             
     ox_answer_val = ""
     if question.question_type == 'true_false':
@@ -3676,7 +4054,11 @@ def question_update(request, question_id):
         if correct_choice:
             ox_answer_val = correct_choice.choice_text
 
-    choices = question.choice_set.all()
+    choices_list = list(question.choice_set.all().order_by('id'))
+
+    while len(choices_list) < 4:
+        choices_list.append(None)
+        
     all_tags_list = list(Tag.objects.values_list('name', flat=True))
 
     return render(request, 'quiz/manager/question_form.html', {
@@ -3686,9 +4068,9 @@ def question_update(request, question_id):
         'current_tags': current_tags,
         'short_answer_val': short_answer_val,
         'ox_answer_val': ox_answer_val,
-        'choices': question.choice_set.all(),
+        'choices': choices_list,
         'is_update': True,
-        'all_tags_json': json.dumps(all_tags_list) # 전체 태그 리스트 (검색용)
+        'all_tags_json': json.dumps(all_tags_list) 
     })
 
 
@@ -3717,57 +4099,160 @@ def question_delete(request, question_id):
 # ------------------------------------------------------------------
 @login_required
 def evaluate_trainee(request, profile_id):
+
+    if not request.user.is_staff:
+        from django.contrib import messages
+        messages.error(request, "접근 권한이 없습니다. (관리자 전용)")
+        return redirect('quiz:index')
     # 1. 대상자 조회 및 권한 체크
     trainee = get_object_or_404(Profile, pk=profile_id)
     
-    # [보안] 담당 매니저(교수) 또는 관리자만 평가 가능
-    # (주의: is_process_manager 함수가 views.py 내 또는 utils에 정의되어 있어야 함)
-    # if not is_process_manager(request.user, trainee):
-    #     messages.error(request, "🚫 담당 공정의 매니저만 평가서를 작성할 수 있습니다.")
-    #     return redirect('quiz:dashboard')
+    # [1-1] 경고 및 감점 계산 로직 (새로 추가됨)
+    # 경고(warning)와 경고장(warning_letter) 횟수 조회
+    warnings = StudentLog.objects.filter(profile=trainee, log_type='warning').count()
+    letters = StudentLog.objects.filter(profile=trainee, log_type='warning_letter').count()
+    
+    # [감점 공식]
+    # 경고: 1회는 봐줌(0점), 2회부터 10점씩 감점
+    warning_penalty = (warnings - 1) * 10 if warnings > 1 else 0
+    # 경고장: 횟수당 10점 감점
+    letter_penalty = letters * 10
+    total_penalty = warning_penalty + letter_penalty
+    
+    # 최대 감점 상한선 (40점)
+    if total_penalty > 40:
+        total_penalty = 40
 
     # 2. 기존 평가 데이터 가져오기 (수정 모드)
     existing_evaluation = ManagerEvaluation.objects.filter(trainee_profile=trainee).first()
     final_assessment, _ = FinalAssessment.objects.get_or_create(profile=trainee)
 
+    today = timezone.now().date()
+    # ✅ 수정됨: end_date가 값이 '있을 때만' 날짜 비교를 하도록 방어막 추가!
+    is_cohort_ended = trainee.cohort and trainee.cohort.end_date and trainee.cohort.end_date < today
+    is_finalized = (trainee.status == 'completed') or (trainee.status == 'dropout' and existing_evaluation is not None)
+
+    # 3. POST 요청 처리 (저장 및 점수 계산)
     if request.method == 'POST':
+        action = request.POST.get('action', 'save')
+        
+        if is_finalized and action == 'finalize':
+            messages.error(request, "⛔ 이미 확정 처리된 평가서는 번복하거나 수정할 수 없습니다.")
+            return redirect('quiz:manager_trainee_detail', profile_id=trainee.id)
+
+        # 1. 폼 데이터 검증 및 저장 (빈칸 우회)
         form = EvaluationForm(request.POST, instance=existing_evaluation)
         if form.is_valid():
-            # (1) 정성 평가 (체크리스트 + 코멘트) 저장
             evaluation = form.save(commit=False)
             evaluation.manager = request.user
             evaluation.trainee_profile = trainee
             evaluation.save()
             form.save_m2m()
+        else:
+            # 빈칸이 있어서 폼 검증 실패해도 텍스트/체크박스 강제 저장
+            if existing_evaluation is None:
+                existing_evaluation = ManagerEvaluation(trainee_profile=trainee, manager=request.user)
+            existing_evaluation.overall_comment = request.POST.get('overall_comment', '')
+            existing_evaluation.save()
+            existing_evaluation.selected_items.set(request.POST.getlist('selected_items'))
+
+        # 2. 점수 안전하게 변환 (빈칸이 넘어와도 에러 없이 0점 처리!)
+
+        try:
+            practice_str = request.POST.get('practice_score', '0').strip()
+            attitude_str = request.POST.get('attitude_score', '0').strip()
             
-            # (2) 정량 평가 (점수) 저장 - FinalAssessment 모델 업데이트
-            try:
-                final_assessment.practice_score = float(request.POST.get('practice_score', 0))
-                final_assessment.note_score = float(request.POST.get('note_score', 0))
-                final_assessment.attitude_score = float(request.POST.get('attitude_score', 0))
+            practice = float(practice_str) if practice_str else 0.0
+            raw_attitude = float(attitude_str) if attitude_str else 0.0
+
+            real_attitude = max(0, raw_attitude - total_penalty)
+            exam_avg = final_assessment.exam_avg_score
+            final_score = round((exam_avg * 0.85) + (practice * 0.05) + (real_attitude * 0.10), 1)
+
+            final_assessment.practice_score = practice
+            final_assessment.note_score = 0
+            final_assessment.attitude_score = raw_attitude
+            final_assessment.final_score = final_score
+            final_assessment.save()
+        except ValueError:
+            messages.error(request, "점수는 숫자만 입력 가능합니다.")
+            final_score = 0
+            
+        # 3. ★ [액션 분기] '최종 확정'을 눌렀을 때만 수료/퇴소 처리 진행
+        if action == 'finalize':
+            final_status = request.POST.get('final_status')
+            dropout_reason = request.POST.get('dropout_reason', '').strip()
+
+            # 강제 퇴소 대상자 여부
+            is_forced_dropout = (final_score < 80) or (trainee.status == 'dropout')
+
+            if is_forced_dropout:
+                if request.user.is_superuser:
+                    # [관리자(Superuser) 예외 권한]
+                    if final_status == 'completed':
+                        if not dropout_reason:
+                            final_status = 'dropout'
+                            dropout_reason = "[시스템 방어] 예외 수료 사유 미작성으로 인한 강제 퇴소"
+                        else:
+                            StudentLog.objects.create(
+                                profile=trainee, recorder=request.user, log_type='others',
+                                reason=f"[관리자 예외 수료 승인] 사유: {dropout_reason}", is_resolved=True
+                            )
+                else:
+                    # [일반 매니저] 예외 없이 무조건 퇴소
+                    final_status = 'dropout'
+                    if not dropout_reason:
+                        if trainee.status == 'dropout':
+                            dropout_reason = "[시스템 자동] 사전 퇴소 인원 최종 평가 마감"
+                        else:
+                            dropout_reason = f"[시스템 자동] 최종 평가 점수 미달 ({final_score}점)"
+
+            # 최종 상태에 따른 처리
+            if final_status == 'dropout':
+                trainee.status = 'dropout'
+                trainee.user.is_active = False
+                trainee.user.save()
+                    
+                StudentLog.objects.create(
+                    profile=trainee, recorder=request.user, log_type='others',
+                    reason=f"최종 퇴소 처리 완료\n사유: {dropout_reason}", is_resolved=True
+                )
+                messages.error(request, f"⛔ 점수 미달 또는 수동 조치로 인해 '{trainee.name}' 교육생이 퇴소 처리되었습니다.")
                 
-                # 최종 점수 재계산
-                final_assessment.calculate_final_score() 
-                final_assessment.save()
+            elif final_status == 'completed':
+                trainee.status = 'completed'
+                msg = f"🎓 축하합니다! '{trainee.name}' 교육생이 성공적으로 수료 처리되었습니다."
+                if is_forced_dropout and request.user.is_superuser:
+                    msg += " (관리자 예외 승인 적용)"
+                messages.success(request, msg)
                 
-                messages.success(request, f"✅ {trainee.name} 님의 최종 평가가 저장되었습니다.")
-                return redirect('quiz:manager_trainee_detail', profile_id=trainee.id)
-            except ValueError:
-                messages.error(request, "점수는 숫자만 입력 가능합니다.")
+            trainee.save()
+
+
+            from .models import Notification
+            Notification.objects.filter(notification_type='pending_eval', related_url=f"/quiz/manager/evaluate/{trainee.id}/").delete()
+
+            return redirect('quiz:manager_trainee_detail', profile_id=trainee.id)
+
+        else:
+            # ★ 중간 저장인 경우 (현재 페이지에 튕기지 않고 알림 띄우기)
+            messages.success(request, f"✅ {trainee.name}님의 평가 내용이 성공적으로 임시 저장되었습니다.")
+            return redirect('quiz:evaluate_trainee', profile_id=trainee.id)
 
     else:
+        # GET 요청 시 폼 로드
         form = EvaluationForm(instance=existing_evaluation)
-
-    # 3. [종합 데이터 로드] 평가를 위한 참고 자료
+        
+    # 4. [종합 데이터 로드] 평가를 위한 참고 자료 (기존 코드 유지)
     # (A) 성적 현황
     test_results = TestResult.objects.filter(user=trainee.user)
     avg_score = test_results.aggregate(Avg('score'))['score__avg'] or 0
     fail_count = test_results.filter(is_pass=False).count()
     
-    # (B) 근태 현황 (DailySchedule 집계)
+    # (B) 근태 현황
     attendance_stats = DailySchedule.objects.filter(profile=trainee).values('work_type__name').annotate(count=Count('id'))
     
-    # (C) 특이사항/상벌점 로그
+    # (C) 로그 (상벌점 등)
     logs = StudentLog.objects.filter(profile=trainee).order_by('-created_at')
 
     # (D) 체크리스트 항목
@@ -3777,16 +4262,24 @@ def evaluate_trainee(request, profile_id):
         'trainee': trainee,
         'form': form,
         'categories': categories,
-        'final_assessment': final_assessment, # 점수 입력용
+        'final_assessment': final_assessment,
+        'is_finalized': is_finalized,
+        # [추가됨] 감점 관련 정보
+        'total_penalty': total_penalty,
+
+        'is_cohort_ended': is_cohort_ended,
+        'is_finalized': is_finalized,
+
+        'warning_cnt': warnings,
+        'letter_cnt': letters,
         
-        # 참고 데이터
+        # 기존 참고 데이터
         'avg_score': round(avg_score, 1),
         'fail_count': fail_count,
         'attendance_stats': attendance_stats,
         'logs': logs,
     }
     return render(request, 'quiz/evaluate_trainee.html', context)
-
 
 
 @login_required
@@ -4303,7 +4796,7 @@ def admin_full_data_view(request):
 
 
     # 3. 화면 표시용 프로필 조회
-    # [수정] prefetch_related에서 에러가 나는 'logs/studentlog_set' 제거 (안전 제일)
+    # (A) 기본 쿼리셋 생성
     profiles = Profile.objects.select_related(
         'user', 'cohort', 'company', 'process', 'pl', 'final_assessment'
     ).prefetch_related(
@@ -4311,7 +4804,31 @@ def admin_full_data_view(request):
         'user__testresult_set__quiz',
         'dailyschedule_set__work_type',
         'managerevaluation_set__selected_items'
-    ).order_by('cohort__start_date', 'user__username')
+    )
+
+    # (B) 정렬 로직 적용: [1순위] 최신 기수, [2순위] 내 공정, [3순위] 이름
+    try:
+        # 현재 로그인한 관리자의 공정 확인
+        my_process = request.user.profile.process
+    except AttributeError:
+        my_process = None
+
+    if my_process:
+        # 내 공정이면 0, 아니면 1로 점수를 매겨서 정렬
+        profiles = profiles.annotate(
+            is_my_process=Case(
+                When(process=my_process, then=Value(0)), 
+                default=Value(1),
+                output_field=IntegerField(),
+            )
+        ).order_by(
+            '-cohort__start_date',  # 기수 내림차순 (최신 기수 위로)
+            'is_my_process',        # 내 공정 우선
+            'name'                  # 이름순
+        )
+    else:
+        # 공정이 없는 관리자(슈퍼유저 등)는 그냥 최신 기수 -> 이름순
+        profiles = profiles.order_by('-cohort__start_date', 'process__name', 'name')
 
     # 필터 적용
     if filter_cohort: profiles = profiles.filter(cohort_id=filter_cohort)
@@ -4372,6 +4889,8 @@ def admin_full_data_view(request):
         last_eval = p.managerevaluation_set.last()
         manager_comment = last_eval.overall_comment if last_eval else ""
 
+        checklist_items = last_eval.selected_items.all() if last_eval else []
+
         # (4) 석차
         my_ranks = rank_map.get(p.id, {})
 
@@ -4383,6 +4902,7 @@ def admin_full_data_view(request):
             'ranks': my_ranks,
             'logs': logs_list,
             'manager_comment': manager_comment,
+            'checklist': checklist_items,
             'log_count': logs_list.count()
         })
 
@@ -4644,3 +5164,993 @@ def dropout_alert_view(request):
 def completed_alert_view(request):
     """수료 축하 페이지"""
     return render(request, 'quiz/status/completed_alert.html')
+
+
+@login_required
+@require_POST
+def bulk_approve_attempts(request):
+    """
+    시험 응시 요청 일괄 승인 처리
+    - HTML의 체크박스(name='attempt_ids') 값을 받아 한 번에 처리
+    - 보안: 각 요청별로 담당 공정 매니저인지 확인 후 승인
+    """
+    # 1. 권한 체크
+    if not request.user.is_staff:
+        messages.error(request, "권한이 없습니다.")
+        return redirect('quiz:index')
+
+    # 2. 체크된 ID 목록 가져오기
+    attempt_ids = request.POST.getlist('attempt_ids')
+    
+    if not attempt_ids:
+        messages.warning(request, "선택된 항목이 없습니다.")
+        return redirect('quiz:manager_exam_requests')
+
+    # 3. 승인 처리 로직
+    success_count = 0
+    fail_count = 0
+    
+    # 선택된 요청들을 가져옴 (대기중인 것만)
+    attempts = QuizAttempt.objects.filter(id__in=attempt_ids, status='대기중')
+
+    for attempt in attempts:
+        target_profile = attempt.user.profile
+        
+        # [보안 체크] 슈퍼유저이거나, 해당 공정 담당자인 경우에만 승인
+        if is_process_manager(request.user, target_profile):
+            attempt.status = '승인됨'
+            attempt.save()
+            success_count += 1
+        else:
+            fail_count += 1
+
+    # 4. 결과 메시지
+    if success_count > 0:
+        messages.success(request, f"✅ 총 {success_count}건의 요청을 승인했습니다.")
+    
+    if fail_count > 0:
+        messages.error(request, f"🚫 권한이 없는 {fail_count}건은 승인되지 않았습니다.")
+
+    # ★★★ [수정 완료] 처리 후 다시 요청 관리함으로 복귀
+    return redirect('quiz:manager_exam_requests')
+
+@login_required
+def exam_analytics_dashboard(request):
+    """
+    [Final] PMTC 시험 분석 센터
+    - 핵심 변경: 매니저는 '본인 공정' 및 '공통' 시험만 조회 (타 공정 노출 차단)
+    - 관리자(Superuser)는 모든 시험 조회
+    """
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+
+    user = request.user
+    
+    # 1. 퀴즈 조회 범위 설정 (필터링 핵심 로직)
+    if user.is_superuser:
+        # 관리자: 모든 시험 조회
+        quizzes = Quiz.objects.all()
+    else:
+        # 매니저: '내 공정' + '공통(Process 없음)' 시험만 조회
+        target_process = user.profile.process if hasattr(user, 'profile') else None
+        
+        quizzes = Quiz.objects.filter(
+            Q(related_process=target_process) | Q(related_process__isnull=True)
+        )
+
+    # 정렬 (카테고리 -> 공정 -> 이름)
+    quizzes = quizzes.select_related('related_process').order_by('category', 'related_process', 'title')
+    
+    # 2. 데이터를 담을 구조 (기존 유지)
+    grouped_data = {
+        'process': {'label': '🏭 내 공정 직무 평가', 'exams': [], 'icon': 'bi-gear-wide-connected', 'color': 'primary'},
+        'common':  {'label': '📘 공통 필수 평가',   'exams': [], 'icon': 'bi-book-half', 'color': 'success'},
+        'safety':  {'label': '🦺 환경/안전 교육',   'exams': [], 'icon': 'bi-shield-check', 'color': 'danger'},
+        'etc':     {'label': '🧩 기타 평가',       'exams': [], 'icon': 'bi-puzzle-fill', 'color': 'secondary'},
+    }
+
+    total_stats = {'exam_count': 0, 'total_attempts': 0}
+
+    for quiz in quizzes:
+        results = TestResult.objects.filter(quiz=quiz)
+        total_count = results.count()
+        
+        avg_score = 0
+        pass_rate = 0
+        
+        if total_count > 0:
+            avg_score = results.aggregate(Avg('score'))['score__avg'] or 0
+            pass_count = results.filter(is_pass=True).count()
+            pass_rate = (pass_count / total_count) * 100
+            
+        exam_data = {
+            'id': quiz.id,
+            'title': quiz.title,
+            'process_name': quiz.related_process.name if quiz.related_process else "공통",
+            'question_count': quiz.questions.count(),
+            'total_attempts': total_count,
+            'avg_score': round(avg_score, 1),
+            'pass_rate': round(pass_rate, 1),
+        }
+
+        cat = quiz.category
+        if cat in grouped_data:
+            grouped_data[cat]['exams'].append(exam_data)
+        else:
+            grouped_data['etc']['exams'].append(exam_data)
+            
+        total_stats['exam_count'] += 1
+        total_stats['total_attempts'] += total_count
+
+    context = {
+        'grouped_data': grouped_data,
+        'total_stats': total_stats
+    }
+    return render(request, 'quiz/manager/exam_analytics.html', context)
+
+
+@login_required
+def question_analytics_detail(request, quiz_id):
+    """
+    [NEW] 문제별 정답률 및 변별력 분석 상세 (AI 분석 화면용)
+    """
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+    
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    questions = quiz.questions.all().order_by('id')
+    
+    # 1. 변별력 계산을 위한 그룹 나누기
+    # ★ [수정 1] user_id가 아니라 'id(시험지 고유번호)'를 써야 재시험 통계가 정확함
+    all_results = TestResult.objects.filter(quiz=quiz).order_by('-score')
+    total_count = all_results.count()
+    
+    cut = int(total_count * 0.3) # 상/하위 30% 커트라인
+    
+    top_result_ids = []
+    bottom_result_ids = []
+
+    if cut > 0:
+        # 상위 30% 시험지 ID 목록
+        top_result_ids = list(all_results[:cut].values_list('id', flat=True))
+        # 하위 30% 시험지 ID 목록 (뒤에서부터)
+        bottom_result_ids = list(all_results[total_count - cut:].values_list('id', flat=True))
+
+    q_stats = []
+    
+    for q in questions:
+        # 이 문제에 대한 모든 답변 가져오기
+        answers = UserAnswer.objects.filter(question=q, test_result__quiz=quiz)
+        total_try = answers.count()
+        
+        accuracy = 0.0
+        discriminator = 0.0
+        
+        # ★ [수정 2] HTML과 맞추기 위해 기본값을 'mid'로 설정
+        suggested_diff = 'mid'
+        
+        if total_try > 0:
+            correct_cnt = answers.filter(is_correct=True).count()
+            accuracy = (correct_cnt / total_try) * 100
+            
+            # 변별력 지수 계산 (상위권 정답률 - 하위권 정답률)
+            if top_result_ids and bottom_result_ids:
+                # ★ [수정 3] test_result__user__id__in 대신 test_result_id__in 사용
+                top_correct = answers.filter(test_result_id__in=top_result_ids, is_correct=True).count()
+                bot_correct = answers.filter(test_result_id__in=bottom_result_ids, is_correct=True).count()
+                
+                top_rate = top_correct / len(top_result_ids)
+                bot_rate = bot_correct / len(bottom_result_ids)
+                
+                discriminator = round(top_rate - bot_rate, 2)
+            
+            # 난이도 자동 추천 로직
+            if accuracy >= 80:
+                suggested_diff = 'high' # 너무 쉬우니 난이도를 '상'으로 올려라
+            elif accuracy <= 30:
+                suggested_diff = 'low'  # 너무 어려우니 난이도를 '하'로 낮춰라
+            # 그 외는 'mid' (유지)
+            
+        else:
+            # 응시 데이터가 없을 때
+            accuracy = 0
+            discriminator = 0
+            # DB에 저장된 현재 난이도 가져오기 (없으면 mid)
+            suggested_diff = getattr(q, 'difficulty', 'mid')
+
+        q_stats.append({
+            'question': q,
+            'accuracy': round(accuracy, 1),
+            'discriminator': discriminator,
+            'current_diff': getattr(q, 'difficulty', 'mid'),
+            'suggested_diff': suggested_diff
+        })
+
+    context = {
+        'quiz': quiz,
+        'q_stats': q_stats
+    }
+    
+    # ★ 확인: 파일명이 'question_analytics_detail.html' 맞는지 꼭 체크!
+    return render(request, 'quiz/manager/question_analytics_detail.html', context)
+
+
+@login_required
+@require_POST
+def auto_adjust_difficulty(request, quiz_id):
+    """
+    [기능] 난이도 자동 보정 시스템 (Auto-Tuning)
+    - 버튼 클릭 시 정답률에 따라 상/중/하 난이도를 DB에 업데이트
+    """
+    if not request.user.is_staff: return redirect('quiz:index')
+    
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    questions = quiz.questions.all()
+    updated_count = 0
+    
+    for q in questions:
+        answers = UserAnswer.objects.filter(question=q) # 전체 데이터 기준
+        total = answers.count()
+        if total < 5: continue # 표본 부족 시 스킵
+        
+        correct = answers.filter(is_correct=True).count()
+        accuracy = (correct / total) * 100
+        
+        new_diff = 'medium'
+        if accuracy >= 80: new_diff = 'low'
+        elif accuracy <= 30: new_diff = 'high'
+        
+        # 실제 값이랑 다를 때만 업데이트 (DB 부하 절감)
+        # (모델의 choices 값이 'low', 'medium', 'high' 또는 '하', '중', '상' 인지 확인 필요)
+        # 여기선 영어 코드값 기준으로 작성함. models.py 확인 후 한글이면 수정하세요.
+        if q.difficulty != new_diff:
+            q.difficulty = new_diff
+            q.save()
+            updated_count += 1
+            
+    messages.success(request, f"총 {updated_count}개 문제의 난이도가 AI 로직에 의해 자동 조절되었습니다.")
+    return redirect('quiz:question_analytics_detail', quiz_id=quiz.id)
+
+@login_required
+def student_dashboard_excel(request):
+    """
+    [Excel] 교육생 성적 현황 엑셀 다운로드
+    - 현재 대시보드에 적용된 필터링(회사/공정/기수/검색)을 그대로 반영하여 다운로드
+    """
+    # 1. 권한 체크
+    user = request.user
+    if not (user.is_staff or (hasattr(user, 'profile') and (user.profile.is_manager or user.profile.is_pl))):
+        return HttpResponse("권한이 없습니다.", status=403)
+
+    # 2. 필터링 데이터 가져오기 (dashboard 뷰와 동일한 로직)
+    sel_company = request.GET.get('company')
+    sel_process = request.GET.get('process')
+    sel_cohort = request.GET.get('cohort')
+    search_query = request.GET.get('q', '')
+
+    # 3. 대상 시험(Header) 선정
+    target_process = None
+    if not user.is_superuser and hasattr(user, 'profile'):
+        target_process = user.profile.process
+
+    header_quizzes = Quiz.objects.filter(category='common')
+    if target_process:
+        header_quizzes = header_quizzes | Quiz.objects.filter(related_process=target_process)
+    elif sel_process:
+        header_quizzes = header_quizzes | Quiz.objects.filter(related_process_id=sel_process)
+    
+    header_quizzes = header_quizzes.exclude(category__in=['safety', 'etc']).order_by('category', 'title')
+
+    # 4. 대상 교육생 조회
+    profiles = Profile.objects.filter(user__is_staff=False).select_related('company', 'process', 'cohort')
+
+    if target_process:
+        profiles = profiles.filter(process=target_process)
+    elif sel_process:
+        profiles = profiles.filter(process_id=sel_process)
+    
+    if sel_company:
+        profiles = profiles.filter(company_id=sel_company)
+    
+    if sel_cohort:
+        profiles = profiles.filter(cohort_id=sel_cohort)
+
+    if search_query:
+        profiles = profiles.filter(Q(name__icontains=search_query) | Q(employee_id__icontains=search_query))
+    
+    # 정렬: 기수 -> 이름 순
+    profiles = profiles.order_by('-cohort__start_date', 'name')
+
+    # ---------------------------------------------------------
+    # 5. 엑셀 워크북 생성 및 디자인 설정
+    # ---------------------------------------------------------
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "교육생 성적 현황"
+
+    # 스타일 정의
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid") # 파란색 배경
+    center_align = Alignment(horizontal="center", vertical="center")
+    border_style = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+
+    # (1) 헤더 작성
+    # 기본 정보 컬럼
+    headers = ["기수", "회사", "공정", "이름", "사번", "상태", "1차 평균"]
+    
+    # 시험별 컬럼 (시험 하나당 1차, 2차, 3차 3칸씩 차지)
+    for quiz in header_quizzes:
+        headers.extend([f"{quiz.title}(1차)", f"{quiz.title}(2차)", f"{quiz.title}(3차)"])
+
+    ws.append(headers)
+
+    # 헤더 스타일 적용
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+        cell.border = border_style
+
+    # (2) 데이터 행 작성
+    for p in profiles:
+        row_data = [
+            p.cohort.name if p.cohort else "-",
+            p.company.name if p.company else "-",
+            p.process.name if p.process else "-",
+            p.name,
+            p.employee_id,
+            p.get_status_display(),
+            "" # 평균 점수 자리 (계산 후 넣음)
+        ]
+
+        total_1st_score = 0
+        count_1st = 0
+
+        # 시험별 점수 채우기
+        for quiz in header_quizzes:
+            # 해당 퀴즈 기록 가져오기 (최대 3개)
+            attempts = TestResult.objects.filter(user=p.user, quiz=quiz).order_by('completed_at')[:3]
+            
+            # 1차 점수 평균 계산용
+            if attempts.exists():
+                s1 = attempts[0].score
+                total_1st_score += s1
+                count_1st += 1
+            
+            # 1, 2, 3차 점수 리스트 만들기
+            scores = ["-", "-", "-"]
+            for i, att in enumerate(attempts):
+                # 점수 표시 (합격이면 '80(P)', 불합격이면 '60(F)' 등으로 표시 가능, 여기선 점수만)
+                scores[i] = att.score
+            
+            row_data.extend(scores)
+
+        # 1차 평균 계산하여 리스트의 6번 인덱스(7번째 칸)에 삽입
+        avg_1st = round(total_1st_score / count_1st, 1) if count_1st > 0 else 0
+        row_data[6] = avg_1st
+
+        # 엑셀에 행 추가
+        ws.append(row_data)
+
+    # (3) 컬럼 너비 자동 조절 (약간의 여유)
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter # A, B, C...
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        ws.column_dimensions[column].width = adjusted_width if adjusted_width > 10 else 10
+
+    # 6. HTTP 응답 생성
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename=student_scores.xlsx'
+    wb.save(response)
+    
+    return response
+
+
+
+@login_required
+def exam_analytics_detail(request, quiz_id):
+    """
+    [통합 수정본] 시험 상세 분석 (통계 + AI 난이도 추천 + 최근 기록)
+    - 기존의 '관리' 기능을 이곳으로 통합
+    """
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    
+    # 1. 문항 데이터 로드 (M2M 역참조 문제 해결: quiz.questions.all())
+    questions = quiz.questions.all().order_by('id')
+    
+    # 2. 전체 응시 기록 (변별력 계산용: 점수 높은 순)
+    all_results = TestResult.objects.filter(quiz=quiz).order_by('-score')
+    total_attempts = all_results.count()
+    
+    # 3. 최근 응시 기록 (화면 우측 표시용)
+    recent_results = TestResult.objects.filter(quiz=quiz).order_by('-completed_at')[:10]
+    
+    q_stats = []
+    
+    # 텍스트 변환용 맵 (화면 표시용)
+    diff_map = {'high': '상', 'mid': '중', 'low': '하'}
+
+    for q in questions:
+        # 이 문항의 답변 기록 (현재 시험지 내에서만)
+        answers = UserAnswer.objects.filter(question=q, test_result__quiz=quiz)
+        total_ans = answers.count()
+        
+        accuracy = 0.0
+        if total_ans > 0:
+            correct_ans = answers.filter(is_correct=True).count()
+            accuracy = round((correct_ans / total_ans) * 100, 1)
+
+        # 4. 변별력 계산 (상위 50% vs 하위 50%)
+        discriminator = 0
+        if total_attempts >= 4:
+            mid_idx = total_attempts // 2
+            top_group = all_results[:mid_idx]
+            low_group = all_results[mid_idx:]
+            
+            top_correct = answers.filter(test_result__in=top_group, is_correct=True).count()
+            low_correct = answers.filter(test_result__in=low_group, is_correct=True).count()
+            
+            top_rate = top_correct / len(top_group) if len(top_group) > 0 else 0
+            low_rate = low_correct / len(low_group) if len(low_group) > 0 else 0
+            
+            discriminator = round(top_rate - low_rate, 2)
+
+        # 5. AI 난이도 추천 로직 (정답률 기반)
+        # - 정답률 80% 이상 -> 쉬움 -> 난이도 '하(low)' 추천
+        # - 정답률 30% 이하 -> 어려움 -> 난이도 '상(high)' 추천
+        suggested_diff = 'mid'
+        if accuracy >= 80: suggested_diff = 'low'
+        elif accuracy <= 30: suggested_diff = 'high'
+        
+        # 현재 난이도 정보
+        current_diff_val = getattr(q, 'difficulty', 'mid')
+        
+        q_stats.append({
+            'question': q,
+            'accuracy': accuracy,
+            'discriminator': discriminator,
+            
+            # [중요] 템플릿 변수명과 일치시킴
+            'difficulty': diff_map.get(current_diff_val, '중'), # 화면용(상/중/하)
+            'current_val': current_diff_val,                   # 로직용(high/mid/low)
+            'suggested_diff': suggested_diff,                  # 추천 로직용(high/mid/low)
+            'sug_text': diff_map.get(suggested_diff, '중'),    # 추천 화면용(상/중/하)
+            'total_try': total_ans
+        })
+
+    # 6. 정답률 낮은 순(어려운 순) 정렬
+    q_stats.sort(key=lambda x: x['accuracy'])
+
+    context = {
+        'quiz': quiz,
+        'q_stats': q_stats,
+        'recent_results': recent_results,
+    }
+    # ★ 통합된 페이지로 렌더링
+    return render(request, 'quiz/manager/exam_analytics_detail.html', context)
+
+
+@login_required
+def auto_adjust_difficulty(request, quiz_id):
+    """
+    [통합 수정본] 난이도 일괄 자동 보정 실행
+    - 실행 후 '통계 페이지(exam_analytics_detail)'로 돌아가야 함 (관리 페이지 삭제됨)
+    """
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+    
+    quiz = get_object_or_404(Quiz, pk=quiz_id)
+    questions = quiz.questions.all()
+    
+    updated_count = 0
+    
+    for q in questions:
+        answers = UserAnswer.objects.filter(question=q, test_result__quiz=quiz)
+        total = answers.count()
+        
+        if total > 0:
+            correct = answers.filter(is_correct=True).count()
+            accuracy = (correct / total) * 100
+            
+            # 현재 값
+            old_diff = q.difficulty
+            
+            # 목표 값 계산 (View 로직과 동일)
+            new_diff = 'mid'
+            if accuracy >= 80:
+                new_diff = 'low'
+            elif accuracy <= 30:
+                new_diff = 'high'
+            
+            # [최적화] 값이 다를 때만 저장 (불필요한 DB 쓰기 방지)
+            if old_diff != new_diff:
+                q.difficulty = new_diff
+                q.save()
+                updated_count += 1
+    
+    # ★ [핵심 수정] 작업 완료 후 '통계 페이지(exam_analytics_detail)'로 돌아갑니다.
+    # (더 이상 관리 페이지는 쓰지 않으므로 여기로 와야 합니다.)
+    return redirect('quiz:exam_analytics_detail', quiz_id=quiz.id)
+
+@login_required
+@require_POST
+def request_dropout(request):
+    try:
+        from accounts.models import Profile, DropOutRequest
+        
+        data = json.loads(request.body)
+        trainee_id = data.get('trainee_id')
+        drop_date = data.get('drop_date')
+        reason = data.get('reason')
+
+        # 1. 대상 학생 프로필 찾기
+        trainee = Profile.objects.get(id=trainee_id)
+
+        # 2. 퇴사 요청서 생성 (pending 상태)
+        DropOutRequest.objects.create(
+            trainee=trainee,
+            requester=request.user,
+            drop_date=drop_date,
+            reason=reason
+        )
+
+        from django.urls import reverse # 함수 맨 위에 없으면 추가
+        
+        superusers = User.objects.filter(is_superuser=True)
+        for admin in superusers:
+            Notification.objects.create(
+                recipient=admin,
+                sender=request.user,
+                notification_type='general', 
+                message=f"🚨 [퇴사 결재 대기] {trainee.name} 교육생의 중도 퇴사 요청이 접수되었습니다.",
+                related_url="/quiz/admin/dropout/requests/" # ✅ 새로 만든 전용 결재함 주소로 변경!
+            )
+
+        return JsonResponse({"status": "success", "message": "성공적으로 최고 관리자에게 퇴소 결재가 요청되었습니다."})
+        
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)}, status=400)
+
+@login_required
+def dropout_request_list(request):
+    """최고 관리자용 중도 퇴사 결재함 페이지"""
+    if not request.user.is_superuser:
+        from django.contrib import messages
+        messages.error(request, "최고 관리자만 접근할 수 있는 페이지입니다.")
+        return redirect('quiz:index')
+
+    from accounts.models import DropOutRequest
+    # 대기 중인 요청과 처리 완료된 요청을 분리해서 가져옵니다
+    pending_requests = DropOutRequest.objects.filter(status='pending').order_by('-created_at')
+    resolved_requests = DropOutRequest.objects.exclude(status='pending').order_by('-resolved_at')[:50] # 최근 50건만
+
+    context = {
+        'pending_requests': pending_requests,
+        'resolved_requests': resolved_requests,
+    }
+    return render(request, 'quiz/manager/dropout_approval_list.html', context)
+
+@login_required
+@require_POST
+def approve_dropout(request, req_id):
+    """중도 퇴사 승인 처리"""
+    if not request.user.is_superuser:
+        return JsonResponse({"status": "error", "message": "권한이 없습니다."})
+    
+    from accounts.models import DropOutRequest
+    from quiz.models import Notification
+
+    try:
+        req = DropOutRequest.objects.get(id=req_id)
+        req.status = 'approved'
+        req.resolved_at = timezone.now()
+        req.save() # 저장되는 순간 Signal이 발동하여 학생 상태가 'dropout'으로 변합니다.
+
+        Notification.objects.create(
+            recipient=req.requester, # 퇴사를 요청했던 매니저
+            sender=request.user,     # 최고 관리자
+            notification_type='general',
+            message=f"📢 [{req.trainee.name}] 교육생의 중도 퇴사가 승인되었습니다. 최종 평가(퇴소 사유 등)를 작성해 마감해 주세요.",
+            related_url=f"/quiz/manager/evaluate/{req.trainee.id}/" # 평가서 작성 페이지로 바로 이동!
+        )
+        
+        return JsonResponse({"status": "success", "message": f"{req.trainee.name} 교육생의 퇴소가 승인되었습니다."})
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)})
+
+@login_required
+@require_POST
+def reject_dropout(request, req_id):
+    """중도 퇴사 반려 처리"""
+    if not request.user.is_superuser:
+        return JsonResponse({"status": "error", "message": "권한이 없습니다."})
+    
+    from accounts.models import DropOutRequest
+    try:
+        req = DropOutRequest.objects.get(id=req_id)
+        req.status = 'rejected'
+        req.resolved_at = timezone.now()
+        req.save()
+        
+        return JsonResponse({"status": "success", "message": "퇴사 요청이 반려되었습니다."})
+    except Exception as e:
+        return JsonResponse({"status": "error", "message": str(e)})
+
+@login_required
+def cohort_final_report(request, cohort_id):
+    """기수별 최종 마감 종합 리포트 (전체 기수 조회 & 상세 점수 포함)"""
+    
+    user = request.user
+    user_profile = getattr(user, 'profile', None)
+    if not (user.is_staff or (user_profile and (user_profile.is_manager or user_profile.is_pl))):
+        from django.contrib import messages
+        messages.error(request, "접근 권한이 없습니다.")
+        return redirect('quiz:index')
+
+    from accounts.models import Cohort, Profile, DropOutRequest, Process, Company, FinalAssessment
+    from quiz.models import TestResult, UserAnswer
+    
+    all_cohorts = Cohort.objects.all().order_by('-start_date')
+    f_process = request.GET.get('process', '')
+    f_company = request.GET.get('company', '')
+
+    # [핵심] cohort_id가 0이면 "모든 기수(전체)"로 간주합니다.
+    if cohort_id == 0:
+        cohort = None
+        base_students = Profile.objects.filter(
+            is_manager=False, is_pl=False, is_approved=True
+        ).exclude(cohort__isnull=True).exclude(user__is_staff=True)
+    else:
+        cohort = get_object_or_404(Cohort, id=cohort_id)
+        base_students = Profile.objects.filter(
+            cohort=cohort, is_manager=False, is_pl=False, is_approved=True
+        ).exclude(user__is_staff=True)
+
+    available_processes = Process.objects.filter(profile__in=base_students).distinct()
+    available_companies = Company.objects.filter(profile__in=base_students).distinct()
+
+    students = base_students
+    if f_process: students = students.filter(process__name=f_process)
+    if f_company: students = students.filter(company__name=f_company)
+
+    total_students = students.count()
+    completed_count = students.filter(status='completed').count()
+    completion_rate = round((completed_count / total_students) * 100, 1) if total_students > 0 else 0
+
+    # 중도 퇴사 vs 미수료 분리
+    approved_dropout_ids = DropOutRequest.objects.filter(
+        trainee__in=students, status='approved'
+    ).values_list('trainee_id', flat=True)
+
+    all_dropouts = students.filter(status='dropout')
+    mid_drop_count = all_dropouts.filter(id__in=approved_dropout_ids).count()
+    fail_drop_count = all_dropouts.exclude(id__in=approved_dropout_ids).count()
+
+    # ★ [수정됨] 공통 평가 vs 공정 평가 상세 평균 점수 분리
+    test_results = TestResult.objects.filter(user__profile__in=students)
+    
+    # [수정] 전체 평균 점수
+    common_avg = test_results.filter(quiz__related_process__isnull=True).aggregate(Avg('score'))['score__avg'] or 0
+    process_avg = test_results.filter(quiz__related_process__isnull=False).aggregate(Avg('score'))['score__avg'] or 0
+
+    # ★ [추가] 세부 과목(시험)별 평균 점수 리스트
+    common_quizzes = test_results.filter(quiz__related_process__isnull=True).values('quiz__title').annotate(avg_score=Avg('score')).order_by('quiz__title')
+    process_quizzes = test_results.filter(quiz__related_process__isnull=False).values('quiz__title').annotate(avg_score=Avg('score')).order_by('quiz__title')
+
+    # ★ [수정] 마의 오답률을 공통과 공정으로 분리!
+    common_top_wrong = UserAnswer.objects.filter(
+        test_result__in=test_results, test_result__quiz__related_process__isnull=True, is_correct=False
+    ).values('question__id', 'question__question_text', 'question__question_type', 'question__difficulty').annotate(wrong_count=Count('id')).order_by('-wrong_count')[:5]
+
+    process_top_wrong = UserAnswer.objects.filter(
+        test_result__in=test_results, test_result__quiz__related_process__isnull=False, is_correct=False
+    ).values('question__id', 'question__question_text', 'question__question_type', 'question__difficulty').annotate(wrong_count=Count('id')).order_by('-wrong_count')[:5]
+
+    # 우수자 Top 3
+    top_trainees = FinalAssessment.objects.filter(
+        profile__in=students, profile__status='completed'
+    ).select_related('profile', 'profile__process').order_by('-final_score')[:3]
+
+    # 트렌드 비교 (전체 기수 보기일 때는 트렌드 비교를 숨김)
+    prev_cohort = None
+    trend_diff = 0
+    if cohort:
+        prev_cohort = Cohort.objects.filter(start_date__lt=cohort.start_date).order_by('-start_date').first()
+        if prev_cohort:
+            prev_students = Profile.objects.filter(cohort=prev_cohort, is_manager=False, is_pl=False, is_approved=True)
+            if f_process: prev_students = prev_students.filter(process__name=f_process)
+            if f_company: prev_students = prev_students.filter(company__name=f_company)
+            
+            prev_total = prev_students.count()
+            if prev_total > 0:
+                prev_completed = prev_students.filter(status='completed').count()
+                prev_completion_rate = round((prev_completed / prev_total) * 100, 1)
+                trend_diff = round(completion_rate - prev_completion_rate, 1)
+
+    context = {
+        'cohort': cohort,
+        'is_all_cohorts': cohort_id == 0, 
+        'all_cohorts': all_cohorts,
+        'available_processes': available_processes,
+        'available_companies': available_companies,
+        'f_process': f_process,
+        'f_company': f_company,
+        'total_students': total_students,
+        'completed_count': completed_count,
+        'completion_rate': completion_rate,
+        'mid_drop_count': mid_drop_count,
+        'fail_drop_count': fail_drop_count,
+        
+        'common_avg': round(common_avg, 1),
+        'process_avg': round(process_avg, 1),
+        
+        # ★ 새로 쪼개진 데이터들 (옛날 top_wrong_questions 대신 들어감)
+        'common_quizzes': common_quizzes,
+        'process_quizzes': process_quizzes,
+        'common_top_wrong': common_top_wrong,
+        'process_top_wrong': process_top_wrong,
+        
+        'top_trainees': top_trainees,
+        'prev_cohort': prev_cohort,
+        'trend_diff': trend_diff,
+    }
+    return render(request, 'quiz/manager/cohort_final_report.html', context)
+
+@login_required
+def latest_cohort_report(request):
+    """
+    네비게이션 바에서 접근 시, 상황에 맞는 기수 리포트로 자동 연결해주는 뷰
+    - 현재 진행 중인 기수(예: 34기)가 있다면 -> 바로 이전 기수(예: 33기) 마감 리포트로 이동
+    - 현재 진행 중인 기수가 없다면 -> 가장 최근에 끝난 기수 리포트로 이동
+    """
+    from accounts.models import Cohort
+    from django.utils import timezone
+    
+    today = timezone.now().date()
+    
+    # 1. 오늘 날짜 기준으로 '진행 중인 기수'가 있는지 찾습니다.
+    running_cohort = Cohort.objects.filter(start_date__lte=today, end_date__gte=today).order_by('-start_date').first()
+    
+    target_cohort = None
+    
+    if running_cohort:
+        # [진행 중인 기수가 있는 경우] -> 진행 중인 기수보다 '시작일'이 과거인 이전 기수를 찾음
+        target_cohort = Cohort.objects.filter(start_date__lt=running_cohort.start_date).order_by('-start_date').first()
+    else:
+        # [진행 중인 기수가 없는 경우] -> '종료일'이 오늘보다 과거인 것 중 가장 최근 기수를 찾음 (가장 최근에 마감된 기수)
+        target_cohort = Cohort.objects.filter(end_date__lt=today).order_by('-end_date').first()
+        
+        # 만약 마감된 기수조차 없다면 최후의 수단으로 그냥 가장 최근에 만들어진 기수를 띄움
+        if not target_cohort:
+            target_cohort = Cohort.objects.order_by('-start_date').first()
+
+    # 결과에 따라 이동
+    if target_cohort:
+        return redirect('quiz:cohort_final_report', cohort_id=target_cohort.id)
+    else:
+        from django.contrib import messages
+        messages.warning(request, "등록된 기수 정보가 없어 리포트를 표시할 수 없습니다.")
+        return redirect('quiz:manager_dashboard')
+
+@login_required
+def export_cohort_report_excel(request, cohort_id):
+    """기수 리포트 엑셀 다운로드 (필터 조건 반영)"""
+    user = request.user
+    user_profile = getattr(user, 'profile', None)
+    if not (user.is_staff or (user_profile and (user_profile.is_manager or user_profile.is_pl))):
+        from django.contrib import messages
+        messages.error(request, "접근 권한이 없습니다.")
+        return redirect('quiz:index')
+
+    from accounts.models import Cohort, Profile, FinalAssessment
+
+    # 1. 필터 조건 가져오기
+    f_process = request.GET.get('process', '')
+    f_company = request.GET.get('company', '')
+
+    if cohort_id == 0:
+        cohort_name = "전체_기수"
+        students = Profile.objects.filter(is_manager=False, is_pl=False, is_approved=True).exclude(cohort__isnull=True)
+    else:
+        from django.shortcuts import get_object_or_404
+        cohort = get_object_or_404(Cohort, id=cohort_id)
+        cohort_name = cohort.name
+        students = Profile.objects.filter(cohort=cohort, is_manager=False, is_pl=False, is_approved=True)
+
+    # 필터 적용
+    if f_process: students = students.filter(process__name=f_process)
+    if f_company: students = students.filter(company__name=f_company)
+
+    # 2. 엑셀 워크북(파일) 만들기
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"{cohort_name}_운영결과"
+
+    # [디자인 설정]
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+    center_align = Alignment(horizontal="center", vertical="center")
+
+    # 3. 엑셀 헤더(첫 줄) 작성
+    headers = ["기수", "소속회사", "공정", "사번", "이름", "최종 상태", "시험 평균", "실습 점수", "태도 점수", "최종 환산점수", "등수"]
+    ws.append(headers)
+
+    # 헤더 스타일 적용
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+
+    # 4. 학생 데이터 채워넣기
+    # 학생 명단을 가져오면서 최종 평가서 데이터도 같이 가져옵니다.
+    assessments = FinalAssessment.objects.filter(profile__in=students).select_related('profile', 'profile__cohort', 'profile__company', 'profile__process')
+    
+    # 딕셔너리로 만들어서 매칭 속도 높이기
+    assessment_dict = {a.profile_id: a for a in assessments}
+
+    for student in students.order_by('company__name', 'process__name', 'name'):
+        assess = assessment_dict.get(student.id)
+        
+        row_data = [
+            student.cohort.name if student.cohort else "-",
+            student.company.name if student.company else "-",
+            student.process.name if student.process else "공통",
+            student.employee_id or "-",
+            student.name or "-",
+            student.get_status_display(),
+            assess.exam_avg_score if assess else 0,
+            assess.practice_score if assess else 0,
+            assess.attitude_score if assess else 0,
+            assess.final_score if assess else 0,
+            assess.rank if assess else "-",
+        ]
+        ws.append(row_data)
+
+    # 5. 열 너비 자동 맞춤
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter # 예: 'A', 'B'
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(cell.value)
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        ws.column_dimensions[column].width = adjusted_width
+
+    # 6. 파일 응답으로 반환 (다운로드 창 띄우기)
+    
+    import urllib.parse # 한글 파일명 인코딩용 라이브러리 추가
+
+    current_time = timezone.now().strftime('%Y%m%d_%H%M')
+    filename = f"교육운영리포트_{cohort_name}_{current_time}.xlsx"
+
+    # [핵심 수정] 클라우드(GitHub) 환경에서 502 에러가 나지 않도록 브라우저 표준(UTF-8)으로 파일명 포장
+    encoded_filename = urllib.parse.quote(filename)
+
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_filename}"
+    
+    wb.save(response)
+    return response
+
+@login_required
+@require_POST
+def quick_add_warning(request):
+    """대시보드 퀵 경고/특이사항 등록 (다중 선택 지원) 및 자동 알림"""
+    user = request.user
+    user_profile = getattr(user, 'profile', None)
+    if not (user.is_staff or (user_profile and (user_profile.is_manager or user_profile.is_pl))):
+        return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+
+    from accounts.models import Profile
+    from quiz.models import StudentLog, Notification
+
+    # 프론트엔드에서 "1,3,5" 처럼 쉼표로 연결되어 날아옵니다.
+    profile_ids_str = request.POST.get('profile_ids')
+    log_type = request.POST.get('log_type')
+    reason = request.POST.get('reason')
+    action_taken = request.POST.get('action_taken', '')
+
+    if not profile_ids_str:
+        return JsonResponse({'status': 'error', 'message': '선택된 교육생이 없습니다.'})
+
+    profile_ids = profile_ids_str.split(',') # 쉼표를 기준으로 리스트로 분리
+    success_names = [] # 처리 완료된 학생 이름 모음
+
+    try:
+        # 선택된 여러 명의 학생을 한 명씩 돌면서 동일하게 처리!
+        for pid in profile_ids:
+            profile = Profile.objects.get(id=pid)
+            
+            # 1. 히스토리 기록 생성 (각각의 학생 페이지에 동일한 사유가 꽂힙니다)
+            StudentLog.objects.create(
+                profile=profile,
+                recorder=user,
+                log_type=log_type,
+                reason=reason,
+                action_taken=action_taken,
+                is_resolved=False
+            )
+
+            # 2. 누적 경고 카운트 로직 및 상태 변경
+            if log_type in ['warning', 'warning_letter']:
+                profile.warning_count += 1
+                
+                # 카운트에 따른 자동 상태 변경 로직
+                if profile.warning_count == 1:
+                    profile.status = 'caution' # 1회: 주의
+                elif profile.warning_count >= 2 and profile.status != 'dropout':
+                    profile.status = 'counseling' # 2회 이상: 면담필요(잠금)
+                    
+                    # ★ [핵심] 잠금 조건이 충족되면 매니저 본인(기록자)에게 즉시 알림 발송! ★
+                    Notification.objects.create(
+                        recipient=user,
+                        notification_type='general',
+                        message=f"🚨 [{profile.name}] 누적 경고 {profile.warning_count}회 도달! 잠금 상태로 전환되었습니다. (조치 필요)",
+                        related_url=f"/quiz/manager/trainees/{profile.id}/logs/"
+                    )
+                    
+                profile.save()
+            
+            success_names.append(profile.name)
+
+        # 최종 성공 메시지
+        msg = f"총 {len(success_names)}명 ({', '.join(success_names)}) 특이사항 일괄 등록 및 반영 완료!"
+        return JsonResponse({'status': 'success', 'message': msg})
+        
+    except Profile.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': '일부 교육생 데이터를 찾을 수 없습니다.'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+# [1] 미승인 대기 화면 (기존에 다른 곳에 있다면 생략 가능)
+@login_required
+def status_pending(request):
+    if hasattr(request.user, 'profile') and request.user.profile.is_approved:
+        return redirect('quiz:index')
+    # 승인 대기 페이지 템플릿 경로를 적어주세요. (없다면 임의로 생성)
+    return render(request, 'accounts/pending.html') 
+
+# [2] 퇴소자 접속 불가 화면 (기존 파일명 사용)
+@login_required
+def status_dropout(request):
+    if hasattr(request.user, 'profile') and request.user.profile.status != 'dropout':
+        return redirect('quiz:index')
+    return render(request, 'accounts/dropout_alert.html')
+
+# [3] 수료자 축하 마이페이지 (기존 파일명 사용)
+@login_required
+def status_graduated(request):
+    if hasattr(request.user, 'profile') and request.user.profile.status != 'graduated':
+        return redirect('quiz:index')
+    return render(request, 'accounts/completed_alert.html', {'profile': request.user.profile})
+
+# [4] 수료증 팝업/인쇄 화면 (새로 만든 파일명 사용)
+@login_required
+def print_certificate(request):
+    profile = request.user.profile
+    if profile.status != 'graduated':
+        return redirect('quiz:index')
+    
+    context = {
+        'profile': profile,
+        'cohort_name': profile.cohort.name if profile.cohort else "미지정",
+        'process_name': profile.process.name if profile.process else "미지정",
+        'start_date': profile.cohort.start_date if profile.cohort else None,
+        'end_date': profile.cohort.end_date if profile.cohort else None,
+    }
+    return render(request, 'accounts/certificate_print.html', context)

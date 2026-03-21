@@ -1,0 +1,274 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<style>
+    @media print {
+        body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .no-print { display: none !important; }
+        .print-shadow-none { box-shadow: none !important; border: 1px solid #ddd !important; }
+    }
+    .hover-row:hover { background-color: #f8f9fa; transition: 0.2s; }
+    .medal-icon { font-size: 1.5rem; }
+    .gold { color: #FFD700; }
+    .silver { color: #C0C0C0; }
+    .bronze { color: #CD7F32; }
+</style>
+
+<div class="container-fluid mt-4 mb-5" style="max-width: 1400px;">
+    <div class="d-flex justify-content-between align-items-end mb-4 pb-3 border-bottom">
+        <div>
+            <span class="badge bg-primary mb-2 fs-6 px-3 py-2 rounded-pill shadow-sm">기수 마감 종합 리포트</span>
+            
+            <div class="d-flex align-items-center mt-1">
+                <i class="bi bi-bar-chart-line-fill text-primary fs-2 me-2"></i>
+                <select class="form-select form-select-lg fw-bold text-dark border-0 shadow-sm bg-light" 
+                        style="width: auto; font-size: 1.8rem; cursor: pointer;" 
+                        onchange="location.href='/quiz/manager/cohort/' + this.value + '/report/';">
+                    
+                    <option value="0" class="text-primary" {% if is_all_cohorts %}selected{% endif %}>
+                        🌟 [모든 기수 전체] 종합 교육 운영 결과
+                    </option>
+                    
+                    {% for c in all_cohorts %}
+                        <option value="{{ c.id }}" {% if c.id == cohort.id %}selected{% endif %}>
+                            [{{ c.name }}] 교육 운영 결과
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div class="mt-2 text-muted">
+                <i class="bi bi-calendar-check me-1"></i> 교육 기간: {{ cohort.start_date|date:"Y.m.d" }} ~ {{ cohort.end_date|default:"미정"|date:"Y.m.d" }}
+                {% if total_students == 0 %}
+                    <span class="badge bg-danger ms-2">현재 선택된 기수/조건에는 등록된 교육생이 없습니다.</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="no-print d-flex gap-2">
+            <a href="{% url 'quiz:export_cohort_excel' cohort_id=cohort.id|default:0 %}?process={{ f_process }}&company={{ f_company }}" class="btn btn-success shadow-sm">
+                <i class="bi bi-file-earmark-excel-fill me-1"></i> 엑셀 다운로드
+            </a>
+            
+            <button class="btn btn-outline-secondary shadow-sm" onclick="window.print()">
+                <i class="bi bi-printer-fill me-1"></i> PDF 인쇄
+            </button>
+            <a href="{% url 'quiz:manager_dashboard' %}" class="btn btn-dark shadow-sm">
+                <i class="bi bi-arrow-left me-1"></i> 대시보드
+            </a>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4 print-shadow-none no-print">
+    <div class="card-body bg-light rounded d-flex align-items-center p-3">
+        <div class="me-3 text-secondary fw-bold text-nowrap">
+            <i class="bi bi-funnel-fill fs-5 me-1"></i> 세부 분석 필터
+        </div>
+            
+            <form method="GET" action="" class="d-flex gap-3 w-100 align-items-center mb-0" id="analysisFilterForm">
+                <div style="min-width: 220px;">
+                    <select name="process" class="form-select border-0 shadow-sm fw-bold text-primary" onchange="document.getElementById('analysisFilterForm').submit();">
+                        <option value="">🟦 모든 공정 전체보기</option>
+                        {% for p in available_processes %}
+                            <option value="{{ p.name }}" {% if p.name == f_process %}selected{% endif %}>{{ p.name }} 공정</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div style="min-width: 220px;">
+                    <select name="company" class="form-select border-0 shadow-sm fw-bold text-success" onchange="document.getElementById('analysisFilterForm').submit();">
+                        <option value="">🟩 모든 소속회사 전체보기</option>
+                        {% for c in available_companies %}
+                            <option value="{{ c.name }}" {% if c.name == f_company %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                {% if f_process or f_company %}
+                <a href="?process=&company=" class="btn btn-white border shadow-sm ms-auto text-muted small">
+                    <i class="bi bi-arrow-counterclockwise"></i> 필터 초기화
+                </a>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+    
+    <div class="d-none d-print-block mb-4 p-3 bg-light border rounded text-dark">
+        <strong><i class="bi bi-funnel"></i> 적용된 분석 필터:</strong> 
+        공정: [{{ f_process|default:"전체" }}] | 소속회사: [{{ f_company|default:"전체" }}]
+    </div>
+
+       
+    </div> <div class="row g-3 mb-4 d-flex align-items-stretch">
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100 bg-primary text-white print-shadow-none">
+                <div class="card-body p-3 d-flex flex-column justify-content-between">
+                    <h6 class="fw-bold mb-3 opacity-75"><i class="bi bi-award-fill me-1"></i>최종 수료율</h6>
+                    <div>
+                        <h2 class="fw-bold mb-0">{{ completion_rate }}<span class="fs-5 fw-normal">%</span></h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100 print-shadow-none border-start border-4 border-success">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold mb-3"><i class="bi bi-mortarboard-fill text-success me-1"></i>수료 인원</h6>
+                    <h3 class="fw-bold text-dark mb-0">{{ completed_count }}<span class="fs-6 text-muted fw-normal"> / {{ total_students }}명</span></h3>
+                    <p class="text-muted" style="font-size: 0.75rem; margin-top:5px;">정상 수료자</p>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100 print-shadow-none border-start border-4 border-warning">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold mb-3"><i class="bi bi-person-dash-fill text-warning me-1"></i>중도 퇴사</h6>
+                    <h3 class="fw-bold text-dark mb-0">{{ mid_drop_count }}<span class="fs-6 text-muted fw-normal">명</span></h3>
+                    <p class="text-muted" style="font-size: 0.75rem; margin-top:5px;">개인 사정 승인 퇴사자</p>
+                </div>
+            </div>
+        </div>
+        <div class="col">
+            <div class="card border-0 shadow-sm h-100 print-shadow-none border-start border-4 border-danger">
+                <div class="card-body p-3">
+                    <h6 class="text-muted fw-bold mb-3"><i class="bi bi-journal-x text-danger me-1"></i>성적/태도 미수료</h6>
+                    <h3 class="fw-bold text-dark mb-0">{{ fail_drop_count }}<span class="fs-6 text-muted fw-normal">명</span></h3>
+                    <p class="text-muted" style="font-size: 0.75rem; margin-top:5px;">평가 미달 강제 퇴소자</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm h-100 print-shadow-none" style="background: linear-gradient(180deg, #ffffff 0%, #fefcf0 100%);">
+                <div class="card-body p-3">
+                    <h6 class="fw-bold text-dark mb-3"><i class="bi bi-stars text-warning me-1"></i>성적 우수자 (Top 3)</h6>
+                    <div class="d-flex flex-column gap-2">
+                        {% for trainee_eval in top_trainees %}
+                        <div class="d-flex justify-content-between align-items-center bg-white p-2 border rounded small">
+                            <span class="fw-bold">
+                                {% if forloop.counter == 1 %}🥇{% elif forloop.counter == 2 %}🥈{% else %}🥉{% endif %}
+                                {{ trainee_eval.profile.name }} <span class="text-muted">({{ trainee_eval.profile.process.name|default:"공통" }})</span>
+                            </span>
+                            <span class="fw-bold text-primary">{{ trainee_eval.final_score }}점</span>
+                        </div>
+                        {% empty %}
+                        <div class="text-center text-muted small py-2">아직 우수자가 없습니다.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm print-shadow-none h-100">
+                <div class="card-header bg-light border-bottom-0 pt-3 pb-2">
+                    <h6 class="fw-bold text-dark mb-0"><i class="bi bi-book-fill text-primary me-2"></i>공통 평가 상세 평균</h6>
+                </div>
+                <div class="card-body pt-2">
+                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                        <span class="text-muted fw-bold">전체 평균</span>
+                        <h4 class="fw-bold text-primary mb-0">{{ common_avg }}<span class="fs-6 text-muted fw-normal"> 점</span></h4>
+                    </div>
+                    <ul class="list-unstyled mb-0 small">
+                        {% for cq in common_quizzes %}
+                        <li class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-dark"><i class="bi bi-dot text-muted"></i> {{ cq.quiz__title }}</span>
+                            <span class="fw-bold px-2 py-1 bg-light rounded">{{ cq.avg_score|floatformat:1 }}점</span>
+                        </li>
+                        {% empty %}
+                        <li class="text-muted text-center py-2">시험 데이터가 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm print-shadow-none h-100">
+                <div class="card-header bg-light border-bottom-0 pt-3 pb-2">
+                    <h6 class="fw-bold text-dark mb-0"><i class="bi bi-tools text-success me-2"></i>세부 공정 평가 상세 평균</h6>
+                </div>
+                <div class="card-body pt-2">
+                    <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+                        <span class="text-muted fw-bold">전체 평균</span>
+                        <h4 class="fw-bold text-success mb-0">{{ process_avg }}<span class="fs-6 text-muted fw-normal"> 점</span></h4>
+                    </div>
+                    <ul class="list-unstyled mb-0 small">
+                        {% for pq in process_quizzes %}
+                        <li class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-dark"><i class="bi bi-dot text-muted"></i> {{ pq.quiz__title }}</span>
+                            <span class="fw-bold px-2 py-1 bg-light rounded">{{ pq.avg_score|floatformat:1 }}점</span>
+                        </li>
+                        {% empty %}
+                        <li class="text-muted text-center py-2">시험 데이터가 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm print-shadow-none h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>[공통] 마의 오답률 TOP 5</h6>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table align-middle mb-0 small">
+                        <thead class="table-light text-muted">
+                            <tr><th class="ps-3">순위</th><th style="width: 50%;">문제 요약</th><th>난이도</th><th>오답 수</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for item in common_top_wrong %}
+                            <tr class="hover-row">
+                                <td class="ps-3 fw-bold text-danger">{{ forloop.counter }}위</td>
+                                <td class="text-dark fw-semibold" title="{{ item.question__question_text }}">{{ item.question__question_text|truncatechars:20 }}</td>
+                                <td>
+                                    {% if item.question__difficulty == 'high' %}<span class="badge bg-danger">상</span>
+                                    {% elif item.question__difficulty == 'medium' %}<span class="badge bg-warning text-dark">중</span>
+                                    {% else %}<span class="badge bg-success">하</span>{% endif %}
+                                </td>
+                                <td class="fw-bold text-danger">{{ item.wrong_count }}회</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4" class="text-center py-4 text-muted">공통 오답 데이터가 없습니다.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card border-0 shadow-sm print-shadow-none h-100">
+                <div class="card-header bg-white border-bottom py-3">
+                    <h6 class="fw-bold mb-0 text-dark"><i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>[공정] 마의 오답률 TOP 5</h6>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table align-middle mb-0 small">
+                        <thead class="table-light text-muted">
+                            <tr><th class="ps-3">순위</th><th style="width: 50%;">문제 요약</th><th>난이도</th><th>오답 수</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for item in process_top_wrong %}
+                            <tr class="hover-row">
+                                <td class="ps-3 fw-bold text-danger">{{ forloop.counter }}위</td>
+                                <td class="text-dark fw-semibold" title="{{ item.question__question_text }}">{{ item.question__question_text|truncatechars:20 }}</td>
+                                <td>
+                                    {% if item.question__difficulty == 'high' %}<span class="badge bg-danger">상</span>
+                                    {% elif item.question__difficulty == 'medium' %}<span class="badge bg-warning text-dark">중</span>
+                                    {% else %}<span class="badge bg-success">하</span>{% endif %}
+                                </td>
+                                <td class="fw-bold text-danger">{{ item.wrong_count }}회</td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4" class="text-center py-4 text-muted">공정 오답 데이터가 없습니다.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

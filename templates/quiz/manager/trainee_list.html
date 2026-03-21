@@ -2,7 +2,8 @@
 {% load static %}
 
 {% block content %}
-<div class="container-fluid mt-4">
+
+
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3 class="fw-bold"><i class="bi bi-people-fill"></i> 교육생 통합 관리</h3>
         
@@ -37,49 +38,81 @@
                     <thead class="table-light">
                         <tr>
                             <th width="5%"><input type="checkbox" id="checkAll" class="form-check-input"></th>
-                            <th>이름 (사번)</th>
+                            
+                            <th>이름 (ID / 사번)</th>
                             <th>기수 / 공정</th>
                             <th>상태</th>
-                            <th>계정 상태</th>
+                            <th>계정 정보</th>
                             <th class="text-end">관리</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for u in pending_users %}
-                        <tr class="table-warning">
-                            <td><input type="checkbox" name="user_id" value="{{ u.id }}" class="form-check-input user-check"></td>
-                            <td class="fw-bold">{{ u.username }} (가입대기)</td>
-                            <td>-</td>
-                            <td><span class="badge bg-warning text-dark">승인 대기</span></td>
-                            <td><small class="text-muted">{{ u.date_joined|date:"Y-m-d" }} 가입</small></td>
-                            <td class="text-end">
-                                <button class="btn btn-sm btn-success" onclick="approveSingle({{ u.id }})">승인</button>
-                            </td>
-                        </tr>
-                        {% endfor %}
+                        {% if pending_users %}
+                            {% for p in pending_users %}
+                            <tr class="table-warning">
+                                <td>
+                                    <input type="checkbox" name="user_id" value="{{ p.user.id }}" class="form-check-input user-check">
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div>
+                                            <span class="fw-bold text-primary">{{ p.user.username }}</span>
+                                            <span class="badge bg-danger ms-1" style="font-size: 0.6rem;">NEW</span>
+                                            <div class="small text-muted">
+                                                {% if p.name %}
+                                                    {{ p.name }}
+                                                {% else %}
+                                                    (이름 미입력)
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td><span class="text-muted">-</span></td>
+                                <td><span class="badge bg-warning text-dark">승인 대기</span></td>
+                                <td>
+                                    <small class="text-muted">
+                                        가입: {{ p.user.date_joined|date:"Y-m-d H:i" }}<br>
+                                        이메일: {{ p.user.email }}
+                                    </small>
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-success" onclick="approveSingle('{{ p.user.id }}')">
+                                        <i class="bi bi-check-lg"></i> 승인
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% endif %}
 
                         {% for p in profiles %}
                         <tr>
                             <td><input type="checkbox" name="user_id" value="{{ p.user.id }}" class="form-check-input user-check"></td>
                             <td>
                                 <a href="{% url 'quiz:manager_trainee_detail' p.id %}" class="text-decoration-none fw-bold text-dark">
-                                    {{ p.name }} <small class="text-muted">({{ p.employee_id }})</small>
+                                    {{ p.name }}
                                 </a>
+                                <br>
+                                <small class="text-muted">ID: {{ p.user.username }} / 사번: {{ p.employee_id }}</small>
                             </td>
                             <td>
-                                <span class="badge bg-secondary">{{ p.cohort.name }}</span>
-                                <span class="badge bg-info text-dark">{{ p.process.name }}</span>
+                                <span class="badge bg-secondary">{{ p.cohort.name|default:"-" }}</span>
+                                <span class="badge bg-info text-dark">{{ p.process.name|default:"-" }}</span>
                             </td>
                             <td>
                                 {% if p.status == 'attending' %}<span class="badge bg-success">재직</span>
+                                {% elif p.status == 'caution' %}<span class="badge bg-warning text-dark">주의</span>
                                 {% elif p.status == 'counseling' %}<span class="badge bg-danger">면담필요(잠금)</span>
                                 {% elif p.status == 'dropout' %}<span class="badge bg-dark">퇴소</span>
                                 {% elif p.status == 'completed' %}<span class="badge bg-primary">수료</span>
                                 {% endif %}
                             </td>
                             <td>
-                                {% if p.user.is_active %}<span class="text-success"><i class="bi bi-check-circle"></i> 활성</span>
-                                {% else %}<span class="text-muted"><i class="bi bi-dash-circle"></i> 비활성</span>{% endif %}
+                                {% if p.user.is_active %}
+                                    <span class="text-success"><i class="bi bi-check-circle-fill"></i> 활성</span>
+                                {% else %}
+                                    <span class="text-secondary"><i class="bi bi-slash-circle"></i> 차단됨</span>
+                                {% endif %}
                             </td>
                             <td class="text-end">
                                 <a href="{% url 'quiz:manager_trainee_detail' p.id %}" class="btn btn-sm btn-outline-secondary">
@@ -88,12 +121,15 @@
                             </td>
                         </tr>
                         {% empty %}
-                        <tr><td colspan="6" class="text-center py-5 text-muted">검색된 교육생이 없습니다.</td></tr>
+                            {% if not pending_users %}
+                            <tr><td colspan="6" class="text-center py-5 text-muted">검색된 교육생이 없습니다.</td></tr>
+                            {% endif %}
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
+        
         {% if profiles.has_other_pages %}
         <div class="card-footer py-2">
             <ul class="pagination justify-content-center mb-0">
@@ -156,13 +192,24 @@
     }
 
     function approveSingle(userId) {
-        if(!confirm("가입을 승인하시겠습니까?")) return;
-        // 단건 승인도 벌크 API 재활용
+        if(!confirm("해당 인원의 가입을 승인하시겠습니까?")) return;
+        
+        // 단건 승인도 벌크 API 재활용 (배열로 감싸서 전송)
         fetch("{% url 'quiz:approve_signup_bulk' %}", {
             method: 'POST',
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
             body: JSON.stringify({ 'user_ids': [userId], 'action': 'approve' })
-        }).then(res => res.json()).then(data => { alert(data.message); location.reload(); });
+        })
+        .then(res => res.json())
+        .then(data => { 
+            if(data.status === 'success') {
+                alert("승인되었습니다.");
+                location.reload();
+            } else {
+                alert("오류: " + data.message);
+            }
+        })
+        .catch(err => alert("통신 오류 발생"));
     }
 </script>
 {% endblock %}

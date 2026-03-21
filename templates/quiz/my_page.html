@@ -123,18 +123,15 @@
                                     </td>
 
                                     <td>
-                                        {% if item.counseling_status == '예정' %}
-                                            <form action="{% url 'quiz:student_create_counseling_log' %}" method="POST" onsubmit="return confirm('매니저님께 재시험을 위한 면담 요청 알림을 보내시겠습니까?');">
-                                                {% csrf_token %}
-                                                <input type="hidden" name="quiz_title" value="{{ item.result.quiz.title }}">
-                                                <input type="hidden" name="score" value="{{ item.result.score }}">
-                                                <button type="submit" class="btn btn-sm btn-danger rounded-pill px-2 fw-bold" style="font-size: 0.75rem;">
-                                                    <i class="bi bi-bell-fill"></i> 면담 요청하기
-                                                </button>
-                                            </form>
-                                        {% elif item.counseling_status == '완료' %}
-                                            <span class="badge bg-secondary">요청 완료</span>
-                                        {% else %}
+                                        {% if item.counseling_status == '대기중' %}
+    <span class="badge bg-warning text-dark px-2 py-1" style="font-size: 0.75rem;">
+        <i class="bi bi-hourglass-split"></i> 매니저 면담 대기중
+    </span>
+{% elif item.counseling_status == '완료' %}
+    <span class="badge bg-success px-2 py-1" style="font-size: 0.75rem;">
+        <i class="bi bi-check-circle"></i> 조치 완료 (재시험 가능)
+    </span>
+{% else %}
                                             <span class="text-muted">-</span>
                                         {% endif %}
                                     </td>
@@ -183,10 +180,12 @@
         </div>
 
         <div class="col-md-6">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-header bg-white fw-bold py-3">
-                    <i class="bi bi-chat-quote-fill text-info me-2"></i> 최근 알림 / 피드백
-                </div>
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+    <h6 class="m-0 fw-bold"><i class="bi bi-chat-dots-fill text-info me-2"></i> 최근 알림 / 피드백</h6>
+    <a href="{% url 'quiz:my_notifications' %}" class="text-decoration-none small text-muted fw-bold">
+        전체보기 <i class="bi bi-chevron-right"></i>
+    </a>
+</div>
                 <div class="card-body p-0">
                     {% if latest_evaluations %}
                         <div class="list-group list-group-flush">
@@ -222,12 +221,7 @@
                 </div>
             </div>
         </div>
-        <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-chat-quote-fill text-info me-2"></i> 최근 알림 / 피드백</span>
-    <a href="{% url 'quiz:my_notifications' %}" class="text-decoration-none small text-secondary">
-        전체보기 <i class="bi bi-chevron-right"></i>
-    </a>
-</div>
+        
     </div>
 </div>
 

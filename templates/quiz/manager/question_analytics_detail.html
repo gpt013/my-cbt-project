@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="fw-bold text-dark">
+                <i class="bi bi-bar-chart-steps text-primary"></i> 
+                [{{ quiz.title }}] 문항 상세 분석
+            </h4>
+            <p class="text-muted mb-0">
+                총 {{ q_stats|length }}문제 / 
+                <span class="badge bg-info text-dark">AI 난이도 추천 시스템 가동 중</span>
+            </p>
+        </div>
+        
+        <div class="d-flex">
+            <a href="{% url 'quiz:exam_analytics' %}" class="btn btn-secondary me-2">
+                <i class="bi bi-arrow-left"></i> 목록으로
+            </a>
+
+            <form method="post" action="{% url 'quiz:auto_adjust_difficulty' quiz.id %}" onsubmit="return confirm('⚠️ 정말로 정답률 데이터를 기반으로\n모든 문제의 난이도를 자동으로 수정하시겠습니까?\n(기존 설정이 덮어씌워집니다)');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success fw-bold shadow-sm">
+                    <i class="bi bi-magic"></i> 난이도 일괄 자동 보정
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="alert alert-light border shadow-sm d-flex align-items-center mb-4" role="alert">
+        <i class="bi bi-info-circle-fill text-primary fs-3 me-3"></i>
+        <div class="small">
+            <strong>💡 분석 지표 가이드</strong><br>
+            1. <strong>정답률:</strong> 80% 이상(쉬움/하) | 30% 이하(어려움/상)<br>
+            2. <strong>변별력 지수:</strong> (상위권 정답률 - 하위권 정답률). 
+            <span class="badge bg-success">0.3 이상 (우수)</span> 
+            <span class="badge bg-danger">0.1 미만 (변별력 없음/찍기 문제)</span>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-4" style="width: 40%;">문제 내용</th>
+                            <th>현재 난이도</th>
+                            <th>정답률 (%)</th>
+                            <th>변별력 지수</th>
+                            <th class="table-primary">AI 추천 난이도</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in q_stats %}
+                        <tr>
+                            <td class="text-start ps-4">
+                                <div class="fw-bold text-truncate" style="max-width: 450px;" title="{{ item.question.question_text }}">
+                                    Q. {{ item.question.question_text }}
+                                </div>
+                                <small class="text-muted">ID: {{ item.question.id }}</small>
+                            </td>
+
+                            <td>
+                                {% if item.current_diff == 'high' or item.current_diff == '상' %}
+                                    <span class="badge bg-danger">상</span>
+                                {% elif item.current_diff == 'low' or item.current_diff == '하' %}
+                                    <span class="badge bg-success">하</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">중</span>
+                                {% endif %}
+                            </td>
+
+                            <td>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar 
+                                        {% if item.accuracy >= 80 %}bg-info
+                                        {% elif item.accuracy <= 30 %}bg-danger
+                                        {% else %}bg-success{% endif %}" 
+                                        role="progressbar" 
+                                        style="width: {{ item.accuracy }}%;" 
+                                        aria-valuenow="{{ item.accuracy }}" aria-valuemin="0" aria-valuemax="100">
+                                        {{ item.accuracy }}%
+                                    </div>
+                                </div>
+                            </td>
+
+                            <td>
+                                {% if item.discriminator >= 0.3 %}
+                                    <span class="text-success fw-bold">Excellent ({{ item.discriminator }})</span>
+                                {% elif item.discriminator < 0.1 %}
+                                    <span class="text-danger fw-bold">Bad ({{ item.discriminator }})</span>
+                                    <i class="bi bi-exclamation-circle text-danger" title="변별력이 없습니다. 문제 수정 권장"></i>
+                                {% else %}
+                                    <span class="text-muted">{{ item.discriminator }}</span>
+                                {% endif %}
+                            </td>
+
+                            <td class="table-primary fw-bold">
+                                {% if item.current_diff != item.suggested_diff %}
+                                    <span class="text-danger animate__animated animate__flash">
+                                        <i class="bi bi-arrow-right-circle-fill"></i> 
+                                        {% if item.suggested_diff == 'high' %}상{% elif item.suggested_diff == 'low' %}하{% else %}중{% endif %}
+                                    </span>
+                                {% else %}
+                                    <span class="text-muted small">
+                                        <i class="bi bi-check-circle"></i> 유지 적합
+                                    </span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

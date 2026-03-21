@@ -6,27 +6,32 @@ app_name = 'accounts'
 
 urlpatterns = [
     # --- 1. 인증 및 계정 관리 ---
-    path('login/', auth_views.LoginView.as_view(
-        template_name='accounts/login.html', 
-        redirect_authenticated_user=True
-    ), name='login'),
+    
+    # ★ [핵심 수정] 표준 LoginView 대신 우리가 만든 'custom_login' 사용
+    # (그래야 '관리자 승인 대기' 체크와 '2차 정보 기입' 납치가 작동합니다)
+    path('login/', views.custom_login, name='login'),
     
     path('logout/', auth_views.LogoutView.as_view(
-        # [수정] 하드코딩 '/accounts/login/' 대신 URL 이름 사용 -> 유지보수에 훨씬 유리함
+        # 로그아웃 후 다시 로그인 페이지로
         next_page='accounts:login'
     ), name='logout'),
 
     path('signup/', views.signup, name='signup'),
-    path('verify-email/', views.verify_email, name='verify_email'),
+    
+    # [삭제됨] 이메일 인증 관련 URL (인트라넷 환경 불가)
+    # path('verify-email/', views.verify_email, name='verify_email'),
+    # path('resend-code/', views.resend_code, name='resend_code'),
+
     path('complete-profile/', views.complete_profile, name='complete_profile'),
+    path('profile/update/', views.profile_update, name='profile_update'),
 
     # --- 2. 유틸리티 (AJAX) ---
     path('ajax/load-part-leaders/', views.load_part_leaders, name='ajax_load_part_leaders'),
 
-    # --- 3. 비밀번호 변경 (로그인 후 변경 / 강제 변경 납치용) ---
+    # --- 3. 비밀번호 변경 (로그인 한 상태에서 변경) ---
+    # 이 기능은 이메일 발송이 필요 없으므로 유지합니다.
     path('password_change/', auth_views.PasswordChangeView.as_view(
         template_name='accounts/password_change_form.html', 
-        # [수정] reverse_lazy를 사용하여 URL이 변경되어도 자동 적용되게 함
         success_url=reverse_lazy('accounts:password_change_done')
     ), name='password_change'),
 
@@ -34,36 +39,13 @@ urlpatterns = [
         template_name='accounts/password_change_done.html'
     ), name='password_change_done'),
 
-    # --- 4. 비밀번호 초기화 (로그인 못할 때 이메일로 찾기) ---
-    
-    # (1) 이메일 입력 요청
-    path('password_reset/', auth_views.PasswordResetView.as_view(
-        template_name='accounts/password_reset_form.html',
-        email_template_name='accounts/password_reset_email.html',
-        subject_template_name='accounts/password_reset_subject.txt',
-        success_url=reverse_lazy('accounts:password_reset_done')
-    ), name='password_reset'),
+    # --- 4. 비밀번호 초기화 (삭제됨) ---
+    # [삭제 사유] 외부 이메일 발송이 불가능한 인트라넷 환경이므로 
+    # '비밀번호 찾기' 기능은 제거합니다. (분실 시 관리자에게 요청)
 
-    # (2) 메일 발송 완료 안내
-    path('password_reset/done/', auth_views.PasswordResetDoneView.as_view(
-        template_name='accounts/password_reset_done.html'
-    ), name='password_reset_done'),
-
-    # (3) 메일 링크 클릭 후 새 비밀번호 입력
-    path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(
-        template_name='accounts/password_reset_confirm.html',
-        success_url=reverse_lazy('accounts:password_reset_complete')
-    ), name='password_reset_confirm'),
-
-    # (4) 초기화 완료 안내
-    path('reset/done/', auth_views.PasswordResetCompleteView.as_view(
-        template_name='accounts/password_reset_complete.html'
-    ), name='password_reset_complete'),
+    # --- 5. 상태 안내 페이지 ---
     path('status/counseling/', views.counseling_required, name='counseling_required'),
     path('status/dropout/', views.dropout_alert, name='dropout_alert'),
     path('status/completed/', views.completed_alert, name='completed_alert'),
-    path('profile/update/', views.profile_update, name='profile_update'),
     path('status/expired/', views.cohort_expired, name='cohort_expired'),
-    path('resend-code/', views.resend_code, name='resend_code'),
-    
 ]

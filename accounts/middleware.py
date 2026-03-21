@@ -2,6 +2,8 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from .models import Profile
+from django.contrib.auth import logout
+from django.contrib import messages
 
 # [1] 비밀번호 강제 변경 미들웨어 (기존 유지)
 class ForcePasswordChangeMiddleware:
@@ -123,3 +125,31 @@ class AccountStatusMiddleware:
 
         response = self.get_response(request)
         return response
+
+class ConcurrentLoginMiddleware:
+    """중복 로그인을 감지하고 친절하게 안내 문구를 띄우며 쫓아내는 문지기"""
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # 1. 로그인한 사용자이고, 프로필이 있는 경우에만 검사
+        if request.user.is_authenticated and hasattr(request.user, 'profile'):
+            
+            # 내 손에 들려있는 접속증 번호 vs DB에 기록된 가장 최신 접속증 번호
+            current_key = request.session.session_key
+            valid_key = request.user.profile.session_key
+
+            # 2. 내 번호와 DB의 최신 번호가 다르다? -> 누군가 다른 곳에서 로그인해서 내 접속증을 뺏어갔다!
+            if current_key and valid_key and current_key != valid_key:
+                
+                # 3. 짐 싸서 내보냄 (로그아웃 처리)
+                logout(request) 
+                
+                # 4. 내보내면서 손에 빨간색 쪽지(안내 메시지)를 쥐어줌
+                messages.error(request, "⚠️ 다른 기기(또는 브라우저)에서 로그인이 감지되어 안전하게 자동 로그아웃 되었습니다.")
+                
+                # 5. 로그인 화면으로 돌려보냄
+                return redirect('accounts:login') 
+
+        return self.get_response(request)

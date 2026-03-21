@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ profile.name }} 수료증</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;700;900&display=swap');
+        body { background-color: #525659; display: flex; justify-content: center; padding: 40px; }
+        .certificate-container {
+            background-color: white; width: 210mm; min-height: 297mm; /* A4 사이즈 */
+            padding: 20mm; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            font-family: 'Noto Serif KR', serif; position: relative;
+        }
+        .border-inner { border: 10px double #bd9a5f; height: 100%; padding: 40px; text-align: center; }
+        .title { font-size: 50px; font-weight: 900; letter-spacing: 20px; color: #333; margin-bottom: 60px; margin-top: 40px;}
+        .cert-no { text-align: left; font-size: 14px; color: #555; }
+        .content { font-size: 22px; line-height: 2; margin-top: 50px; margin-bottom: 80px; text-align: justify; word-break: keep-all;}
+        .date { font-size: 20px; margin-bottom: 60px; letter-spacing: 3px; }
+        .signature { font-size: 30px; font-weight: 700; letter-spacing: 5px; }
+        /* 프린트 시 겉 배경 숨김 */
+        @media print {
+            body { background-color: white; padding: 0; }
+            .certificate-container { box-shadow: none; width: 100%; height: 100%; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="certificate-container">
+        <div class="border-inner">
+            <div class="cert-no">제 {{ end_date|date:"Y" }}-{{ profile.id|stringformat:"04d" }} 호</div>
+            <div class="title">수 료 증</div>
+            
+            <table class="table table-borderless mx-auto mt-4" style="width: 70%; font-size: 20px; text-align: left;">
+                <tr><th width="30%">성 명 :</th><td>{{ profile.name }}</td></tr>
+                <tr><th>소 속 :</th><td>{{ profile.company.name }} / {{ process_name }}</td></tr>
+                <tr><th>교육과정 :</th><td>PMTC {{ cohort_name }} 신입사원 직무 교육</td></tr>
+                <tr><th>교육기간 :</th><td>{{ start_date|date:"Y년 m월 d일" }} ~ {{ end_date|date:"Y년 m월 d일" }}</td></tr>
+            </table>
+
+            <div class="content px-4">
+                위 사람은 당사에서 주관하는 PMTC 신입사원 직무 교육 과정을 성실히 이수하였고, 
+                최종 평가 기준을 통과하였으므로 이 증서를 수여합니다.
+            </div>
+
+            <div class="date">
+                {{ end_date|date:"Y년 m월 d일" }}
+            </div>
+
+            <div class="signature">
+                 PMTC 파트장
+            </div>
+            
+            <button onclick="window.print()" class="btn btn-primary no-print mt-5 px-4 rounded-pill shadow">
+                PDF 저장 및 인쇄하기
+            </button>
+        </div>
+    </div>
+</body>
+</html>

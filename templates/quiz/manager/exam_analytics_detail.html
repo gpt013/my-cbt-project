@@ -1,0 +1,175 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <span class="badge bg-primary mb-2">{{ quiz.get_category_display|default:"일반" }}</span>
+            <h3 class="fw-bold text-dark">
+                {{ quiz.title }} <span class="text-muted fs-5 ms-2">상세 분석</span>
+            </h3>
+            <p class="text-muted small mb-0">
+                총 {{ q_stats|length }}개 문항 / 
+                <span class="text-primary fw-bold"><i class="bi bi-robot"></i> AI 난이도 분석 시스템 가동 중</span>
+            </p>
+        </div>
+        
+        <div class="d-flex gap-2">
+            <a href="{% url 'quiz:exam_analytics' %}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 목록으로
+            </a>
+            
+            <form method="post" action="{% url 'quiz:auto_adjust_difficulty' quiz.id %}" onsubmit="return confirm('⚠️ [주의] 모든 문제의 난이도가 정답률 기반으로 자동 수정됩니다.\n정말 진행하시겠습니까?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-success shadow-sm fw-bold">
+                    <i class="bi bi-magic"></i> AI 난이도 일괄 보정
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="alert alert-light border shadow-sm d-flex align-items-center mb-4">
+        <i class="bi bi-info-circle-fill text-primary fs-4 me-3"></i>
+        <div class="small text-muted">
+            <strong>📊 분석 지표 가이드</strong><br>
+            <span class="me-3">1. <strong>정답률:</strong> 80% 이상(쉬움/하) | 30% 이하(어려움/상)</span>
+            <span>2. <strong>변별력 지수:</strong> <span class="badge bg-success">0.3 이상 (우수)</span> <span class="badge bg-danger">0.1 미만 (나쁨)</span></span>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-table text-danger me-2"></i>문항별 정답률 & 난이도 분석 (오답률 높은 순)</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 text-center">
+                            <thead class="bg-light text-secondary small">
+                                <tr>
+                                    <th style="width: 8%;">ID</th>
+                                    <th class="text-start ps-3">문제 내용</th>
+                                    <th style="width: 12%;">현재 난이도</th>
+                                    <th style="width: 20%;">정답률 (%)</th>
+                                    <th style="width: 12%;">변별력</th>
+                                    <th style="width: 18%; background-color: #f0f7ff;">AI 추천</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for stat in q_stats %}
+                                <tr>
+                                    <td class="text-muted small">{{ stat.question.id }}</td>
+                                    
+                                    <td class="text-start ps-3">
+                                        <div class="fw-bold text-truncate" style="max-width: 280px;" title="{{ stat.question.question_text }}">
+                                            Q. {{ stat.question.question_text }}
+                                        </div>
+                                        <small class="text-muted">{{ stat.total_try }}명 응시</small>
+                                    </td>
+                                    
+                                    <td>
+                                        {% if stat.difficulty == '상' %}
+                                            <span class="badge bg-danger">상</span>
+                                        {% elif stat.difficulty == '하' %}
+                                            <span class="badge bg-success">하</span>
+                                        {% else %}
+                                            <span class="badge bg-warning text-dark">중</span>
+                                        {% endif %}
+                                    </td>
+                                    
+                                    <td>
+                                        <div class="d-flex align-items-center justify-content-center">
+                                            <div class="progress flex-grow-1 me-2" style="height: 8px; background-color: #e9ecef;">
+                                                <div class="progress-bar {% if stat.accuracy <= 30 %}bg-danger{% elif stat.accuracy >= 80 %}bg-success{% else %}bg-info{% endif %}" 
+                                                     role="progressbar" 
+                                                     style="width: {{ stat.accuracy }}%">
+                                                </div>
+                                            </div>
+                                            <span class="small fw-bold">{{ stat.accuracy }}%</span>
+                                        </div>
+                                    </td>
+                                    
+                                    <td>
+                                        {% if stat.discriminator >= 0.3 %}
+                                            <span class="text-success small fw-bold">{{ stat.discriminator }}</span>
+                                        {% elif stat.discriminator < 0.1 %}
+                                            <span class="text-danger small fw-bold">{{ stat.discriminator }}</span>
+                                            <i class="bi bi-exclamation-circle text-danger small" title="변별력 낮음"></i>
+                                        {% else %}
+                                            <span class="text-muted small">{{ stat.discriminator }}</span>
+                                        {% endif %}
+                                    </td>
+                                    
+                                    <td style="background-color: #f8fbff;">
+                                        {% if stat.current_val != stat.suggested_diff %}
+                                            <span class="text-primary fw-bold animation-blink small">
+                                                <i class="bi bi-arrow-right-circle-fill"></i> {{ stat.sug_text }}
+                                            </span>
+                                        {% else %}
+                                            <span class="text-muted small opacity-75">
+                                                <i class="bi bi-check-circle"></i> 유지
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6" class="text-center py-5 text-muted">
+                                        <i class="bi bi-clipboard-x fs-1 opacity-25 d-block mb-2"></i>
+                                        분석할 문항 데이터가 없습니다.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-white fw-bold py-3">
+                    <i class="bi bi-clock-history text-primary me-2"></i>최근 응시 기록
+                </div>
+                <div class="list-group list-group-flush overflow-auto" style="max-height: 600px;">
+                    {% for res in recent_results %}
+                    <div class="list-group-item py-3 border-bottom-0 border-top">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-bold text-dark">{{ res.user.profile.name|default:res.user.username }}</div>
+                                <small class="text-muted"><i class="bi bi-calendar-event me-1"></i>{{ res.completed_at|date:"m/d H:i" }}</small>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge {% if res.score >= 80 %}bg-success{% elif res.score >= 60 %}bg-warning{% else %}bg-danger{% endif %} rounded-pill p-2 px-3">
+                                    {{ res.score }}점
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    {% empty %}
+                    <div class="p-5 text-center text-muted">
+                        <i class="bi bi-person-x fs-1 opacity-25 d-block mb-2"></i>
+                        아직 응시 기록이 없습니다.
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* 깜빡임 애니메이션 (추천 난이도 강조용) */
+    .animation-blink {
+        animation: blink 1.5s infinite;
+    }
+    @keyframes blink {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+</style>
+{% endblock %}

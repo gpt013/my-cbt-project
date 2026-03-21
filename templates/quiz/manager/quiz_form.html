@@ -35,6 +35,21 @@
                               placeholder="응시자에게 보여질 시험 안내사항이나 범위를 입력하세요.">{{ quiz.description|default:'' }}</textarea>
                 </div>
 
+                <div class="mb-4">
+                    <div class="form-check form-switch p-3 border rounded bg-light">
+                        <input type="checkbox" name="is_published" id="id_is_published" class="form-check-input" 
+                               style="transform: scale(1.5); margin-left: 0.5em; cursor: pointer;"
+                               {% if quiz.is_published %}checked{% endif %}>
+                        
+                        <label for="id_is_published" class="form-check-label fw-bold ms-3 text-primary" style="cursor: pointer;">
+                            <i class="bi bi-eye-fill"></i> 교육생에게 시험 공개
+                        </label>
+                        <div class="form-text ms-3 text-muted small">
+                            <i class="bi bi-info-circle"></i> 체크를 해제하면 <strong>'Hold(비공개)'</strong> 상태가 되어 관리자 화면에만 나타납니다.
+                        </div>
+                    </div>
+                </div>
+
                 <div class="row g-4 mb-4 bg-light p-3 rounded mx-0 border">
                     <div class="col-md-6">
                         <label for="category" class="form-label fw-bold text-primary">분류 <span class="text-danger">*</span></label>

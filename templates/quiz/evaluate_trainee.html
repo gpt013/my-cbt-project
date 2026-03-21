@@ -2,117 +2,285 @@
 {% load static %}
 
 {% block content %}
-<div class="container-fluid mt-4 pb-5">
+<style>
+    /* 카드 호버 효과 */
+    .score-card {
+        transition: all 0.3s ease;
+        border: 1px solid #f0f0f0;
+        background-color: #fff;
+    }
+    .score-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0,0,0,0.08) !important;
+        border-color: #e2e6ea;
+    }
+
+    /* 입력 필드 스타일 (밑줄형) */
+    .score-input {
+        font-size: 1.8rem;
+        font-weight: 700;
+        border: none;
+        background-color: transparent;
+        border-bottom: 2px solid #dee2e6;
+        border-radius: 0;
+        padding: 10px 0;
+        text-align: center;
+        transition: border-color 0.3s;
+    }
+    .score-input:focus {
+        box-shadow: none;
+        border-bottom-color: #0d6efd;
+        background-color: transparent;
+    }
+    .score-input:read-only {
+        background-color: transparent;
+        color: #6c757d;
+        border-bottom: 2px dashed #dee2e6;
+        cursor: default;
+    }
+
+    /* 최종 점수 박스 */
+    .total-score-box {
+        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+        border: 1px solid #e9ecef;
+        border-radius: 16px;
+        position: relative;
+        overflow: hidden;
+    }
+    .total-score-box::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 5px;
+        background: linear-gradient(90deg, #0d6efd, #0dcaf0);
+    }
+
+    /* 체크박스 카드 스타일 */
+    .hover-shadow:hover {
+        box-shadow: 0 .5rem 1rem rgba(0,0,0,.10)!important;
+        transform: translateY(-2px);
+        transition: 0.3s;
+        border-color: #0d6efd !important;
+    }
+    .cursor-pointer { cursor: pointer; }
+</style>
+
+<div class="container-fluid mt-4 pb-5" style="max-width: 1400px;">
+    
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="fw-bold"><i class="bi bi-file-earmark-person-fill text-success"></i> 최종 평가서 작성</h2>
-        <a href="{% url 'quiz:manager_trainee_detail' trainee.id %}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> 취소 및 돌아가기
+        <div>
+            <h2 class="fw-bold text-dark mb-1"><i class="bi bi-file-earmark-bar-graph-fill text-primary"></i> 최종 평가서 작성</h2>
+            <p class="text-muted mb-0">교육생의 성취도를 평가하고 최종 수료 여부를 결정합니다.</p>
+        </div>
+        <a href="{% url 'quiz:manager_trainee_detail' trainee.id %}" class="btn btn-outline-secondary px-4">
+            <i class="bi bi-arrow-left me-1"></i> 돌아가기
         </a>
     </div>
 
-    <form method="post">
+    <form method="post" id="evalForm">
         {% csrf_token %}
-        <div class="row">
+        <div class="row g-4">
+            
             <div class="col-lg-4">
-                <div class="card shadow-sm border-0 mb-3 sticky-top" style="top: 20px; z-index: 1;">
-                    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">대상자 정보</h5>
-                        <span class="badge bg-light text-dark">{{ trainee.process.name }}</span>
+                <div class="card shadow-sm border-0 sticky-top" style="top: 20px; z-index: 1;">
+                    <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0 fw-bold"><i class="bi bi-person-circle me-2"></i>대상자 프로필</h5>
+                        <span class="badge bg-light text-dark fw-normal">{{ trainee.process.name }}</span>
                     </div>
-                    <div class="card-body">
-                        <div class="text-center mb-4">
-                            <h3 class="fw-bold">{{ trainee.name }}</h3>
-                            <p class="text-muted mb-0">{{ trainee.employee_id }} | {{ trainee.cohort.name }}</p>
-                            <span class="badge {% if trainee.status == 'attending' %}bg-success{% else %}bg-danger{% endif %}">
-                                {{ trainee.get_status_display }}
-                            </span>
+                    <div class="card-body p-4">
+                        <div class="text-center mb-4 pb-3 border-bottom">
+                            <div class="avatar-circle bg-light rounded-circle mx-auto mb-3 d-flex align-items-center justify-content-center" style="width:80px; height:80px;">
+                                <i class="bi bi-person-fill fs-1 text-secondary"></i>
+                            </div>
+                            <h3 class="fw-bold mb-1">{{ trainee.name }}</h3>
+                            <p class="text-muted mb-2">{{ trainee.employee_id }} | {{ trainee.cohort.name }}</p>
+                            
+                            {% if trainee.status == 'attending' %}
+                                <span class="badge bg-success bg-opacity-10 text-success border border-success px-3 py-2 rounded-pill">재직중</span>
+                            {% else %}
+                                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-3 py-2 rounded-pill">{{ trainee.get_status_display }}</span>
+                            {% endif %}
                         </div>
 
-                        <h6 class="fw-bold text-secondary border-bottom pb-1"><i class="bi bi-graph-up"></i> 시험 성적</h6>
-                        <ul class="list-group list-group-flush mb-3 small">
-                            <li class="list-group-item d-flex justify-content-between">
-                                <span>평균 점수</span> <span class="fw-bold">{{ avg_score }}점</span>
-                            </li>
-                            <li class="list-group-item d-flex justify-content-between">
-                                <span>재시험/불합격</span> <span class="text-danger">{{ fail_count }}회</span>
-                            </li>
-                        </ul>
-
-                        <h6 class="fw-bold text-secondary border-bottom pb-1"><i class="bi bi-journal-medical"></i> 특이사항 & 경고</h6>
-                        <div class="mb-3" style="max-height: 200px; overflow-y: auto;">
-                            {% for log in logs %}
-                                <div class="p-2 border-bottom small">
-                                    <span class="badge bg-secondary">{{ log.get_log_type_display }}</span>
-                                    <span class="text-muted" style="font-size:0.8em;">{{ log.created_at|date:"m-d" }}</span>
-                                    <div class="text-truncate">{{ log.reason }}</div>
-                                </div>
-                            {% empty %}
-                                <p class="text-muted small text-center py-2">기록된 특이사항 없음</p>
-                            {% endfor %}
+                        <div class="mb-4">
+                            <h6 class="fw-bold text-secondary text-uppercase small ls-1 mb-3">Performance</h6>
+                            <div class="d-flex justify-content-between align-items-center mb-2 p-2 bg-light rounded">
+                                <span class="text-muted"><i class="bi bi-calculator me-2"></i>평균 점수</span>
+                                <span class="fw-bold text-dark">{{ avg_score }}점</span>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded">
+                                <span class="text-muted"><i class="bi bi-exclamation-triangle me-2"></i>재시험/불합격</span>
+                                <span class="fw-bold text-danger">{{ fail_count }}회</span>
+                            </div>
                         </div>
 
-                        <h6 class="fw-bold text-secondary border-bottom pb-1"><i class="bi bi-calendar-check"></i> 근태 현황</h6>
-                         <div class="d-flex flex-wrap gap-1 mt-2">
-                            {% for stat in attendance_stats %}
-                                <span class="badge bg-light text-dark border">
-                                    {{ stat.work_type__name }}: {{ stat.count }}
-                                </span>
-                            {% empty %}
-                                <span class="text-muted small">데이터 없음</span>
-                            {% endfor %}
-                         </div>
+                        <div class="mb-4">
+                            <h6 class="fw-bold text-secondary text-uppercase small ls-1 mb-3">Logs & Issues</h6>
+                            <div class="border rounded p-2 bg-white" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa;">
+                                {% for log in logs %}
+                                    <div class="p-2 border-bottom small">
+                                        <div class="d-flex justify-content-between mb-1">
+                                            <span class="badge {% if log.log_type == 'warning' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                                {{ log.get_log_type_display }}
+                                            </span>
+                                            <span class="text-muted" style="font-size:0.75rem;">{{ log.created_at|date:"y.m.d" }}</span>
+                                        </div>
+                                        <div class="text-dark text-break">{{ log.reason }}</div>
+                                    </div>
+                                {% empty %}
+                                    <div class="text-center py-4 text-muted small">
+                                        <i class="bi bi-check-circle fs-4 d-block mb-1"></i>
+                                        특이사항 없음
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <div>
+                            <h6 class="fw-bold text-secondary text-uppercase small ls-1 mb-3">Attendance</h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for stat in attendance_stats %}
+                                    <span class="badge bg-white text-dark border py-2 px-3 fw-normal">
+                                        {{ stat.work_type__name }} <span class="fw-bold ms-1">{{ stat.count }}</span>
+                                    </span>
+                                {% empty %}
+                                    <span class="text-muted small">데이터 없음</span>
+                                {% endfor %}
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div class="col-lg-8">
+                
                 <div class="card shadow-sm border-0 mb-4">
-                    <div class="card-header bg-white fw-bold text-primary">
-                        📊 정량 평가 점수 입력
+                    <div class="card-header bg-white py-3 border-bottom">
+                        <h5 class="fw-bold mb-0 text-primary"><i class="bi bi-sliders"></i> 정량 평가 점수 입력</h5>
                     </div>
-                    <div class="card-body bg-light">
-                        <div class="row g-3">
-                            <div class="col-md-3">
-                                <label class="form-label fw-bold">시험 평균 (40%)</label>
-                                <input type="text" class="form-control" value="{{ final_assessment.exam_avg_score }}" disabled readonly>
-                                <div class="form-text">자동 산출</div>
+                    <div class="card-body p-4 p-lg-5">
+                        
+                        <div class="row g-4 align-items-stretch">
+                            <div class="col-md-4">
+                                <div class="card score-card h-100 shadow-sm">
+                                    <div class="card-body text-center p-4">
+                                        <div class="mb-3">
+                                            <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill mb-2 px-3">비중 85%</span>
+                                            <h6 class="fw-bold text-secondary"><i class="bi bi-laptop me-1"></i> 시험 평균</h6>
+                                        </div>
+                                        <div class="position-relative py-2">
+                                            <input type="number" id="score_exam" class="form-control score-input" 
+                                                   value="{{ final_assessment.exam_avg_score|default:0 }}" readonly>
+                                            <div class="mt-2">
+                                                <span class="badge bg-secondary bg-opacity-75"><i class="bi bi-robot"></i> 자동 적용</span>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3 text-muted small fw-medium" id="calc_exam">0.0점 반영</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="col-md-3">
-                                <label class="form-label fw-bold">실습 점수 (30%)</label>
-                                <input type="number" name="practice_score" class="form-control" step="0.1" min="0" max="100" 
-                                       value="{{ final_assessment.practice_score }}" required>
+
+                            <div class="col-md-4">
+                                <div class="card score-card h-100 shadow-sm border-success border-opacity-25">
+                                    <div class="card-body text-center p-4">
+                                        <div class="mb-3">
+                                            <span class="badge bg-success bg-opacity-10 text-success rounded-pill mb-2 px-3">비중 5%</span>
+                                            <h6 class="fw-bold text-secondary"><i class="bi bi-tools me-1"></i> 실습 점수</h6>
+                                        </div>
+                                        <div class="position-relative py-2">
+                                            <input type="number" name="practice_score" id="score_practice" 
+                                                   class="form-control score-input text-success" 
+                                                   placeholder="0~100" min="0" max="100" step="1" required
+                                                   value="{{ final_assessment.practice_score|default:'' }}">
+                                            <div class="mt-2 text-muted small">0~100점 입력</div>
+                                        </div>
+                                        <div class="mt-3 text-success small fw-bold" id="calc_practice">0.0점 반영</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="col-md-3">
-                                <label class="form-label fw-bold">노트 점수 (15%)</label>
-                                <input type="number" name="note_score" class="form-control" step="0.1" min="0" max="100" 
-                                       value="{{ final_assessment.note_score }}" required>
+
+                            <div class="col-md-4">
+                                <div class="card score-card h-100 shadow-sm border-warning border-opacity-25">
+                                    <div class="card-body text-center p-4 position-relative">
+                                        {% if total_penalty > 0 %}
+                                            <span class="position-absolute top-0 end-0 mt-2 me-2 badge bg-danger rounded-pill shadow-sm animate__animated animate__pulse animate__infinite"
+                                                  data-bs-toggle="tooltip" title="경고 {{ warning_cnt }}회, 경고장 {{ letter_cnt }}회 누적">
+                                                -{{ total_penalty }} 감점
+                                            </span>
+                                        {% endif %}
+                                        <div class="mb-3">
+                                            <span class="badge bg-warning bg-opacity-10 text-warning rounded-pill mb-2 px-3">비중 10%</span>
+                                            <h6 class="fw-bold text-secondary"><i class="bi bi-person-check me-1"></i> 수학태도 점수</h6>
+                                        </div>
+                                        <div class="position-relative py-2">
+                                            <input type="number" name="attitude_score" id="score_attitude" 
+                                                   class="form-control score-input text-warning" 
+                                                   placeholder="0~100" min="0" max="100" step="1" required
+                                                   value="{{ final_assessment.attitude_score|default:'' }}">
+                                            <div class="mt-2 text-muted small">기본 점수 입력</div>
+                                        </div>
+                                        <div class="mt-3 small fw-bold" id="calc_attitude" style="color: #fd7e14;">
+                                            {% if total_penalty > 0 %}
+                                                (감점 자동 적용)
+                                            {% else %}
+                                                0.0점 반영
+                                            {% endif %}
+                                        </div>
+                                        <input type="hidden" id="penalty_val" value="{{ total_penalty }}">
+                                    </div>
+                                </div>
                             </div>
-                            <div class="col-md-3">
-                                <label class="form-label fw-bold">태도 점수 (15%)</label>
-                                <input type="number" name="attitude_score" class="form-control" step="0.1" min="0" max="100" 
-                                       value="{{ final_assessment.attitude_score }}" required>
+
+                        </div> 
+
+                        <div class="mt-5">
+                            <div class="total-score-box p-4 text-center shadow-sm">
+                                <h6 class="text-secondary fw-bold text-uppercase ls-1 mb-3">Final Total Score</h6>
+                                
+                                <div class="d-flex justify-content-center align-items-center gap-3">
+                                    <div class="display-3 fw-bolder text-dark" id="final_total">0.0</div>
+                                    <div class="text-start">
+                                        <div class="fs-5 text-muted">점</div>
+                                        <div id="pass_badge">
+                                            <span class="badge bg-secondary">입력 대기</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="progress mt-4 bg-light" style="height: 10px; border-radius: 5px;">
+                                    <div id="score_progress" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                         role="progressbar" style="width: 0%; transition: width 0.5s ease;"></div>
+                                </div>
+                                <div class="d-flex justify-content-between mt-2 text-muted small px-1">
+                                    <span>0</span>
+                                    <span class="fw-bold text-primary">수료 기준: 80점</span>
+                                    <span>100</span>
+                                </div>
                             </div>
                         </div>
+
                     </div>
                 </div>
 
                 <div class="card shadow-sm border-0 mb-4">
-                    <div class="card-header bg-white fw-bold text-success">
-                        ✅ 태도 및 역량 체크리스트
+                    <div class="card-header bg-white fw-bold py-3 text-success">
+                        <i class="bi bi-check2-square me-2"></i> 태도 및 역량 체크리스트
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4">
                         {% for category in categories %}
                         <div class="mb-4">
-                            <h5 class="fw-bold border-bottom pb-2 mb-3">
-                                <span class="badge bg-success me-2">{{ forloop.counter }}</span> {{ category.name }}
+                            <h5 class="fw-bold border-bottom pb-2 mb-3 fs-6 text-dark">
+                                <span class="badge bg-success me-2 rounded-circle" style="width: 24px; height: 24px; line-height: 15px; padding: 0;">{{ forloop.counter }}</span> 
+                                {{ category.name }}
                             </h5>
-                            <div class="row g-2">
+                            <div class="row g-3">
                                 {% for item in category.evaluationitem_set.all %}
                                 <div class="col-md-6">
-                                    <div class="form-check p-3 border rounded bg-white h-100 hover-shadow cursor-pointer" onclick="document.getElementById('item_{{ item.id }}').click();">
-                                        <input class="form-check-input" type="checkbox" name="selected_items" value="{{ item.id }}" id="item_{{ item.id }}"
-                                            {% if item in form.instance.selected_items.all %}checked{% endif %} onclick="event.stopPropagation();">
-                                        <label class="form-check-label w-100 ps-2" for="item_{{ item.id }}" style="cursor: pointer;">
+                                    <div class="form-check p-3 border rounded bg-white h-100 hover-shadow position-relative">
+                                        <input class="form-check-input mt-1 ms-1" type="checkbox" name="selected_items" 
+                                               value="{{ item.id }}" id="item_{{ item.id }}"
+                                               style="transform: scale(1.2);"
+                                               {% if item in form.instance.selected_items.all %}checked{% endif %}>
+                                        <label class="form-check-label w-100 ps-3 stretched-link" for="item_{{ item.id }}" style="cursor: pointer;">
                                             <span class="{% if not item.is_positive %}text-danger fw-bold{% else %}text-dark{% endif %}">
                                                 {{ item.description }}
                                             </span>
@@ -127,34 +295,301 @@
                 </div>
 
                 <div class="card shadow-sm border-0 mb-4">
-                    <div class="card-header bg-white fw-bold">
-                        💬 매니저 종합 의견
+                    <div class="card-header bg-white fw-bold py-3">
+                        <i class="bi bi-chat-quote-fill me-2 text-info"></i> 매니저 종합 의견
                     </div>
-                    <div class="card-body">
+                    <div class="card-body p-4">
                         {{ form.overall_comment }}
                         <div class="form-text text-muted mt-2">
-                            * 교육생의 강점, 보완점, 향후 지도 방향 등을 자유롭게 기술해주세요. 이 내용은 최종 리포트에 출력됩니다.
+                            <i class="bi bi-info-circle text-primary me-1"></i> 교육생의 강점, 보완점, 향후 지도 방향 등을 자유롭게 기술해주세요.
                         </div>
                     </div>
                 </div>
 
-                <div class="d-grid gap-2 mb-5">
-                    <button type="submit" class="btn btn-primary btn-lg fw-bold py-3 shadow">
-                        <i class="bi bi-save"></i> 평가 저장 및 완료
-                    </button>
-                </div>
+                {% if is_finalized %}
+                    <div class="alert alert-secondary text-center fw-bold mt-5 p-4 shadow-sm border-secondary">
+                        <i class="bi bi-lock-fill text-dark fs-1 d-block mb-2"></i>
+                        <h5 class="fw-bold mb-1 text-dark">최종 평가 및 결정이 완료된 문서입니다.</h5>
+                        <p class="mb-0 text-muted small">보안 및 공정성을 위해 확정된 평가와 수료/퇴소 여부는 번복할 수 없습니다.</p>
+                    </div>
+
+                {% elif is_cohort_ended or trainee.status == 'dropout' %}
+                    <div class="card shadow-sm border-0 mb-5 mt-5 border-top border-4 border-danger animate__animated animate__fadeInUp">
+                        <div class="card-header bg-white fw-bold py-3 text-dark d-flex justify-content-between align-items-center">
+                            <span class="fs-5"><i class="bi bi-person-bounding-box me-2 text-danger"></i> 최종 수료 / 퇴소 결정</span>
+                            
+                            <div class="form-check form-switch fs-6">
+                                <input class="form-check-input border-danger" type="checkbox" id="unlockDecisionToggle" style="cursor:pointer;">
+                                <label class="form-check-label text-danger fw-bold" for="unlockDecisionToggle" style="cursor:pointer;">
+                                    평가 작성 완료 (결정 잠금 해제)
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="card-body p-4 bg-light position-relative">
+                            <div id="decisionOverlay" style="position: absolute; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.7); z-index:10; display:flex; justify-content:center; align-items:center; backdrop-filter: blur(2px);">
+                                <span class="badge bg-dark fs-6 px-4 py-3 shadow"><i class="bi bi-lock-fill me-1"></i> 우측 상단의 '잠금 해제' 스위치를 켜주세요.</span>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold">최종 상태 확정 <span class="text-danger">*</span></label>
+                                <input type="hidden" name="final_status" id="hidden_final_status" value="completed">
+                                
+                                <select id="final_status" class="form-select form-select-lg fw-bold shadow-sm">
+                                    <option value="completed" class="text-success">🎓 수료 (Completed)</option>
+                                    <option value="dropout" class="text-danger">⚫ 퇴소 (Dropout)</option>
+                                </select>
+                                <div class="form-text mt-2 text-danger fw-bold" id="status_warning" style="display:none;">
+                                    <i class="bi bi-exclamation-triangle-fill"></i> 최종 점수가 80점 미만이거나 이미 사전 퇴소된 인원이라 '퇴소'로 강제 처리됩니다.
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3" id="dropout_reason_div" style="display: none;">
+                                <label class="form-label fw-bold text-danger">퇴소 사유 기입 <span class="text-danger">*</span></label>
+                                <input type="text" name="dropout_reason" id="dropout_reason" class="form-control fw-bold border-danger bg-white" placeholder="예: 평가 점수 미달, 잦은 지각 등 명확히 기재">
+                            </div>
+                            
+                            <div class="d-grid gap-2 mt-4 pt-3 border-top border-2 border-danger border-opacity-25">
+                                <button type="submit" name="action" value="finalize" id="finalSubmitBtn" class="btn btn-danger btn-lg fw-bold py-3 shadow" disabled>
+                                    <i class="bi bi-exclamation-octagon-fill me-2"></i> 평가 저장 및 최종 확정 (이후 번복 불가)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                {% else %}
+                    <div class="d-grid gap-2 mb-4 mt-5">
+                        <button type="submit" formnovalidate name="action" value="save" class="btn btn-primary btn-lg fw-bold py-3 shadow hover-scale">
+            <i class="bi bi-save me-2"></i> 현재 평가 내용 임시 저장
+        </button>
+                    </div>
+                    <div class="text-center text-muted small fw-bold mb-5">
+                        <i class="bi bi-info-circle text-primary"></i> 최종 수료/퇴소 결정 기능은 <span class="text-danger">기수 종료일({{ trainee.cohort.end_date|date:"Y-m-d" }}) 이후</span> 자동으로 활성화됩니다.
+                    </div>
+                {% endif %}
+
             </div>
         </div>
     </form>
 </div>
 
-<style>
-    .hover-shadow:hover {
-        box-shadow: 0 .5rem 1rem rgba(0,0,0,.15)!important;
-        transform: translateY(-2px);
-        transition: 0.3s;
-        border-color: #0d6efd !important;
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const inputs = ['score_exam', 'score_practice', 'score_attitude'];
+    const penalty = parseFloat(document.getElementById('penalty_val')?.value) || 0;
+    
+    // 백엔드 데이터
+    const isFinalized = "{{ is_finalized }}" === "True";
+    const initialStatus = "{{ trainee.status }}";
+    const isSuperuser = "{{ request.user.is_superuser }}" === "True"; // ★ 최고 관리자 여부 확인
+
+    function calculate() {
+        function getClampedValue(id) {
+            let el = document.getElementById(id);
+            if(!el) return 0;
+            let val = parseFloat(el.value) || 0;
+            if (val > 100) { val = 100; el.value = 100; }
+            if (val < 0) { val = 0; el.value = 0; }
+            return val;
+        }
+
+        let s_exam = getClampedValue('score_exam');
+        let s_prac = getClampedValue('score_practice');
+        let s_atti_raw = getClampedValue('score_attitude');
+        let s_atti_real = Math.max(0, s_atti_raw - penalty);
+
+        let w_exam = s_exam * 0.85;
+        let w_prac = s_prac * 0.05;
+        let w_atti = s_atti_real * 0.10;
+        let total = w_exam + w_prac + w_atti;
+
+        if(document.getElementById('calc_exam')) document.getElementById('calc_exam').innerText = w_exam.toFixed(1) + "점 반영";
+        if(document.getElementById('calc_practice')) document.getElementById('calc_practice').innerText = w_prac.toFixed(1) + "점 반영";
+        if(document.getElementById('calc_attitude')) {
+            let attiText = w_atti.toFixed(1) + "점 반영";
+            if(penalty > 0) attiText += ` (감점 적용)`;
+            document.getElementById('calc_attitude').innerText = attiText;
+        }
+
+        const finalEl = document.getElementById('final_total');
+        if(finalEl) finalEl.innerText = total.toFixed(1);
+
+        const progressEl = document.getElementById('score_progress');
+        if (progressEl) {
+            progressEl.style.width = total + '%';
+            if (total < 80) progressEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-danger';
+            else progressEl.className = 'progress-bar progress-bar-striped progress-bar-animated bg-success';
+        }
+
+        const badgeEl = document.getElementById('pass_badge');
+        if(badgeEl && finalEl) {
+            if (total >= 80) {
+                finalEl.className = "display-3 fw-bolder text-success mb-0";
+                badgeEl.innerHTML = '<span class="badge bg-success px-3 py-2">PASS (수료 가능)</span>';
+            } else {
+                finalEl.className = "display-3 fw-bolder text-danger mb-0";
+                badgeEl.innerHTML = '<span class="badge bg-danger px-3 py-2">FAIL (미수료)</span>';
+            }
+        }
+
+        // ====================================================
+        // ★ 강제 퇴소 제어 및 관리자 예외 권한 로직
+        // ====================================================
+        const statusSel = document.getElementById('final_status');
+        const reasonDiv = document.getElementById('dropout_reason_div');
+        const reasonInput = document.getElementById('dropout_reason');
+        const statusWarning = document.getElementById('status_warning');
+        const reasonLabel = document.querySelector('#dropout_reason_div label');
+
+        if (statusSel && reasonDiv && reasonInput && statusWarning) {
+            let forcedDropout = false;
+            if (total < 80) forcedDropout = true;
+            if (initialStatus === 'dropout') forcedDropout = true;
+
+            if (forcedDropout) {
+                if (isSuperuser) {
+                    // [최고 관리자] 강제 퇴소 대상자여도 수료 선택을 허용함
+                    for(let i=0; i<statusSel.options.length; i++) {
+                        statusSel.options[i].disabled = false;
+                    }
+                    statusWarning.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> 점수 미달 또는 사전 퇴소자입니다. 관리자 권한으로 '예외 수료'가 가능합니다.`;
+                    statusWarning.style.display = 'block';
+                    
+                    if (statusSel.value === 'completed') {
+                        // 수료를 선택했다면 '예외 수료 사유'를 강제로 받음
+                        reasonDiv.style.display = 'block';
+                        if(reasonLabel) reasonLabel.innerHTML = `예외 수료 사유 (관리자 필수 기입) <span class="text-danger">*</span>`;
+                        if(reasonInput.value.includes("[시스템 자동]")) reasonInput.value = "";
+                    } else {
+                        // 퇴소를 선택하면 일반 퇴소 사유
+                        reasonDiv.style.display = 'block';
+                        if(reasonLabel) reasonLabel.innerHTML = `퇴소 사유 기입 <span class="text-danger">*</span>`;
+                        if(!reasonInput.value || reasonInput.value.includes("최종 평가 점수 미달") || reasonInput.value.includes("사전 퇴소 인원")) {
+                            if(initialStatus === 'dropout') reasonInput.value = "[시스템 자동] 사전 퇴소 인원 최종 평가 마감";
+                            else reasonInput.value = `[시스템 자동] 최종 평가 점수 미달 (${total.toFixed(1)}점)`;
+                        }
+                    }
+                } else {
+                    // [일반 매니저] 얄짤없이 수료 잠금, 퇴소 강제
+                    statusSel.value = 'dropout';
+                    for(let i=0; i<statusSel.options.length; i++) {
+                        if(statusSel.options[i].value === 'completed') statusSel.options[i].disabled = true;
+                    }
+                    statusWarning.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> 최종 점수가 80점 미만이거나 이미 사전 퇴소된 인원이라 '퇴소'로 강제 처리됩니다.`;
+                    statusWarning.style.display = 'block';
+                    reasonDiv.style.display = 'block';
+                    if(reasonLabel) reasonLabel.innerHTML = `퇴소 사유 기입 <span class="text-danger">*</span>`;
+                    
+                    if(!reasonInput.value || reasonInput.value.includes("최종 평가 점수 미달") || reasonInput.value.includes("사전 퇴소 인원")) {
+                        if(initialStatus === 'dropout') reasonInput.value = "[시스템 자동] 사전 퇴소 인원 최종 평가 마감";
+                        else reasonInput.value = `[시스템 자동] 최종 평가 점수 미달 (${total.toFixed(1)}점)`;
+                    }
+                }
+            } else {
+                // 정상 PASS 대상자 (누구나 수료 가능)
+                for(let i=0; i<statusSel.options.length; i++) {
+                    statusSel.options[i].disabled = false;
+                }
+                statusWarning.style.display = 'none';
+
+                if (statusSel.value === 'dropout') {
+                    // 멀쩡한 사람을 수동으로 퇴소시킬 때
+                    reasonDiv.style.display = 'block';
+                    if(reasonLabel) reasonLabel.innerHTML = `수동 퇴소 사유 기입 <span class="text-danger">*</span>`;
+                } else {
+                    reasonDiv.style.display = 'none';
+                }
+            }
+        }
+    } // calculate() 끝
+
+    if (!isFinalized) {
+        inputs.forEach(id => {
+            const el = document.getElementById(id);
+            if(el) {
+                el.addEventListener('input', calculate);
+                el.addEventListener('blur', calculate);
+            }
+        });
+
+        // 상태 변경 시마다 라벨 및 사유칸 노출 업데이트
+        const statusSel = document.getElementById('final_status');
+        if(statusSel) {
+            statusSel.addEventListener('change', function() {
+                calculate(); 
+            });
+        }
+
+        const unlockToggle = document.getElementById('unlockDecisionToggle');
+        const overlay = document.getElementById('decisionOverlay');
+        const submitBtn = document.getElementById('finalSubmitBtn');
+        const theForm = document.getElementById('evalForm');
+
+        if(unlockToggle) {
+            unlockToggle.addEventListener('change', function() {
+                if(this.checked) {
+                    overlay.style.display = 'none'; 
+                    submitBtn.disabled = false;     
+                    calculate(); 
+                } else {
+                    overlay.style.display = 'flex'; 
+                    submitBtn.disabled = true;      
+                }
+            });
+        }
+
+        if(submitBtn) {
+            submitBtn.addEventListener('click', function(e) {
+                // 1. 점수 입력 확인 (추가된 부분)
+                const practiceScore = document.getElementById('score_practice');
+                const attitudeScore = document.getElementById('score_attitude');
+
+                if (practiceScore.value === "" || attitudeScore.value === "") {
+                    alert("⚠️ 실습 점수와 수학태도 점수를 확인해주세요.\n입력할 점수가 없다면 '0'이라도 입력해야 확정이 가능합니다.");
+                    if(practiceScore.value === "") practiceScore.focus();
+                    else attitudeScore.focus();
+                    
+                    e.preventDefault(); // 전송 중단
+                    return;
+                }
+
+                // 2. 최종 상태 복사 (기존 로직)
+                const statusSel = document.getElementById('final_status');
+                const hiddenStatus = document.getElementById('hidden_final_status');
+                if(statusSel && hiddenStatus) {
+                    hiddenStatus.value = statusSel.value;
+                }
+
+                // 3. 퇴소 사유 검증 (기존 로직)
+                const reasonDiv = document.getElementById('dropout_reason_div');
+                const reasonInput = document.getElementById('dropout_reason');
+                if (reasonDiv && reasonDiv.style.display === 'block' && reasonInput.value.trim() === '') {
+                    alert("사유를 반드시 입력해주세요.");
+                    reasonInput.focus();
+                    e.preventDefault();
+                    return;
+                }
+
+                // 4. 최종 컨펌
+                if(!confirm("🚨 주의: 최종 확정 처리 시 더 이상 평가서를 수정하거나 결정(수료/퇴소)을 번복할 수 없습니다.\n\n정말로 이대로 확정하시겠습니까?")) {
+                    e.preventDefault();
+                }
+            });
+        }
+    } else {
+        document.querySelectorAll('input, select, textarea').forEach(el => {
+            el.disabled = true;
+            el.style.backgroundColor = '#e9ecef';
+            el.style.cursor = 'not-allowed';
+        });
     }
-    .cursor-pointer { cursor: pointer; }
-</style>
+
+    calculate();
+    
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+});
+</script>
 {% endblock %}

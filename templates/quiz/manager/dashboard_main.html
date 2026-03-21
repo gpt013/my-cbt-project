@@ -97,6 +97,102 @@
         </div>
     </div>
 
+
+    
+    <div class="d-flex justify-content-between align-items-end mb-2 mt-4">
+        <h4 class="fw-bold mb-0"><i class="bi bi-pie-chart-fill text-primary me-2"></i>진행 중인 전체 기수 현황</h4>
+        <small class="text-muted"><i class="bi bi-hand-index-thumb"></i> 학생 이름을 클릭하면 즉시 상세 조회 및 조치 페이지로 이동합니다.</small>
+    </div>
+
+    <div class="alert alert-light border shadow-sm mb-3 py-2 px-3" style="font-size: 0.85rem;">
+        <div class="row text-center fw-bold">
+            <div class="col-md-4 border-end">
+                <span class="text-danger">🔴 위험 (Danger)</span>
+                <p class="text-muted fw-normal mb-0 mt-1" style="font-size: 0.75rem;">경고 2회 이상 누적 또는 성적 미달로 인한 <strong>시험 잠금(PL 면담 필수)</strong> 상태</p>
+            </div>
+            <div class="col-md-4 border-end">
+                <span class="text-warning text-dark">🟡 주의 (Caution)</span>
+                <p class="text-muted fw-normal mb-0 mt-1" style="font-size: 0.75rem;">경고 1회 누적 또는 최근 시험 탈락 이력이 있어 <strong>집중 관찰</strong>이 필요한 상태</p>
+            </div>
+            <div class="col-md-4">
+                <span class="text-success">🟢 정상 (Normal)</span>
+                <p class="text-muted fw-normal mb-0 mt-1" style="font-size: 0.75rem;">누적 경고 없이 시험 및 교육 진도를 <strong>정상적으로 수행 중</strong>인 상태</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="accordion mb-5 shadow-sm" id="smartAssistantAccordion">
+    {% for ps in process_summary %}
+    <div class="accordion-item border-0 mb-2 rounded bg-white">
+        <h2 class="accordion-header" id="heading{{ forloop.counter }}">
+            <button class="accordion-button collapsed fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ forloop.counter }}">
+                <span class="badge bg-dark fs-6 me-3" style="width: 100px;">{{ ps.process_name }}</span> 
+                <span class="badge bg-danger bg-opacity-10 text-danger border border-danger me-2 py-2 px-3">🔴 위험 {{ ps.danger_count }}명</span>
+                <span class="badge bg-warning bg-opacity-10 text-dark border border-warning me-2 py-2 px-3">🟡 주의 {{ ps.caution_count }}명</span>
+                <span class="badge bg-success bg-opacity-10 text-success border border-success py-2 px-3">🟢 정상 {{ ps.normal_count }}명</span>
+            </button>
+        </h2>
+        
+        <div id="collapse{{ forloop.counter }}" class="accordion-collapse collapse" data-bs-parent="#smartAssistantAccordion">
+            <div class="accordion-body bg-light">
+                <div class="row g-3">
+                        
+                        <div class="col-md-4">
+                            <div class="card border-danger h-100 shadow-sm">
+                                <div class="card-header bg-danger text-white fw-bold py-2"><i class="bi bi-exclamation-octagon-fill"></i> 위험 (즉시 면담/잠금)</div>
+                                <ul class="list-group list-group-flush">
+                                    {% for student in ps.danger %}
+                                        <a href="{% url 'quiz:manager_trainee_detail' student.id %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center text-danger fw-bold">
+                                            <span>{{ student.name }} <small class="text-muted">({{ student.cohort.name|default:"-" }})</small></span>
+                                            <span class="badge bg-danger rounded-pill">{{ student.warning_count }}회</span>
+                                        </a>
+                                    {% empty %}
+                                        <li class="list-group-item text-muted text-center py-3">위험 대상자가 없습니다. 🎉</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="card border-warning h-100 shadow-sm">
+                                <div class="card-header bg-warning text-dark fw-bold py-2"><i class="bi bi-exclamation-triangle-fill"></i> 주의 (관찰 요망)</div>
+                                <ul class="list-group list-group-flush">
+                                    {% for student in ps.caution %}
+                                        <a href="{% url 'quiz:manager_trainee_detail' student.id %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center fw-bold text-dark">
+                                            <span>{{ student.name }} <small class="text-muted">({{ student.cohort.name|default:"-" }})</small></span>
+                                            <span class="badge bg-warning text-dark rounded-pill">{{ student.warning_count }}회</span>
+                                        </a>
+                                    {% empty %}
+                                        <li class="list-group-item text-muted text-center py-3">주의 대상자가 없습니다.</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="card border-success h-100 shadow-sm">
+                                <div class="card-header bg-success text-white fw-bold py-2"><i class="bi bi-check-circle-fill"></i> 정상 진도</div>
+                                <div class="card-body p-2">
+                                    <div class="d-flex flex-wrap gap-1">
+                                        {% for student in ps.normal %}
+                                            <a href="{% url 'quiz:manager_trainee_detail' student.id %}" class="badge bg-white border border-success text-success text-decoration-none p-2 shadow-sm">
+                                                {{ student.name }}
+                                            </a>
+                                        {% empty %}
+                                            <span class="text-muted small w-100 text-center py-2">정상 인원이 없습니다.</span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                    </div> </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+
     <h4 class="fw-bold mb-3"><i class="bi bi-grid-fill"></i> 빠른 메뉴</h4>
 
 <div class="row g-3">
@@ -115,7 +211,7 @@
     <div class="col-md-3">
         <a href="{% url 'quiz:facility_dashboard' %}" class="card shadow-sm text-decoration-none hover-card h-100">
             <div class="card-body text-center py-4">
-                <div class="icon-box bg-light text-primary mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                <div class="icon-box bg-light text-secondary mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
                     <i class="bi bi-building-gear fs-3"></i>
                 </div>
                 <h5 class="text-dark fw-bold">시설 예약 관리</h5>
@@ -135,30 +231,81 @@
             </div>
         </a>
     </div>
-        <div class="col-md-3">
-            <a href="{% url 'quiz:upload_quiz' %}" class="card shadow-sm text-decoration-none hover-card h-100">
-                <div class="card-body text-center py-4">
-                    <div class="icon-box bg-light text-info mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
-                        <i class="bi bi-file-earmark-spreadsheet fs-3"></i>
-                    </div>
-                    <h5 class="text-dark fw-bold">시험 엑셀 등록</h5>
-                    <p class="text-muted small mb-0">대량 문제 업로드</p>
+
+    <div class="col-md-3">
+        <a href="{% url 'quiz:student_dashboard' %}" class="card shadow-sm text-decoration-none hover-card h-100">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-primary mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-mortarboard-fill fs-3"></i>
                 </div>
-            </a>
-        </div>
-        <div class="col-md-3">
-            <a href="{% url 'quiz:manager_quiz_list' %}" class="card shadow-sm text-decoration-none hover-card h-100">
-                <div class="card-body text-center py-4">
-                    <div class="icon-box bg-light text-warning mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
-                        <i class="bi bi-gear-wide-connected fs-3"></i>
-                    </div>
-                    <h5 class="text-dark fw-bold">시험/문제 관리</h5>
-                    <p class="text-muted small mb-0">설정 수정, 오타 수정, 삭제</p>
+                <h5 class="text-dark fw-bold">교육생 성적 관리</h5>
+                <p class="text-muted small mb-0">성적표, 오답노트, AI 처방</p>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3">
+        <a href="{% url 'quiz:exam_analytics' %}" class="card shadow-sm text-decoration-none hover-card h-100">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-success mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-bar-chart-line-fill fs-3"></i>
                 </div>
-            </a>
+                <h5 class="text-dark fw-bold">PMTC 시험 분석</h5>
+                <p class="text-muted small mb-0">정답률, 난이도 자동 조절</p>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3">
+        <a href="{% url 'quiz:upload_quiz' %}" class="card shadow-sm text-decoration-none hover-card h-100">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-info mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-file-earmark-spreadsheet fs-3"></i>
+                </div>
+                <h5 class="text-dark fw-bold">시험 엑셀 등록</h5>
+                <p class="text-muted small mb-0">대량 문제 업로드</p>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3">
+        <a href="{% url 'quiz:manager_quiz_list' %}" class="card shadow-sm text-decoration-none hover-card h-100">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-warning mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-gear-wide-connected fs-3"></i>
+                </div>
+                <h5 class="text-dark fw-bold">시험/문제 관리</h5>
+                <p class="text-muted small mb-0">설정 수정, 오타 수정, 삭제</p>
+            </div>
+        </a>
+    </div>
+
+    <div class="col-md-3"> 
+        <div class="card shadow-sm hover-card h-100" data-bs-toggle="modal" data-bs-target="#dropoutModal" style="cursor: pointer;">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-light text-danger mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-person-x-fill fs-3"></i>
+                </div>
+                <h5 class="text-dark fw-bold">중도 퇴사자 관리</h5>
+                <p class="text-muted small mb-0">퇴소 요청 및 사유 작성</p>
+            </div>
         </div>
     </div>
-</div>
+
+    <div class="col-md-3"> 
+        <div class="card shadow-sm hover-card h-100" data-bs-toggle="modal" data-bs-target="#quickWarningModal" style="cursor: pointer; border-bottom: 4px solid #dc3545;">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-danger bg-opacity-10 text-danger mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-lightning-charge-fill fs-3"></i>
+                </div>
+                <h5 class="text-dark fw-bold">빠른 경고/경고장 작성</h5>
+                <p class="text-muted small mb-0">경고장 발부 및 면담 빠른 기록</p>
+            </div>
+        </div>
+    </div>
+    </div>
+
+
 
 <style>
     .hover-card:hover { transform: translateY(-5px); transition: 0.3s; border-color: #0d6efd; }
@@ -170,4 +317,449 @@
     }
     .animate__pulse { animation: pulse 2s infinite; }
 </style>
+
+<div class="modal fade" id="dropoutModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl"> 
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-dark text-white py-3">
+        <h5 class="modal-title fw-bold"><i class="bi bi-person-x-fill text-danger me-2"></i>중도 퇴사 승인 프로세스</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      
+      <div class="modal-body p-0">
+        <div class="row g-0">
+          <div class="col-lg-7 bg-white p-4 border-end">
+            <div class="d-flex align-items-center mb-3">
+                <span class="badge bg-primary me-2">STEP 1</span>
+                <h6 class="fw-bold mb-0">대상 교육생 필터링</h6>
+            </div>
+            
+            <div class="row g-2 mb-3 bg-light p-3 rounded border">
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">기수</label>
+                    <select id="filterCohort" class="form-select form-select-sm" onchange="filterTrainees()">
+                        <option value="">전체 기수</option>
+                        {% for c in filter_cohorts %}
+                        <option value="{{ c.name }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">공정</label>
+                    <select id="filterProcess" class="form-select form-select-sm" onchange="filterTrainees()">
+                        <option value="">전체 공정</option>
+                        {% for p in filter_processes %}
+                        <option value="{{ p.name }}" {% if p == user.profile.process %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">회사</label>
+                    <select id="filterCompany" class="form-select form-select-sm" onchange="filterTrainees()">
+                        <option value="">전체 회사</option>
+                        {% for com in filter_companies %}
+                        <option value="{{ com.name }}">{{ com.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">이름 검색</label>
+                    <input type="text" id="filterName" class="form-control form-control-sm" placeholder="성함 입력" onkeyup="filterTrainees()">
+                </div>
+            </div>
+
+            <div class="table-responsive border rounded" style="max-height: 350px;">
+                <table class="table table-hover align-middle mb-0" id="traineeTable">
+                    <thead class="table-light sticky-top">
+                        <tr style="font-size: 0.85rem;">
+                            <th style="width: 50px;">선택</th>
+                            <th>기수</th>
+                            <th>공정</th>
+                            <th>회사</th>
+                            <th>성함(사번)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="traineeListBody">
+                        {% for student in active_trainees %}
+                        <tr class="trainee-row" 
+                            data-cohort="{{ student.cohort.name|default:'' }}" 
+                            data-process="{{ student.process.name|default:'' }}" 
+                            data-company="{{ student.company.name|default:'' }}" 
+                            data-name="{{ student.name|default:'' }}"
+                            style="cursor: pointer; font-size: 0.9rem;"
+                            onclick="selectTrainee(this, '{{ student.id }}', '{{ student.name|default:'이름없음' }}')">
+                            <td class="text-center">
+                                <input type="radio" name="trainee_radio" class="form-check-input" value="{{ student.id }}">
+                            </td>
+                            <td><span class="badge bg-outline-secondary border text-dark">{{ student.cohort.name|default:"-" }}</span></td>
+                            <td>{{ student.process.name|default:"-" }}</td>
+                            <td>{{ student.company.name|default:"-" }}</td>
+                            <td class="fw-bold">{{ student.name|default:"이름없음" }} <span class="text-muted small">({{ student.employee_id|default:"-" }})</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+          </div>
+
+          <div class="col-lg-5 bg-light p-4">
+            <div class="d-flex align-items-center mb-4">
+                <span class="badge bg-primary me-2">STEP 2</span>
+                <h6 class="fw-bold mb-0">퇴사 상세 정보 입력</h6>
+            </div>
+
+            <div class="card border-0 shadow-sm p-3 mb-4">
+                <div class="mb-3">
+                    <label class="small fw-bold text-muted mb-1">선택된 대상자</label>
+                    <div id="selectedTraineeDisplay" class="alert alert-info mb-0 py-2 fw-bold text-center">
+                        위 목록에서 대상을 선택하세요
+                    </div>
+                    <input type="hidden" id="finalTraineeId">
+                </div>
+
+                <div class="mb-3">
+                    <label class="small fw-bold text-muted mb-1">퇴사 예정일</label>
+                    <input type="date" class="form-control" id="dropoutDate" required>
+                    <small class="text-primary" style="font-size: 0.75rem;"><i class="bi bi-info-circle me-1"></i>해당 날짜 다음 날 자정부터 자동 퇴소 처리됩니다.</small>
+                </div>
+
+                <div class="mb-0">
+                    <label class="small fw-bold text-muted mb-1">중도 퇴사 사유</label>
+                    <textarea class="form-control" id="dropoutReason" rows="6" placeholder="관리가 납득할 수 있는 구체적인 사유를 입력하세요." required></textarea>
+                </div>
+            </div>
+
+            <button type="button" id="submitDropoutBtn" class="btn btn-danger w-100 py-3 fw-bold shadow" onclick="submitDropout()">
+                <i class="bi bi-send-fill me-2"></i>최종 결재 요청 전송
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dateInput = document.getElementById('dropoutDate');
+    if(dateInput) dateInput.valueAsDate = new Date();
+    
+    // 모달 켜질 때 필터 즉시 적용
+    const dropoutModal = document.getElementById('dropoutModal');
+    if (dropoutModal) {
+        dropoutModal.addEventListener('shown.bs.modal', function () {
+            filterTrainees();
+        });
+    }
+});
+
+function filterTrainees() {
+    const fCohort = document.getElementById('filterCohort').value;
+    const fProcess = document.getElementById('filterProcess').value;
+    const fCompany = document.getElementById('filterCompany').value;
+    const fName = document.getElementById('filterName').value.toLowerCase();
+
+    const rows = document.querySelectorAll('.trainee-row');
+
+    rows.forEach(row => {
+        // [보완] None 에러 완벽 차단
+        const rowCohort = row.getAttribute('data-cohort') || "";
+        const rowProcess = row.getAttribute('data-process') || "";
+        const rowCompany = row.getAttribute('data-company') || "";
+        const rowName = (row.getAttribute('data-name') || "").toLowerCase();
+
+        const matchCohort = fCohort === "" || rowCohort === fCohort;
+        const matchProcess = fProcess === "" || rowProcess === fProcess;
+        const matchCompany = fCompany === "" || rowCompany === fCompany;
+        const matchName = fName === "" || rowName.includes(fName);
+
+        row.style.display = (matchCohort && matchProcess && matchCompany && matchName) ? "" : "none";
+    });
+}
+
+function selectTrainee(row, id, name) {
+    const radio = row.querySelector('input[type="radio"]');
+    radio.checked = true;
+
+    document.querySelectorAll('.trainee-row').forEach(r => r.classList.remove('table-primary'));
+    row.classList.add('table-primary');
+
+    document.getElementById('selectedTraineeDisplay').innerText = "선택됨: " + name;
+    document.getElementById('selectedTraineeDisplay').classList.replace('alert-info', 'alert-success');
+    document.getElementById('finalTraineeId').value = id;
+}
+
+function submitDropout() {
+    const traineeId = document.getElementById('finalTraineeId').value;
+    const dropDate = document.getElementById('dropoutDate').value;
+    const reason = document.getElementById('dropoutReason').value;
+
+    if (!traineeId) { alert("퇴사 처리할 교육생을 목록에서 클릭하여 선택해 주세요."); return; }
+    if (!dropDate || !reason) { alert("퇴사 예정일과 사유를 모두 입력해 주세요."); return; }
+
+    if (!confirm("해당 인원의 중도 퇴소 결재를 최종 관리자에게 요청하시겠습니까?")) return;
+
+    // [보완] 버튼 비활성화 (더블클릭 방지)
+    const btn = document.getElementById('submitDropoutBtn');
+    btn.disabled = true;
+    btn.innerHTML = "요청 전송 중...";
+
+    fetch("{% url 'quiz:request_dropout' %}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": "{{ csrf_token }}" },
+        body: JSON.stringify({ trainee_id: traineeId, drop_date: dropDate, reason: reason })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === "success") { 
+            alert(data.message); 
+            location.reload(); 
+        } else { 
+            alert("오류: " + data.message); 
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>최종 결재 요청 전송';
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert("전송 중 오류가 발생했습니다.");
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>최종 결재 요청 전송';
+    });
+}
+</script>
+
+<div class="modal fade" id="quickWarningModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl"> 
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-danger text-white py-3">
+        <h5 class="modal-title fw-bold"><i class="bi bi-people-fill me-2"></i>빠른 경고 / 경고장 작성 (다중 선택)</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      
+      <div class="modal-body p-0">
+        <div class="row g-0">
+          <div class="col-lg-7 bg-white p-4 border-end">
+            <div class="d-flex align-items-center mb-3">
+                <span class="badge bg-danger me-2">STEP 1</span>
+                <h6 class="fw-bold mb-0">대상 교육생 필터링 및 여러 명 선택</h6>
+            </div>
+            
+            <div class="row g-2 mb-3 bg-light p-3 rounded border">
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">기수</label>
+                    <select id="qwFilterCohort" class="form-select form-select-sm" onchange="qwFilterTrainees()">
+                        <option value="">전체 기수</option>
+                        {% for c in filter_cohorts %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">공정</label>
+                    <select id="qwFilterProcess" class="form-select form-select-sm" onchange="qwFilterTrainees()">
+                        <option value="">전체 공정</option>
+                        {% for p in filter_processes %}<option value="{{ p.name }}" {% if p == user.profile.process %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">회사</label>
+                    <select id="qwFilterCompany" class="form-select form-select-sm" onchange="qwFilterTrainees()">
+                        <option value="">전체 회사</option>
+                        {% for com in filter_companies %}<option value="{{ com.name }}">{{ com.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="small fw-bold text-muted">이름 검색</label>
+                    <input type="text" id="qwFilterName" class="form-control form-control-sm" placeholder="성함 입력" onkeyup="qwFilterTrainees()">
+                </div>
+            </div>
+
+            <div class="table-responsive border rounded" style="max-height: 350px;">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr style="font-size: 0.85rem;">
+                            <th style="width: 50px;">선택</th>
+                            <th>기수</th>
+                            <th>공정</th>
+                            <th>회사</th>
+                            <th>성함(사번)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="qwTraineeListBody">
+                        {% for student in active_trainees %}
+                        <tr class="qw-trainee-row" 
+                            data-cohort="{{ student.cohort.name|default:'' }}" 
+                            data-process="{{ student.process.name|default:'' }}" 
+                            data-company="{{ student.company.name|default:'' }}" 
+                            data-name="{{ student.name|default:'' }}"
+                            style="cursor: pointer; font-size: 0.9rem;"
+                            onclick="toggleQwTrainee(this, '{{ student.id }}', '{{ student.name|default:'이름없음' }}')">
+                            <td class="text-center">
+                                <input type="checkbox" class="form-check-input qw-checkbox" style="pointer-events: none;">
+                            </td>
+                            <td><span class="badge bg-outline-secondary border text-dark">{{ student.cohort.name|default:"-" }}</span></td>
+                            <td>{{ student.process.name|default:"-" }}</td>
+                            <td>{{ student.company.name|default:"-" }}</td>
+                            <td class="fw-bold">{{ student.name|default:"이름없음" }} <span class="text-muted small">({{ student.employee_id|default:"-" }})</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+          </div>
+
+          <div class="col-lg-5 bg-light p-4">
+            <div class="d-flex align-items-center mb-4">
+                <span class="badge bg-danger me-2">STEP 2</span>
+                <h6 class="fw-bold mb-0">경고 및 조치 내용 일괄 작성</h6>
+            </div>
+
+            <form id="quickWarningForm">
+                {% csrf_token %}
+                <input type="hidden" name="profile_ids" id="qwFinalTraineeIds">
+
+                <div class="card border-0 shadow-sm p-3 mb-4">
+                    <div class="mb-3">
+                        <label class="small fw-bold text-muted mb-1">선택된 대상자 <span class="text-danger">*</span></label>
+                        <div id="qwSelectedDisplay" class="alert alert-info mb-0 py-2 fw-bold text-center border" style="font-size: 0.9rem;">
+                            목록에서 대상을 선택하세요 (다중 선택 가능)
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="small fw-bold text-muted mb-1">기록 유형 <span class="text-danger">*</span></label>
+                        <select class="form-select fw-bold" name="log_type" required>
+                            <option value="" selected disabled>-- 유형 선택 --</option>
+                            <option value="warning" class="text-warning">⚠️ 구두 경고 / 주의 (Warning)</option>
+                            <option value="warning_letter" class="text-danger">⛔ 경고장 발송 (Warning Letter)</option>
+                            <option value="attitude">👎 태도/행동 불량 (Attitude)</option>
+                            <option value="others">📝 기타 특이사항 (Others)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="small fw-bold text-muted mb-1">사유 및 내용 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" name="reason" rows="4" placeholder="발생 사유를 구체적으로 적어주세요. (선택된 모든 인원에게 동일하게 기록됩니다.)" required></textarea>
+                    </div>
+
+                    <div class="mb-0">
+                        <label class="small fw-bold text-muted mb-1">조치 사항 <span class="text-muted fw-normal">(선택)</span></label>
+                        <input type="text" class="form-control" name="action_taken" placeholder="예: 현장 주의 조치 완료">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-danger w-100 py-3 fw-bold shadow" id="qwSubmitBtn">
+                    <i class="bi bi-save me-2"></i>일괄 등록 및 학생 상태 반영
+                </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let selectedQwTrainees = []; // 선택된 학생 배열
+
+document.getElementById('quickWarningModal').addEventListener('shown.bs.modal', function () {
+    qwFilterTrainees();
+});
+
+// 검색 필터
+function qwFilterTrainees() {
+    const fCohort = document.getElementById('qwFilterCohort').value;
+    const fProcess = document.getElementById('qwFilterProcess').value;
+    const fCompany = document.getElementById('qwFilterCompany').value;
+    const fName = document.getElementById('qwFilterName').value.toLowerCase();
+
+    document.querySelectorAll('.qw-trainee-row').forEach(row => {
+        const rowCohort = row.getAttribute('data-cohort') || "";
+        const rowProcess = row.getAttribute('data-process') || "";
+        const rowCompany = row.getAttribute('data-company') || "";
+        const rowName = (row.getAttribute('data-name') || "").toLowerCase();
+
+        const matchCohort = fCohort === "" || rowCohort === fCohort;
+        const matchProcess = fProcess === "" || rowProcess === fProcess;
+        const matchCompany = fCompany === "" || rowCompany === fCompany;
+        const matchName = fName === "" || rowName.includes(fName);
+
+        row.style.display = (matchCohort && matchProcess && matchCompany && matchName) ? "" : "none";
+    });
+}
+
+// 다중 선택(체크박스 토글) 로직
+function toggleQwTrainee(row, id, name) {
+    const checkbox = row.querySelector('.qw-checkbox');
+    const index = selectedQwTrainees.findIndex(t => t.id === id);
+
+    if (index > -1) {
+        // 이미 선택된 경우 -> 선택 해제
+        selectedQwTrainees.splice(index, 1);
+        checkbox.checked = false;
+        row.classList.remove('table-danger');
+    } else {
+        // 새로 선택하는 경우 -> 배열에 추가
+        selectedQwTrainees.push({id: id, name: name});
+        checkbox.checked = true;
+        row.classList.add('table-danger');
+    }
+    
+    // UI 업데이트
+    updateQwDisplay();
+}
+
+function updateQwDisplay() {
+    const display = document.getElementById('qwSelectedDisplay');
+    const hiddenInput = document.getElementById('qwFinalTraineeIds');
+
+    if (selectedQwTrainees.length === 0) {
+        display.innerHTML = "목록에서 대상을 선택하세요 (다중 선택 가능)";
+        display.className = "alert alert-info mb-0 py-2 fw-bold text-center border";
+        hiddenInput.value = "";
+    } else {
+        const names = selectedQwTrainees.map(t => t.name).join(', ');
+        display.innerHTML = `총 <span class="badge bg-danger rounded-pill">${selectedQwTrainees.length}명</span> 선택됨<br><span class="small fw-normal">${names}</span>`;
+        display.className = "alert alert-danger mb-0 py-2 fw-bold text-center border";
+        // ID들을 쉼표로 이어서 백엔드로 보냄
+        hiddenInput.value = selectedQwTrainees.map(t => t.id).join(',');
+    }
+}
+
+// 폼 제출 (AJAX)
+document.getElementById('quickWarningForm').addEventListener('submit', function(e) {
+    e.preventDefault(); 
+    
+    const traineeIds = document.getElementById('qwFinalTraineeIds').value;
+    if (!traineeIds) {
+        alert("기록을 등록할 교육생을 왼쪽 목록에서 1명 이상 선택해주세요.");
+        return;
+    }
+
+    const submitBtn = document.getElementById('qwSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>처리중...';
+
+    fetch('{% url "quiz:quick_add_warning" %}', {
+        method: 'POST',
+        body: new FormData(this),
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if(data.status === 'success') {
+            alert(data.message);
+            location.reload(); 
+        } else {
+            alert("오류: " + data.message);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-save me-2"></i>일괄 등록 및 학생 상태 반영';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('서버 통신 중 오류가 발생했습니다.');
+        submitBtn.disabled = false;
+    });
+});
+</script>
 {% endblock %}

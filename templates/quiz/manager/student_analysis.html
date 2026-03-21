@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="container-fluid mt-4 mb-5" style="max-width: 1600px;">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex align-items-center">
+            <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center me-3 shadow-sm" style="width: 50px; height: 50px; font-size: 1.5rem;">
+                {{ profile.name|slice:":1" }}
+            </div>
+            <div>
+                <h4 class="fw-bold mb-0">{{ profile.name }} 심층 분석 리포트</h4>
+                <p class="text-muted mb-0 small">{{ profile.process.name }} / {{ profile.cohort.name }}</p>
+            </div>
+        </div>
+        <a href="{% url 'quiz:student_dashboard' %}" class="btn btn-outline-secondary fw-bold">
+            <i class="bi bi-arrow-left"></i> 목록으로
+        </a>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <div class="card border-primary shadow-sm">
+                <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold">
+                    <i class="bi bi-magic"></i> AI 맞춤형 학습 처방
+                </div>
+                <div class="card-body">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-robot fs-1 text-primary opacity-25 me-3"></i>
+                        <div>
+                            <h5 class="fw-bold text-dark mb-1">분석 결과:</h5>
+                            <p class="fs-5 text-danger fw-bold mb-0">{{ prescription }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header bg-white fw-bold py-3"><i class="bi bi-pie-chart-fill text-primary"></i> 성취도 시각화</div>
+                <div class="card-body d-flex align-items-center justify-content-center">
+                    <div style="width: 100%; max-height: 300px;"><canvas id="tagRadarChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header bg-white fw-bold py-3"><i class="bi bi-table text-success"></i> 태그별 정답률</div>
+                <div class="card-body p-0 custom-scroll" style="max-height: 340px; overflow-y: auto;">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead class="table-light sticky-top">
+                            <tr>
+                                <th class="text-start ps-4">태그</th>
+                                <th>문제수</th>
+                                <th>정답률</th>
+                                <th>평가</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in tag_analysis %}
+                            <tr>
+                                <td class="text-start ps-4 fw-bold">{{ item.tag }}</td>
+                                <td>{{ item.count }}</td>
+                                <td>
+                                    <div class="progress" style="height: 6px; max-width: 100px; margin: 0 auto;">
+                                        <div class="progress-bar {% if item.rate < 60 %}bg-danger{% else %}bg-success{% endif %}" style="width: {{ item.rate }}%"></div>
+                                    </div>
+                                    <span class="small">{{ item.rate }}%</span>
+                                </td>
+                                <td>
+                                    {% if item.rate < 60 %}<span class="badge bg-danger">취약</span>{% else %}<span class="badge bg-success">우수</span>{% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4" class="py-4 text-muted">데이터 없음</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-dark text-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-journal-check"></i> 시험 응시 이력 및 오답 확인</span>
+                    <span class="badge bg-light text-dark">총 {{ exam_history.count }}회 응시</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0 text-center">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="text-start ps-4">시험명</th>
+                                    <th>응시 일시</th>
+                                    <th>점수</th>
+                                    <th>결과</th>
+                                    <th>오답 확인</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for res in exam_history %}
+                                <tr>
+                                    <td class="text-start ps-4 fw-bold text-dark">
+                                        {{ res.quiz.title }}
+                                        <span class="badge bg-light text-secondary border ms-2">{{ res.quiz.get_category_display }}</span>
+                                    </td>
+                                    <td class="text-muted">{{ res.completed_at|date:"Y-m-d H:i" }}</td>
+                                    <td>
+                                        <span class="fw-bold fs-5 {% if res.score >= 80 %}text-success{% else %}text-danger{% endif %}">
+                                            {{ res.score }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        {% if res.is_pass %}
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">합격</span>
+                                        {% else %}
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">불합격</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'quiz:result_detail' res.id %}" target="_blank" class="btn btn-sm btn-outline-primary fw-bold">
+                                            <i class="bi bi-search"></i> 오답 보기
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="5" class="py-5 text-muted">
+                                        <i class="bi bi-inbox fs-1 d-block mb-3"></i>
+                                        아직 응시한 시험이 없습니다.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const ctx = document.getElementById('tagRadarChart');
+    if (ctx) {
+        const labels = [{% for item in tag_analysis %}"{{ item.tag }}",{% endfor %}];
+        const data = [{% for item in tag_analysis %}{{ item.rate }},{% endfor %}];
+
+        new Chart(ctx.getContext('2d'), {
+            type: 'radar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '정답률 (%)',
+                    data: data,
+                    fill: true,
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgb(54, 162, 235)',
+                    pointBackgroundColor: 'rgb(54, 162, 235)',
+                    pointBorderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { r: { suggestedMin: 0, suggestedMax: 100 } }
+            }
+        });
+    }
+</script>
+{% endblock %}

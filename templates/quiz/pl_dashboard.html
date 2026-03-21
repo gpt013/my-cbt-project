@@ -1,229 +1,457 @@
 {% extends 'base.html' %}
+
 {% load static %}
 
+
+
 {% block content %}
+
 <div class="container-fluid py-4">
+
     <div class="d-flex justify-content-between align-items-center mb-4">
+
         <div>
+
             <h2 class="fw-bold text-primary"><i class="bi bi-bar-chart-line-fill"></i> PL 교육 성과 대시보드</h2>
+
             <p class="text-muted mb-0">담당 교육생들의 학업 성취도 및 종합 평가 현황 리포트입니다.</p>
+
         </div>
+
         <div>
+
             <span class="badge bg-dark p-2 fs-6">
+
                 <i class="bi bi-calendar-check"></i> 기준일: {% now "Y-m-d" %}
+
             </span>
+
         </div>
+
     </div>
+
+
 
     <div class="card shadow-sm mb-4 border-0 bg-light">
+
         <div class="card-body py-3">
+
             <form method="get" class="row g-2 align-items-center">
+
                 <div class="col-md-3">
+
                     <div class="input-group">
+
                         <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+
                         <input type="text" name="q" class="form-control" placeholder="이름 검색..." value="{{ sel_q }}">
+
                     </div>
+
                 </div>
+
                 <div class="col-md-2">
+
                     <select name="cohort" class="form-select">
+
                         <option value="">전체 기수</option>
+
                         {% for c in cohorts %}
+
                             <option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>
+
                         {% endfor %}
+
                     </select>
+
                 </div>
+
                 <div class="col-md-2">
+
                     <select name="process" class="form-select">
+
                         <option value="">전체 공정</option>
+
                         {% for p in processes %}
+
                             <option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>
+
                         {% endfor %}
+
                     </select>
+
                 </div>
+
                 <div class="col-md-2">
+
                     <button type="submit" class="btn btn-primary w-100">조회</button>
+
                 </div>
+
                 <div class="col-md-2">
+
                     <a href="{% url 'quiz:pl_dashboard' %}" class="btn btn-outline-secondary w-100">초기화</a>
+
                 </div>
+
             </form>
+
         </div>
+
     </div>
+
+
 
     {% if no_data %}
+
         <div class="alert alert-warning text-center p-5">
+
             <h4>데이터가 없습니다.</h4>
+
             <p>검색 조건에 맞는 인원이 없거나, 담당 교육생이 배정되지 않았습니다.</p>
+
         </div>
+
     {% else %}
 
+
+
     <div class="row g-3 mb-4">
+
         <div class="col-md-3">
+
             <div class="card shadow-sm h-100 border-start border-primary border-5">
+
                 <div class="card-body">
+
                     <h6 class="text-uppercase text-muted mb-2">관리 인원</h6>
+
                     <h2 class="mb-0 fw-bold">{{ total_count }} <span class="fs-6 text-muted">명</span></h2>
+
                 </div>
+
             </div>
+
         </div>
+
         <div class="col-md-3">
+
             <div class="card shadow-sm h-100 border-start border-success border-5">
+
                 <div class="card-body">
+
                     <h6 class="text-uppercase text-muted mb-2">과정 평균</h6>
+
                     <h2 class="mb-0 fw-bold text-success">{{ avg_final }} <span class="fs-6 text-muted">점</span></h2>
+
                 </div>
+
             </div>
+
         </div>
+
         <div class="col-md-3">
+
             <div class="card shadow-sm h-100 border-start border-warning border-5">
+
                 <div class="card-body">
+
                     <h6 class="text-uppercase text-muted mb-2">🥇 수석 (1등)</h6>
+
                     {% if top_trainees %}
+
                         <h4 class="mb-0 fw-bold">{{ top_trainees.0.profile.name }} <span class="badge bg-warning text-dark fs-6">{{ top_trainees.0.final_assessment.final_score|floatformat:1 }}점</span></h4>
+
                     {% else %}
+
                         <span class="text-muted">-</span>
+
                     {% endif %}
+
                 </div>
+
             </div>
+
         </div>
+
         <div class="col-md-3">
+
             <div class="card shadow-sm h-100 border-start border-danger border-5">
+
                 <div class="card-body">
+
                     <h6 class="text-uppercase text-muted mb-2">🚨 집중 케어</h6>
+
                     <h2 class="mb-0 fw-bold text-danger">{{ risk_trainees.count }} <span class="fs-6 text-muted">명</span></h2>
+
                 </div>
+
             </div>
+
         </div>
+
     </div>
+
+
 
     <div class="row mb-4">
+
         <div class="col-lg-4">
+
             <div class="card shadow-sm h-100">
+
                 <div class="card-header bg-white fw-bold"><i class="bi bi-hexagon-half"></i> 종합 역량 (평균)</div>
+
                 <div class="card-body"><canvas id="radarChart" style="max-height: 250px;"></canvas></div>
+
             </div>
+
         </div>
+
         <div class="col-lg-4">
+
             <div class="card shadow-sm h-100">
+
                 <div class="card-header bg-white fw-bold"><i class="bi bi-pie-chart-fill"></i> 상태 현황</div>
+
                 <div class="card-body position-relative"><canvas id="statusChart" style="max-height: 250px;"></canvas></div>
+
             </div>
+
         </div>
+
         <div class="col-lg-4">
+
             <div class="card shadow-sm h-100">
+
                 <div class="card-header bg-white fw-bold text-warning"><i class="bi bi-trophy-fill"></i> 명예의 전당 (Top 3)</div>
+
                 <ul class="list-group list-group-flush">
+
                     {% for item in top_trainees %}
+
                         <li class="list-group-item d-flex justify-content-between align-items-center py-3">
+
                             <div class="d-flex align-items-center">
+
                                 <span class="badge bg-warning text-dark me-3 rounded-circle p-2" style="width:30px; height:30px;">{{ forloop.counter }}</span>
+
                                 <div><h6 class="mb-0 fw-bold">{{ item.profile.name }}</h6><small class="text-muted">{{ item.profile.cohort.name }}</small></div>
+
                             </div>
+
                             <span class="fw-bold text-primary">{{ item.final_assessment.final_score|floatformat:1 }}점</span>
+
                         </li>
+
                     {% empty %}
+
                         <li class="list-group-item text-center py-4 text-muted">데이터가 없습니다.</li>
+
                     {% endfor %}
+
                 </ul>
+
             </div>
+
         </div>
+
     </div>
+
+
 
     <div class="card shadow-sm">
+
         <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+
             <h5 class="mb-0 fw-bold"><i class="bi bi-list-ul"></i> 교육생 상세 현황</h5>
-            <a href="{% url 'quiz:pl_report_view' %}?q={{ sel_q }}&cohort={{ sel_cohort }}&process={{ sel_process }}" 
+
+            <a href="{% url 'quiz:pl_report_view' %}?q={{ sel_q }}&cohort={{ sel_cohort }}&process={{ sel_process }}"
+
                target="_blank" class="btn btn-sm btn-success">
+
                 <i class="bi bi-file-earmark-pdf-fill"></i> 상세 성적표 PDF 다운로드
+
             </a>
+
         </div>
+
         <div class="table-responsive">
+
             <table class="table table-hover align-middle mb-0">
+
                 <thead class="table-light">
+
                     <tr>
+
                         <th>이름 / 사번</th>
+
                         <th>현재 상태</th>
+
                         <th>기수</th>
+
                         <th>공정</th>
+
                         <th class="text-center">시험 평균</th>
+
                         <th class="text-center">종합 점수</th>
+
                         <th class="text-center">석차</th>
+
                         <th class="text-center">관리</th>
+
                     </tr>
+
                 </thead>
+
                 <tbody>
+
                     {% for item in trainee_list %}
+
                     <tr style="cursor: pointer;" onclick="location.href='{% url 'quiz:pl_trainee_detail' item.profile.id %}'">
+
                         <td>
+
                             <div class="fw-bold">{{ item.profile.name }}</div>
+
                             <small class="text-muted">{{ item.profile.employee_id }}</small>
+
                         </td>
+
                         <td>
+
                             {% if item.profile.status == 'attending' %}<span class="badge bg-success">재직중</span>
+
                             {% elif item.profile.status == 'counseling' %}<span class="badge bg-warning text-dark">⚠️ 면담필요</span>
+
                             {% elif item.profile.status == 'dropout' %}<span class="badge bg-danger">퇴소</span>
+
                             {% else %}<span class="badge bg-info">수료</span>{% endif %}
+
                         </td>
+
                         <td>{{ item.profile.cohort.name|default:"-" }}</td>
+
                         <td>{{ item.profile.process.name|default:"-" }}</td>
+
                         <td class="text-center">
+
                             <small class="fw-bold">{{ item.exam_avg|floatformat:1 }}점</small>
+
                         </td>
+
                         <td class="text-center fw-bold text-primary">{{ item.final_score|floatformat:2 }}</td>
+
                         <td class="text-center">{% if item.rank != '-' %}{{ item.rank }}등{% else %}-{% endif %}</td>
+
                         <td class="text-center">
+
                             <a href="{% url 'quiz:pl_trainee_detail' item.profile.id %}" class="btn btn-sm btn-outline-primary">
+
                                 <i class="bi bi-search"></i> 상세
+
                             </a>
+
                         </td>
+
                     </tr>
+
                     {% endfor %}
+
                 </tbody>
+
             </table>
+
         </div>
+
     </div>
+
     {% endif %}
+
 </div>
 
+
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
+
 document.addEventListener("DOMContentLoaded", function() {
+
     const radarCtx = document.getElementById('radarChart');
+
     if(radarCtx) {
+
         new Chart(radarCtx.getContext('2d'), {
+
             type: 'radar',
+
             data: {
+
                 labels: ['시험 성적', '실습 능력', '노트 필기', '태도/인성'],
+
                 datasets: [{
+
                     label: '우리 반 평균',
+
                     data: {{ radar_data|safe }},
+
                     fill: true,
+
                     backgroundColor: 'rgba(54, 162, 235, 0.2)',
+
                     borderColor: 'rgb(54, 162, 235)',
+
                     pointBackgroundColor: 'rgb(54, 162, 235)',
+
                 }]
+
             },
+
             options: {
+
                 elements: { line: { borderWidth: 3 } },
+
                 scales: { r: { angleLines: { display: false }, suggestedMin: 0, suggestedMax: 100 } }
+
             }
+
         });
+
     }
 
+
+
     const statusCtx = document.getElementById('statusChart');
+
     if(statusCtx) {
+
         new Chart(statusCtx.getContext('2d'), {
+
             type: 'doughnut',
+
             data: {
+
                 labels: ['재직', '면담필요', '퇴소', '수료'],
+
                 datasets: [{
+
                     data: {{ status_counts|safe }},
+
                     backgroundColor: ['#198754', '#ffc107', '#dc3545', '#0dcaf0'],
+
                 }]
+
             },
+
             options: { cutout: '70%', plugins: { legend: { position: 'bottom' } } }
+
         });
+
     }
+
 });
+
 </script>
+
 {% endblock %}

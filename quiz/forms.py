@@ -61,7 +61,7 @@ class QuizForm(forms.ModelForm):
         fields = [
             'title', 'description', 'category', 'related_process', 
             'generation_method', 'question_count', 'pass_score', 'time_limit',
-            'required_tags', 'questions', 'allowed_groups', 'allowed_users'
+            'required_tags', 'questions', 'allowed_groups', 'allowed_users', 'is_published'
         ]
         
         widgets = {
@@ -98,6 +98,7 @@ class QuizForm(forms.ModelForm):
             'questions': '지정 문제 선택',
             'allowed_groups': '응시 허용 그룹',
             'allowed_users': '응시 허용 사용자',
+            'is_published': '공개 여부 (체크 시 교육생에게 노출됨)',
         }
 
     def clean(self):

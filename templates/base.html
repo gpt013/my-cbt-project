@@ -14,11 +14,18 @@
         .nav-link { font-weight: 500; }
         .nav-link.active { color: #0d6efd !important; font-weight: 700; }
         
-        /* 매니저 전용 스타일 (검은색) */
+        /* 매니저 전용 스타일 */
         .manager-nav { background-color: #343a40 !important; }
         .manager-nav .navbar-brand, .manager-nav .nav-link { color: #e9ecef !important; }
         .manager-nav .nav-link:hover { color: #ffc107 !important; }
         .manager-nav .dropdown-menu { border-radius: 0.5rem; }
+
+        /* [추가] 알림 드롭다운 스타일 */
+        .notification-item:hover { background-color: #f8f9fa; cursor: pointer; }
+        .dropdown-menu-arrow::before {
+            content: ""; position: absolute; top: -10px; right: 20px;
+            border-width: 0 10px 10px 10px; border-style: solid; border-color: transparent transparent white transparent;
+        }
     </style>
 </head>
 <body>
@@ -31,7 +38,6 @@
     <header>
         <nav class="navbar navbar-expand-xl manager-nav navbar-dark shadow-sm">
             <div class="container-fluid">
-                {# 로고 링크: 매니저는 대시보드, PL은 PL 대시보드로 #}
                 <a class="navbar-brand fw-bold" href="{% if user.profile.is_manager or user.is_superuser %}{% url 'quiz:manager_dashboard' %}{% else %}{% url 'quiz:pl_dashboard' %}{% endif %}">
                     <i class="bi bi-shield-lock-fill text-warning"></i> PMTC 매니저 센터
                 </a>
@@ -41,43 +47,54 @@
                 
                 <div class="collapse navbar-collapse" id="managerNav">
                     <ul class="navbar-nav me-auto mb-2 mb-xl-0">
-                        
-                        {# ================================================= #}
-                        {# [1] 진짜 매니저(또는 슈퍼유저)만 보는 메뉴 그룹 #}
-                        {# (대시보드, 교육생관리, 근무표, 교육생센터 포함) #}
-                        {# ================================================= #}
                         {% if user.is_superuser or user.profile.is_manager %}
-                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_dashboard' %}"><i class="bi bi-speedometer2"></i> 대시보드</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_trainee_list' %}"><i class="bi bi-people"></i> 교육생 관리</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}?role=manager"><i class="bi bi-calendar-check"></i> 근무표</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:manager_exam_requests' %}"><i class="bi bi-check-circle"></i> 요청 승인</a></li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{% url 'quiz:manager_dashboard' %}"><i class="bi bi-speedometer2"></i> 대시보드</a>
+                            </li>
+
+                           <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-people"></i> 학생 관리</a>
+                                <ul class="dropdown-menu shadow-sm">
+                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_trainee_list' %}"><i class="bi bi-person-lines-fill me-2"></i>교육생 관리</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_exam_requests' %}"><i class="bi bi-check-circle me-2"></i>요청 승인 (시험/권한)</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item" href="#" onclick="openSmartModal('dropoutModal', event)"><i class="bi bi-person-x me-2"></i>중도 퇴사 관리</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="openSmartModal('quickWarningModal', event)"><i class="bi bi-lightning-charge me-2"></i>빠른 경고/경고장 작성</a></li>
+                                </ul>
+                            </li>
+
+                            <li class="nav-item dropdown">
+                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-calendar-week"></i> 일정 관리</a>
+                                <ul class="dropdown-menu shadow-sm">
+                                    <li><a class="dropdown-item" href="{% url 'attendance:schedule_index' %}?role=manager"><i class="bi bi-calendar-check me-2"></i>근무표 조회/수정</a></li>
+                                    <li><a class="dropdown-item" href="/quiz/manager/facility/"><i class="bi bi-building me-2"></i>시설/장비 관리</a></li>
+                                </ul>
+                            </li>
                             
                             <li class="nav-item dropdown">
                                 <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-file-earmark-text"></i> 시험/문제</a>
-                                <ul class="dropdown-menu shadow">
-                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_quiz_list' %}">시험 목록 및 수정</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:upload_quiz' %}">엑셀로 시험 등록</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:bulk_add_sheet_view' %}">엑셀로 문제 추가</a></li>
+                                <ul class="dropdown-menu shadow-sm">
+                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_quiz_list' %}"><i class="bi bi-card-list me-2"></i>시험 목록 및 수정</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:upload_quiz' %}"><i class="bi bi-file-earmark-arrow-up me-2"></i>엑셀로 시험 등록</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:bulk_add_sheet_view' %}"><i class="bi bi-file-earmark-plus me-2"></i>엑셀로 문제 추가</a></li>
                                 </ul>
                             </li>
 
                             <li class="nav-item dropdown">
                                 <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-bar-chart"></i> 통계/분석</a>
-                                <ul class="dropdown-menu shadow">
-                                    <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}">전체 통계</a></li>
+                                <ul class="dropdown-menu shadow-sm">
+                                    <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}"><i class="bi bi-pie-chart me-2"></i>전체 통계</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:latest_cohort_report' %}"><i class="bi bi-file-earmark-bar-graph me-2"></i>기수 마감 종합 리포트</a></li>
                                     {% if user.is_superuser %}
                                     <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:admin_full_data_view' %}"><i class="bi bi-grid-3x3"></i> 교육생 종합 마스터 그리드</a></li>
-                                    <li><a class="dropdown-item text-danger" href="{% url 'admin:index' %}" target="_blank">⚙️ 시스템 Admin</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'quiz:admin_full_data_view' %}"><i class="bi bi-grid-3x3 me-2"></i>교육생 마스터 그리드</a></li>
+                                    <li><a class="dropdown-item" href="{% url 'admin:index' %}" target="_blank"><i class="bi bi-gear me-2"></i>시스템 Admin</a></li>
                                     {% endif %}
                                 </ul>
                             </li>
 
-                            {# [수정됨] 교육생 센터 메뉴를 여기(매니저 전용 구역) 안으로 이동시켰습니다. #}
                             <li class="nav-item dropdown border-start ms-2 ps-2">
-                                <a class="nav-link dropdown-toggle text-info fw-bold" href="#" data-bs-toggle="dropdown">
-                                    🎓 교육생 센터
-                                </a>
+                                <a class="nav-link dropdown-toggle text-info fw-bold" href="#" data-bs-toggle="dropdown">🎓 교육생 센터</a>
                                 <ul class="dropdown-menu shadow">
                                     <li><h6 class="dropdown-header">학생 모드 기능</h6></li>
                                     <li><a class="dropdown-item" href="{% url 'quiz:my_page' %}">마이페이지 (홈)</a></li>
@@ -88,9 +105,6 @@
                             </li>
                         {% endif %}
 
-                        {# ================================================= #}
-                        {# [2] PL(파트장) 또는 슈퍼유저만 보는 메뉴 #}
-                        {# ================================================= #}
                         {% if user.is_superuser or user.profile.is_pl %}
                             <li class="nav-item ms-lg-2">
                                 <a class="nav-link text-warning fw-bold border border-warning rounded px-2" href="{% url 'quiz:pl_dashboard' %}">
@@ -101,24 +115,32 @@
                     </ul>
 
                     <div class="d-flex align-items-center text-white">
-                        {# [공통] 알림 센터 (PL도 알림은 봐야 하므로 유지) #}
-                        <a class="nav-link position-relative" href="{% url 'quiz:notification_list' %}">
-    <i class="bi bi-bell fs-5"></i>
-    
-    {% if has_unread_notifications %}
-        <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle">
-            <span class="visually-hidden">New alerts</span>
-        </span>
-    {% endif %}
-</a>
+                        
+                        <ul class="navbar-nav me-3">
+                            <li class="nav-item dropdown">
+                                <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
+                                    <i id="bell-icon" class="bi bi-bell fs-5"></i>
+                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-manager" style="display:none;">0</span>
+                                </a>
+                                <ul class="dropdown-menu dropdown-menu-end shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
+                                    <li class="dropdown-header d-flex justify-content-between align-items-center">
+                                        <span class="small fw-bold">알림 <span id="noti-count-text-manager">0</span>개</span>
+                                        <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <div id="noti-list-container-manager">
+                                        <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
+                                    </div>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
+                                </ul>
+                            </li>
+                        </ul>
 
                         <span class="me-3 d-none d-lg-inline">
-                            {% if user.profile.is_manager %}
-                                <span class="badge bg-warning text-dark me-1">Manager</span>
-                            {% elif user.profile.is_pl %}
-                                <span class="badge bg-info text-dark me-1">PL</span>
-                            {% else %}
-                                <span class="badge bg-secondary me-1">Staff</span>
+                            {% if user.profile.is_manager %} <span class="badge bg-warning text-dark me-1">Manager</span>
+                            {% elif user.profile.is_pl %} <span class="badge bg-info text-dark me-1">PL</span>
+                            {% else %} <span class="badge bg-secondary me-1">Staff</span>
                             {% endif %}
                             <strong>{{ user.profile.name|default:user.username }}</strong>
                         </span>
@@ -132,7 +154,7 @@
         </nav>
     </header>
 
-    {# [B] 일반 교육생인 경우 #}
+    {# [B] 일반 교육생인 경우 (이하 코드는 기존과 완벽히 동일) #}
     {% else %}
     <header>
         <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
@@ -147,28 +169,34 @@
                 <div class="collapse navbar-collapse" id="studentNav">
                     <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         {% if user.is_authenticated %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'quiz:my_page' %}"><i class="bi bi-house-door"></i> 마이페이지</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'quiz:index' %}"><i class="bi bi-list-task"></i> 시험 목록</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'quiz:my_results_index' %}"><i class="bi bi-check2-square"></i> 성적 확인</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up"></i> 대시보드</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'quiz:notification_list' %}"><i class="bi bi-bell"></i> 알림함</a>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:my_page' %}"><i class="bi bi-house-door"></i> 마이페이지</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:index' %}"><i class="bi bi-list-task"></i> 시험 목록</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:my_results_index' %}"><i class="bi bi-check2-square"></i> 성적 확인</a></li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up"></i> 대시보드</a></li>
+                            
+                            <li class="nav-item dropdown">
+                                <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
+                                    <i id="bell-icon" class="bi bi-bell"></i> 알림
+                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-student" style="display:none; left: 80% !important;">0</span>
+                                </a>
+                                <ul class="dropdown-menu shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
+                                    <li class="dropdown-header d-flex justify-content-between align-items-center">
+                                        <span class="small fw-bold">알림 <span id="noti-count-text-student">0</span>개</span>
+                                        <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <div id="noti-list-container-student">
+                                        <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
+                                    </div>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
+                                </ul>
                             </li>
                             
                             <li class="nav-item border-start ms-lg-2 ps-lg-2">
                                 <a class="nav-link" href="{% url 'attendance:check_in_page' %}"><i class="bi bi-camera"></i> MDM</a>
                             </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3"></i> 근무표</a>
-                            </li>
+                            <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3"></i> 근무표</a></li>
                         {% endif %}
                     </ul>
 
@@ -215,7 +243,301 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     {% if user.is_authenticated and not is_in_test_mode and not is_completing_profile %} 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadNotifications(true); 
+        });
+
+        function loadNotifications(onlyBadge = false) {
+            const badgeM = document.getElementById('noti-badge-manager');
+            const badgeS = document.getElementById('noti-badge-student');
+            
+            fetch('/quiz/api/notifications/') 
+            .then(res => res.json())
+            .then(data => {
+                // 1. 뱃지 업데이트
+                if(data.count > 0) {
+                    if(badgeM) { badgeM.innerText = data.count; badgeM.style.display = 'inline-block'; }
+                    if(badgeS) { badgeS.innerText = data.count; badgeS.style.display = 'inline-block'; }
+                } else {
+                    if(badgeM) badgeM.style.display = 'none';
+                    if(badgeS) badgeS.style.display = 'none';
+                }
+
+                if(onlyBadge) return;
+
+                // 2. 리스트 업데이트
+                const countTextM = document.getElementById('noti-count-text-manager');
+                const listM = document.getElementById('noti-list-container-manager');
+                const countTextS = document.getElementById('noti-count-text-student');
+                const listS = document.getElementById('noti-list-container-student');
+
+                let targetList = listM || listS;
+                let targetCount = countTextM || countTextS;
+
+                if (targetCount) targetCount.innerText = data.count;
+                if (targetList) {
+                    targetList.innerHTML = '';
+                    if (data.count === 0) {
+                        targetList.innerHTML = '<li class="dropdown-item text-center text-muted small py-3">새로운 알림이 없습니다.</li>';
+                    } else {
+                        data.notifications.forEach(n => {
+                            // ★ 클릭 시 clickAndMove 함수 실행 (읽음 처리 + 이동)
+                            targetList.innerHTML += `
+                                <li class="dropdown-item d-flex align-items-start p-2 border-bottom notification-item" 
+                                    onclick="clickAndMove(${n.id}, '${n.link}')">
+                                    <i class="bi ${n.icon} text-primary fs-4 me-2"></i>
+                                    <div class="flex-grow-1" style="line-height:1.2;">
+                                        <div class="fw-bold small text-truncate" style="max-width: 180px;">${n.message}</div>
+                                        <span class="text-muted" style="font-size:0.7em;">${n.time}</span>
+                                    </div>
+                                    <button onclick="deleteNoti(${n.id}, event)" class="btn btn-link text-secondary p-0 ms-1"><i class="bi bi-x"></i></button>
+                                </li>
+                            `;
+                        });
+                    }
+                }
+            })
+            .catch(err => console.log('알림 로딩 실패'));
+        }
+
+        // [기능 1] 알림 클릭: 읽음 처리 후 페이지 이동
+        function clickAndMove(id, link) {
+    // 1. 화면 이동 없이 몰래(fetch) 백엔드에 읽음 처리 요청을 보냅니다.
+    fetch(`/quiz/notification/read/${id}/`)
+    .then(res => res.json())
+    .then(data => {
+        // 2. 백엔드 처리가 성공하면 넘어온 link 값을 확인합니다.
+        if (link && link !== 'null' && link !== 'None' && link !== '#') {
+            // 링크가 있다면 해당 페이지로 자연스럽게 이동합니다.
+            window.location.href = link;
+        } else {
+            // 이동할 링크가 딱히 없다면, 종 모양 뱃지와 알림 목록만 새로고침 합니다.
+            loadNotifications(); 
+        }
+    })
+    .catch(err => console.error('알림 읽음 처리 중 오류 발생:', err));
+}
+
+        // [기능 2] X 버튼: 영구 삭제
+        function deleteNoti(id, event) {
+            event.stopPropagation(); // 클릭 이벤트 전파 방지
+            event.preventDefault();
+            
+            fetch(`/quiz/notification/delete/${id}/`)
+            .then(res => res.json())
+            .then(d => {
+                loadNotifications(); // 목록 갱신
+            });
+        }
+
+        // [기능 3] 전체 삭제
+        function clearAllNotis() {
+            if(!confirm('모든 알림을 삭제하시겠습니까?')) return;
+            fetch(`/quiz/notification/clear-all/`)
+            .then(res => res.json())
+            .then(d => loadNotifications());
+        }
+
+        function openSmartModal(modalId, event) {
+            event.preventDefault(); // 기본 링크 이동 막기
+            
+            // 1. 현재 페이지에 해당 모달이 있으면 (대시보드인 경우) 바로 엽니다.
+            if (document.getElementById(modalId)) {
+                var myModal = new bootstrap.Modal(document.getElementById(modalId));
+                myModal.show();
+            } 
+            // 2. 현재 페이지에 모달이 없으면 (다른 페이지인 경우) 대시보드로 가면서 신호를 보냅니다.
+            else {
+                window.location.href = "{% url 'quiz:manager_dashboard' %}?open_modal=" + modalId;
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const modalToOpen = urlParams.get('open_modal');
     
+    if (modalToOpen && document.getElementById(modalToOpen)) {
+        // 지정된 모달을 자동으로 띄움
+        var autoModal = new bootstrap.Modal(document.getElementById(modalToOpen));
+        autoModal.show();
+        
+        // 주소창이 지저분해지지 않게 꼬리표(?open_modal=...)를 몰래 지워줌
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+});
+    </script>
+
+ <style>
+        /* 1. 종 모양 흔들림 애니메이션 */
+        @keyframes ringBell {
+            0% { transform: rotate(0); }
+            10% { transform: rotate(20deg); }
+            20% { transform: rotate(-20deg); }
+            30% { transform: rotate(15deg); }
+            40% { transform: rotate(-15deg); }
+            50% { transform: rotate(0); }
+            100% { transform: rotate(0); }
+        }
+        /* 2. 주황색 깜빡임 효과 */
+        @keyframes flashOrange {
+            0% { background-color: #dc3545; transform: scale(1); }
+            50% { background-color: #fd7e14; transform: scale(1.3); box-shadow: 0 0 15px #fd7e14; }
+            100% { background-color: #dc3545; transform: scale(1); }
+        }
+        .bell-ring-active { animation: ringBell 0.8s ease-in-out; color: #fd7e14 !important; }
+        .badge-flash-active { animation: flashOrange 1s ease-in-out 3; }
+    </style>
+
+    <script>
+        // 기존 알림 개수 기억용 변수 (전역 변수)
+        let previousNotiCount = -1;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // 1. 페이지 로드 시 알림 숫자만 우선 가져오기
+            loadNotifications(true); 
+            
+            // 2. 30초마다 사용자 몰래 서버 확인 (실시간 알림)
+            setInterval(() => {
+                loadNotifications(true);
+            }, 30000); 
+
+            // 3. ★ [누락 수정 완료] URL 확인해서 모달창 자동 띄우기 로직을 안전하게 내부로 이동!
+            const urlParams = new URLSearchParams(window.location.search);
+            const modalToOpen = urlParams.get('open_modal');
+            if (modalToOpen && document.getElementById(modalToOpen)) {
+                var autoModal = new bootstrap.Modal(document.getElementById(modalToOpen));
+                autoModal.show();
+                // 주소창 지저분한 꼬리표 정리
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
+
+        // ==========================================
+        // 통합 알림 로드 함수
+        // ==========================================
+        function loadNotifications(onlyBadge = false) {
+            const badgeM = document.getElementById('noti-badge-manager');
+            const badgeS = document.getElementById('noti-badge-student');
+            
+            // HTML 네비바에 id="bell-icon" 이 추가되어 있어야 애니메이션이 작동합니다!
+            const bellIcon = document.getElementById('bell-icon'); 
+            
+            fetch('/quiz/api/notifications/') 
+            .then(res => res.json())
+            .then(data => {
+                const currentCount = data.count;
+
+                // [1] 뱃지 숫자 업데이트
+                if(currentCount > 0) {
+                    if(badgeM) { badgeM.innerText = currentCount; badgeM.style.display = 'inline-block'; }
+                    if(badgeS) { badgeS.innerText = currentCount; badgeS.style.display = 'inline-block'; }
+                } else {
+                    if(badgeM) badgeM.style.display = 'none';
+                    if(badgeS) badgeS.style.display = 'none';
+                }
+
+                // [2] 새 알림 도착 감지 & 깜빡임 효과 발동!
+                if (previousNotiCount !== -1 && currentCount > previousNotiCount) {
+                    if (badgeM) badgeM.classList.add('badge-flash-active');
+                    if (badgeS) badgeS.classList.add('badge-flash-active');
+                    if (bellIcon) bellIcon.classList.add('bell-ring-active');
+                    
+                    // 3초 뒤 애니메이션 초기화
+                    setTimeout(() => {
+                        if (badgeM) badgeM.classList.remove('badge-flash-active');
+                        if (badgeS) badgeS.classList.remove('badge-flash-active');
+                        if (bellIcon) bellIcon.classList.remove('bell-ring-active');
+                    }, 3000);
+                }
+                
+                // 현재 개수를 기억해둠
+                previousNotiCount = currentCount;
+
+                // ★ onlyBadge가 true면(자동 갱신) 숫자만 바꾸고 리스트는 그리지 않음 (서버 부하/화면 멈춤 방지)
+                if(onlyBadge) return;
+
+                // [3] 드롭다운 리스트 업데이트 (사용자가 직접 종 모양을 클릭했을 때만 실행)
+                const countTextM = document.getElementById('noti-count-text-manager');
+                const listM = document.getElementById('noti-list-container-manager');
+                const countTextS = document.getElementById('noti-count-text-student');
+                const listS = document.getElementById('noti-list-container-student');
+
+                let targetList = listM || listS;
+                let targetCount = countTextM || countTextS;
+
+                if (targetCount) targetCount.innerText = currentCount;
+                if (targetList) {
+                    targetList.innerHTML = ''; // 기존 리스트 싹 비우기
+                    if (currentCount === 0) {
+                        targetList.innerHTML = '<li class="dropdown-item text-center text-muted small py-3">새로운 알림이 없습니다.</li>';
+                    } else {
+                        data.notifications.forEach(n => {
+                            // 알림 리스트 다시 그리기
+                            targetList.innerHTML += `
+                                <li class="dropdown-item d-flex align-items-start p-2 border-bottom notification-item" 
+                                    onclick="clickAndMove(${n.id}, '${n.link}')">
+                                    <i class="bi ${n.icon} text-primary fs-4 me-2"></i>
+                                    <div class="flex-grow-1" style="line-height:1.2;">
+                                        <div class="fw-bold small text-truncate" style="max-width: 180px;">${n.message}</div>
+                                        <span class="text-muted" style="font-size:0.7em;">${n.time}</span>
+                                    </div>
+                                    <button onclick="deleteNoti(${n.id}, event)" class="btn btn-link text-secondary p-0 ms-1"><i class="bi bi-x"></i></button>
+                                </li>
+                            `;
+                        });
+                    }
+                }
+            })
+            .catch(err => console.log('알림 로딩 대기 중...'));
+        }
+
+        // ==========================================
+        // 기타 유틸리티 함수들
+        // ==========================================
+        
+        // 알림 클릭: 읽음 처리 후 페이지 이동
+        function clickAndMove(id, link) {
+            fetch(`/quiz/notification/read/${id}/`)
+            .then(res => res.json())
+            .then(data => {
+                if (link && link !== 'null' && link !== 'None' && link !== '#') {
+                    window.location.href = link;
+                } else {
+                    loadNotifications(false); // 링크 없으면 리스트 다시 로드
+                }
+            })
+            .catch(err => console.error('알림 읽음 처리 중 오류 발생:', err));
+        }
+
+        // X 버튼: 영구 삭제
+        function deleteNoti(id, event) {
+            event.stopPropagation();
+            event.preventDefault();
+            fetch(`/quiz/notification/delete/${id}/`)
+            .then(res => res.json())
+            .then(d => { loadNotifications(false); });
+        }
+
+        // 전체 삭제
+        function clearAllNotis() {
+            if(!confirm('모든 알림을 삭제하시겠습니까?')) return;
+            fetch(`/quiz/notification/clear-all/`)
+            .then(res => res.json())
+            .then(d => loadNotifications(false));
+        }
+
+        // 스마트 모달 열기
+        function openSmartModal(modalId, event) {
+            event.preventDefault(); 
+            if (document.getElementById(modalId)) {
+                var myModal = new bootstrap.Modal(document.getElementById(modalId));
+                myModal.show();
+            } else {
+                window.location.href = "{% url 'quiz:manager_dashboard' %}?open_modal=" + modalId;
+            }
+        }
+    </script>
     {% endif %}
 </body>
 </html>

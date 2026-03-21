@@ -39,10 +39,10 @@
                     <div class="col-md-4">
                         <label for="difficulty" class="form-label fw-bold">난이도</label>
                         <select name="difficulty" id="difficulty" class="form-select">
-                            <option value="1" {% if question.difficulty == 1 %}selected{% endif %}>하</option>
-                            <option value="2" {% if question.difficulty == 2 %}selected{% endif %}>중</option>
-                            <option value="3" {% if question.difficulty == 3 %}selected{% endif %}>상</option>
-                        </select>
+    <option value="1" {% if question.difficulty|stringformat:"s" == "1" %}selected{% endif %}>하</option>
+    <option value="2" {% if question.difficulty|stringformat:"s" == "2" %}selected{% endif %}>중</option>
+    <option value="3" {% if question.difficulty|stringformat:"s" == "3" %}selected{% endif %}>상</option>
+</select>
                     </div>
                 </div>
 
@@ -53,7 +53,7 @@
 
                 <div class="mb-4">
                     <label for="question_image" class="form-label fw-bold">문제 이미지 (선택)</label>
-                    <input type="file" name="image" id="question_image" class="form-control" accept="image/*">
+                    <input type="file" name="question_image" id="question_image" class="form-control" accept="image/*">
                     {% if question.image %}
                         <div class="mt-2 p-2 border rounded bg-light d-flex align-items-center">
                             <i class="bi bi-image me-2 text-primary"></i>
@@ -77,18 +77,65 @@
                     <div id="choice_msg" class="alert alert-primary py-2 small mb-3">
                         <i class="bi bi-info-circle-fill"></i> 보기를 입력하고 정답을 체크해주세요.
                     </div>
-                    {% for i in "1234" %}
-                    <div class="input-group mb-3 align-items-center bg-light p-2 rounded">
-                        <span class="input-group-text fw-bold border-0 bg-transparent" style="width: 80px;">{{ forloop.counter }}번 보기</span>
-                        <input type="text" class="form-control ui-choice-text" data-index="{{ forloop.counter }}" placeholder="보기 내용을 입력하세요">
-                        <div class="input-group-text bg-transparent border-0">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input ui-choice-correct" type="checkbox" data-index="{{ forloop.counter }}" id="ui_check_{{ forloop.counter }}">
-                                <label class="form-check-label fw-bold text-primary" for="ui_check_{{ forloop.counter }}">정답</label>
+                    
+                    {% if is_update %}
+                        {% for choice in choices %}
+                        <div class="card mb-3 bg-light border-0">
+                            <div class="card-body p-2">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="badge bg-secondary">{{ forloop.counter }}번</span>
+                                    <div class="form-check form-switch ms-auto">
+                                        <input class="form-check-input ui-choice-correct" 
+                                               type="checkbox" 
+                                               name="is_correct_{{ forloop.counter }}" 
+                                               data-index="{{ forloop.counter }}" 
+                                               id="ui_check_{{ forloop.counter }}"
+                                               {% if choice and choice.is_correct %}checked{% endif %}>
+                                        <label class="form-check-label fw-bold text-primary" for="ui_check_{{ forloop.counter }}">정답 설정</label>
+                                    </div>
+                                </div>
+                                <input type="text" 
+                                       class="form-control mb-2 ui-choice-text" 
+                                       name="choice_text_{{ forloop.counter }}" 
+                                       data-index="{{ forloop.counter }}" 
+                                       placeholder="보기 텍스트 (선택)"
+                                       value="{{ choice.choice_text|default:'' }}">
+                                {% if choice and choice.image %}
+                                    <div class="mb-2 p-2 border rounded bg-white text-center">
+                                        <img src="{{ choice.image.url }}" alt="보기 이미지" class="img-fluid rounded" style="max-height: 150px;">
+                                        <div class="small text-muted mt-1">현재 이미지</div>
+                                    </div>
+                                {% endif %}
+                                <input type="file" name="choice_image_{{ forloop.counter }}" class="form-control form-control-sm" accept="image/*">
                             </div>
                         </div>
-                    </div>
-                    {% endfor %}
+                        {% endfor %}
+                    {% else %}
+                        {% for i in "1234" %}
+                        <div class="card mb-3 bg-light border-0">
+                            <div class="card-body p-2">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span class="badge bg-secondary">{{ forloop.counter }}번</span>
+                                    <div class="form-check form-switch ms-auto">
+                                        <input class="form-check-input ui-choice-correct" 
+                                               type="checkbox" 
+                                               name="is_correct_{{ forloop.counter }}" 
+                                               data-index="{{ forloop.counter }}" 
+                                               id="ui_check_{{ forloop.counter }}">
+                                        <label class="form-check-label fw-bold text-primary" for="ui_check_{{ forloop.counter }}">정답 설정</label>
+                                    </div>
+                                </div>
+                                <input type="text" 
+                                       class="form-control mb-2 ui-choice-text" 
+                                       name="choice_text_{{ forloop.counter }}" 
+                                       data-index="{{ forloop.counter }}" 
+                                       placeholder="보기 텍스트 (선택)"
+                                       value="">
+                                <input type="file" name="choice_image_{{ forloop.counter }}" class="form-control form-control-sm" accept="image/*">
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
                 </div>
 
                 <div id="ui_short" class="type-ui" style="display: none;">
@@ -218,7 +265,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const currentType = typeSelect.value;
         
         if (currentType === 'short_answer') {
-            if (savedChoices[0]) document.getElementById('ui_short_input').value = savedChoices[0].text;
+            // ★ [버그 픽스] 첫 번째 값만 가져오는게 아니라, 배열에 있는 모든 정답을 콤마(,)로 이어 붙입니다!
+            const allShortAnswers = savedChoices.map(choice => choice.text);
+            document.getElementById('ui_short_input').value = allShortAnswers.join(', ');
         
         } else if (currentType === 'true_false') {
             const correctChoice = savedChoices.find(c => c.is_correct);

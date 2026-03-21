@@ -2,37 +2,106 @@
 {% load static %}
 
 {% block content %}
-<div class="container mt-5" style="max-width: 800px;">
+<div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h3 class="fw-bold"><i class="bi bi-bell-fill text-warning"></i> 알림 센터</h3>
-        <span class="badge bg-danger rounded-pill">안 읽음 {{ unread_count }}개</span>
+        <h2 class="fw-bold"><i class="bi bi-bell"></i> 알림 센터</h2>
+        <div>
+            <button onclick="clearAllPageNotifications()" class="btn btn-danger btn-sm">
+                <i class="bi bi-trash"></i> 전체 삭제
+            </button>
+        </div>
     </div>
 
-    <div class="list-group shadow-sm">
-        {% for noti in notifications %}
-            <a href="{% url 'quiz:notification_read' noti.id %}" 
-               class="list-group-item list-group-item-action p-4 {% if not noti.is_read %}bg-light border-start border-4 border-primary{% endif %}"
-               aria-current="true">
-                
-                <div class="d-flex w-100 justify-content-between mb-1">
-                    <h5 class="mb-1 fw-bold text-dark">
-                        {% if not noti.is_read %}<span class="text-primary me-1">●</span>{% endif %}
-                        {{ noti.message }}
-                    </h5>
-                    <small class="text-muted">{{ noti.created_at|date:"m/d H:i" }}</small>
-                </div>
-                
-                <p class="mb-1 text-secondary small">
-                    보낸 사람: <strong>{{ noti.sender.profile.name|default:noti.sender.username }}</strong> 
-                    <span class="badge bg-secondary bg-opacity-10 text-secondary ms-1">{{ noti.notification_type }}</span>
-                </p>
-            </a>
-        {% empty %}
-            <div class="text-center py-5 text-muted bg-white border rounded">
-                <i class="bi bi-inbox fs-1 d-block mb-3 text-secondary"></i>
-                <p class="mb-0">새로운 알림이 없습니다.</p>
-            </div>
-        {% endfor %}
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <ul class="list-group list-group-flush" id="full-noti-list">
+                {% for noti in notifications %}
+                <li class="list-group-item d-flex justify-content-between align-items-center p-3 list-group-item-action" 
+                    id="page-noti-{{ noti.id }}"
+                    style="cursor: pointer;"
+                    onclick="handleNotiClick('{{ noti.related_url }}', {{ noti.id }})">
+                    
+                    <div class="d-flex align-items-center">
+                        <div class="me-3">
+                            {% if noti.notification_type == 'facility' %}
+                                <div class="rounded-circle bg-info bg-opacity-10 text-info p-2"><i class="bi bi-building fs-4"></i></div>
+                            {% elif noti.notification_type == 'consult' %}
+                                <div class="rounded-circle bg-success bg-opacity-10 text-success p-2"><i class="bi bi-chat-dots-fill fs-4"></i></div>
+                            {% elif noti.notification_type == 'exam' %}
+                                <div class="rounded-circle bg-warning bg-opacity-10 text-warning p-2"><i class="bi bi-pencil-square fs-4"></i></div>
+                            {% elif noti.notification_type == 'work' %}
+                                <div class="rounded-circle bg-primary bg-opacity-10 text-primary p-2"><i class="bi bi-calendar-check fs-4"></i></div>
+                            {% else %}
+                                <div class="rounded-circle bg-secondary bg-opacity-10 text-secondary p-2"><i class="bi bi-bell fs-4"></i></div>
+                            {% endif %}
+                        </div>
+
+                        <div>
+                            <div class="mb-1">
+                                {% if noti.sender %}
+                                    <span class="badge bg-secondary me-1">{{ noti.sender.profile.name|default:noti.sender.username }}</span>
+                                {% else %}
+                                    <span class="badge bg-dark me-1">System</span>
+                                {% endif %}
+                                <span class="fw-bold text-dark">{{ noti.message }}</span>
+                            </div>
+                            <div class="text-muted small">
+                                {{ noti.created_at|date:"Y-m-d H:i" }}
+                                {% if noti.related_url %}
+                                    <span class="text-primary ms-2"><i class="bi bi-box-arrow-in-right"></i> 바로가기</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="deleteNotification({{ noti.id }}, event)" class="btn btn-sm text-secondary z-index-2" title="삭제">
+                        <i class="bi bi-x-lg"></i>
+                    </button>
+                </li>
+                {% empty %}
+                <li class="list-group-item text-center py-5 text-muted">
+                    <i class="bi bi-inbox fs-1 d-block mb-3"></i>
+                    도착한 알림이 없습니다.
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
     </div>
 </div>
+
+<script>
+    // 알림 클릭 시 이동 처리 함수
+    function handleNotiClick(url, id) {
+        if (url && url !== 'None' && url !== '#') {
+            location.href = url; // 링크가 있으면 이동
+        } else {
+            alert('이동할 페이지가 없는 알림입니다.');
+        }
+    }
+
+    // 개별 삭제
+    function deleteNotification(id, event) {
+        event.stopPropagation(); // 부모(li)의 클릭 이벤트(페이지 이동)가 발생하지 않도록 막음
+        if(!confirm('삭제하시겠습니까?')) return;
+        
+        fetch(`/quiz/notification/read/${id}/`)
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === 'success') {
+                document.getElementById(`page-noti-${id}`).remove();
+                if(typeof loadNotifications === 'function') loadNotifications(true);
+            }
+        });
+    }
+
+    // 전체 삭제
+    function clearAllPageNotifications() {
+        if(!confirm('정말 모든 알림을 영구 삭제하시겠습니까?')) return;
+        fetch(`/quiz/notification/clear-all/`)
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === 'success') location.reload();
+        });
+    }
+</script>
 {% endblock %}

@@ -4,7 +4,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
-from django.db.models import Avg, F, Window
+from django.db.models import Avg, F, Window, Q
 from django.db.models.functions import DenseRank
 import random
 
@@ -21,6 +21,7 @@ class Cohort(models.Model):
         verbose_name="가입 활성화 여부",
         help_text="이 옵션을 체크해야 해당 기수 인원이 가입할 수 있습니다."
     )
+    is_closed = models.BooleanField(default=False, verbose_name="평가 마감 완료")
 
     class Meta:
         verbose_name = "기수 (교육 차수)"
@@ -49,12 +50,13 @@ class Process(models.Model):
 class PartLeader(models.Model):
     name = models.CharField(max_length=50, unique=True, verbose_name="PL 이름")
     email = models.EmailField(unique=True, verbose_name="PL 이메일", help_text="성적표 발송 및 알림용")
-    company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
-    process = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='담당 공정')
+    company = models.ForeignKey('Company', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
+    process = models.ManyToManyField('Process', blank=True, verbose_name='담당 공정들')
 
     class Meta:
         verbose_name = "PL(파트장)"
         verbose_name_plural = "PL(파트장)"
+        
     def __str__(self):
         return self.name
 
@@ -82,27 +84,28 @@ class RecordType(models.Model):
 # -----------------------------------------------------------
 
 class Profile(models.Model):
-    # [상태 정의 업데이트]
+    # [상태 정의]
     STATUS_CHOICES = [
         ('attending', '재직 (정상)'),
-        ('caution', '주의 (경고 1회)'),      # [신규] 경고 1회 상태
-        ('counseling', '면담필요 (잠금)'),  # 시험/경고 누적으로 인한 잠금
-        ('dropout', '퇴소 (차단)'),
+        ('caution', '주의 (경고 1회)'),      
+        ('counseling', '면담필요 (잠금)'),  
+        ('dropout', '미수료 및 퇴소'), # ✅ 두 가지 케이스를 모두 포함하는 이름으로 변경
         ('completed', '수료 (과정완료)'),
     ]
 
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    # related_name='profile'을 추가해 user.profile 로 쉽게 접근하도록 함
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     
     # 기본 정보
-    company = models.ForeignKey(Company, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
+    company = models.ForeignKey('Company', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="소속 회사")
     name = models.CharField(max_length=50, verbose_name='이름', blank=True, null=True)
     employee_id = models.CharField(max_length=50, verbose_name='사번', blank=True, null=True)
-    cohort = models.ForeignKey(Cohort, on_delete=models.SET_NULL, null=True, blank=False, verbose_name="소속 기수")
-    process = models.ForeignKey(Process, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="공정")
+    cohort = models.ForeignKey('Cohort', on_delete=models.SET_NULL, null=True, blank=False, verbose_name="소속 기수")
+    process = models.ForeignKey('Process', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="공정")
     line = models.CharField(max_length=100, verbose_name='라인', blank=True, null=True)
-    pl = models.ForeignKey(PartLeader, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="담당 PL")
+    pl = models.ForeignKey('PartLeader', on_delete=models.SET_NULL, null=True, blank=True, verbose_name="담당 PL")
 
-    ## [신규] 입사일 (연차 계산용)
+    # [신규] 입사일 (연차 계산용)
     joined_at = models.DateField(null=True, blank=True, verbose_name="입사일(교육시작일)", help_text="연차 계산 기준일입니다.")
 
     # [기능성 필드]
@@ -114,10 +117,17 @@ class Profile(models.Model):
     is_manager = models.BooleanField(default=False, verbose_name="매니저 권한 여부")
     is_pl = models.BooleanField(default=False, verbose_name="PL 권한 여부") 
     
+    # ★ [필수 추가] 관리자 승인 여부 (인트라넷 가입 시 필수)
+    is_approved = models.BooleanField(default=False, verbose_name="관리자 승인 여부")
+
+    # 프로필 작성 완료 여부 (2차 정보 기입 확인용)
     is_profile_complete = models.BooleanField(default=False, verbose_name="프로필 작성 완료")
+    
     must_change_password = models.BooleanField(default=False, verbose_name="비밀번호 변경 필요")
     
-    badges = models.ManyToManyField(Badge, blank=True, verbose_name="획득한 뱃지")
+    badges = models.ManyToManyField('Badge', blank=True, verbose_name="획득한 뱃지")
+
+    session_key = models.CharField(max_length=40, null=True, blank=True, verbose_name="현재 세션 키")
     
     def __str__(self):
         return f"{self.name} ({self.get_status_display()})"
@@ -160,12 +170,10 @@ class FinalAssessment(models.Model):
         verbose_name_plural = "최종 종합 평가"
 
     def calculate_final_score(self):
-        # 예시 비율: 시험40 + 실습30 + 노트15 + 인성15
         self.final_score = (
-            (self.exam_avg_score * 0.4) + 
-            (self.practice_score * 0.3) + 
-            (self.note_score * 0.15) + 
-            (self.attitude_score * 0.15)
+            (self.exam_avg_score * 0.85) + 
+            (self.practice_score * 0.05) + 
+            (self.attitude_score * 0.10)
         )
         self.save()
 
@@ -308,52 +316,90 @@ def manage_permissions(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=FinalAssessment)
 def update_score_and_rank(sender, instance, created, **kwargs):
-    # 1. 무한 루프 방지 (이미 처리 중이면 건너뜀)
+    # 1. 무한 루프 및 중복 실행 방지
     if getattr(instance, '_processing', False):
         return
+    
+    from quiz.models import TestResult, Quiz
 
-    # 2. 시험 평균 점수 최신화 (Quiz 결과에서 가져오기)
-    # (매니저가 점수 입력할 때 시험 점수도 최신으로 갱신해 줌)
-    from quiz.models import TestResult # 지연 import
+    # ---------------------------------------------------------
+    # [1단계] 시험 평균 점수 최신화 (1차 점수만 반영)
+    # ---------------------------------------------------------
+    user = instance.profile.user
+    user_process = instance.profile.process
+
+    # 1. 계산 대상이 되는 시험 결과들 1차 필터링
+    # (안전/기타 제외)
+    base_results = TestResult.objects.filter(user=user) \
+        .exclude(quiz__category__in=['safety', 'etc'])
+
+    # (내 공정 or 공통 과목만 포함)
+    if user_process:
+        base_results = base_results.filter(
+            Q(quiz__related_process=user_process) | 
+            Q(quiz__related_process__isnull=True)
+        )
+
+    # 2. 중복을 제거한 '퀴즈 종류(ID)' 추출
+    target_quiz_ids = base_results.values_list('quiz_id', flat=True).distinct()
+
+    total_first_score = 0
+    quiz_count = 0
+
+    # 3. 각 퀴즈별로 '가장 오래된(First) 기록'만 찾아서 합산
+    for q_id in target_quiz_ids:
+        first_attempt = TestResult.objects.filter(user=user, quiz_id=q_id).order_by('completed_at').first()
+        
+        if first_attempt:
+            total_first_score += first_attempt.score
+            quiz_count += 1
+
+    # 4. 1차 점수 기준 평균 계산
+    current_exam_avg = round(total_first_score / quiz_count, 1) if quiz_count > 0 else 0
+
     
-    avg_data = TestResult.objects.filter(user=instance.profile.user).aggregate(avg=Avg('score'))
-    current_exam_avg = avg_data['avg'] if avg_data['avg'] else 0
     
-    # 3. 변경사항 적용 (시험점수 or 환산점수 계산)
+    # ---------------------------------------------------------
+    # [2단계] 점수 변동 체크 및 반영
+    # ---------------------------------------------------------
     need_save = False
     
+    # 시험 점수가 바뀌었으면 업데이트
     if instance.exam_avg_score != current_exam_avg:
         instance.exam_avg_score = current_exam_avg
         need_save = True
 
-    # 환산 점수 공식 (시험40 + 실습30 + 노트15 + 인성15)
-    # (관리자님이 비율 바꾸고 싶으면 여기 숫자를 고치면 됩니다)
+    # ★ [핵심] 환산 점수 공식 적용 (시험85 + 실습5 + 태도10)
     new_final_score = (
-        (instance.exam_avg_score * 0.4) + 
-        (instance.practice_score * 0.3) + 
-        (instance.note_score * 0.15) + 
-        (instance.attitude_score * 0.15)
+        (instance.exam_avg_score * 0.85) + 
+        (instance.practice_score * 0.05) + 
+        (instance.attitude_score * 0.10)
     )
     
+    # 소수점 2자리 반올림
+    new_final_score = round(new_final_score, 2)
+
     if instance.final_score != new_final_score:
         instance.final_score = new_final_score
         need_save = True
 
-    # 4. 저장 (변경된 경우에만)
+    # ---------------------------------------------------------
+    # [3단계] 저장 (변경된 경우에만 수행)
+    # ---------------------------------------------------------
     if need_save:
-        instance._processing = True # 루프 방지 락 걸기
+        instance._processing = True # 락 걸기
         instance.save()
         instance._processing = False
 
-    # 5. [핵심] 기수 전체 랭킹 재산정 (한 명이라도 점수가 바뀌면 등수가 바뀔 수 있음)
-    # 해당 기수의 모든 평가서를 가져와서 점수순 정렬
+    # ---------------------------------------------------------
+    # [4단계] 기수 전체 랭킹 재산정 (최적화: bulk_update 사용)
+    # ---------------------------------------------------------
+    # 해당 기수의 모든 평가서를 점수 높은 순으로 가져옴
     cohort_assessments = FinalAssessment.objects.filter(
         profile__cohort=instance.profile.cohort
     ).order_by('-final_score')
 
-    # DenseRank로 등수 매기기 (동점자는 같은 등수, 다음 등수 건너뛰지 않음)
-    # 예: 1등, 1등, 2등...
-    ranked_list = []
+    update_list = []
     current_rank = 1
     prev_score = -1
     
@@ -362,13 +408,103 @@ def update_score_and_rank(sender, instance, created, **kwargs):
             assessment.rank = 1
             prev_score = assessment.final_score
         else:
+            # 동점자 처리 (점수가 같으면 같은 등수)
             if assessment.final_score < prev_score:
                 current_rank += 1
             assessment.rank = current_rank
             prev_score = assessment.final_score
         
-        # 랭킹 저장 (Signal 루프 방지를 위해 update 사용 권장하지만, 여기선 save로 처리)
-        # 단, 여기서 save()를 호출하면 또 이 함수가 실행되므로 _processing 플래그 활용
-        assessment._processing = True
-        assessment.save(update_fields=['rank'])
-        assessment._processing = False
+        update_list.append(assessment)
+
+    # ★ 중요: 한 번에 업데이트 (Signal을 다시 트리거하지 않아 안전함)
+    if update_list:
+        FinalAssessment.objects.bulk_update(update_list, ['rank'])
+
+class DropOutRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', '승인 대기'),
+        ('approved', '승인 완료'),
+        ('rejected', '반려됨'),
+    ]
+
+    trainee = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='dropout_records', verbose_name="대상 교육생")
+    requester = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, verbose_name="요청 매니저")
+    
+    drop_date = models.DateField(verbose_name="퇴사/퇴소(예정)일")
+    reason = models.TextField(verbose_name="퇴사/퇴소 사유")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name="결재 상태")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True, verbose_name="결재 처리일시")
+
+    class Meta:
+        verbose_name = "중도 퇴사 요청"
+        verbose_name_plural = "중도 퇴사 요청 관리"
+
+    def __str__(self):
+        return f"[{self.get_status_display()}] {self.trainee.name} 퇴사 요청"
+
+@receiver(post_save, sender=DropOutRequest)
+def process_dropout_approval(sender, instance, **kwargs):
+    """
+    최고 관리자가 중도 퇴사 요청을 승인하면, 학생 상태를 변경하고
+    요청한 매니저에게 즉시 알림을 발송합니다.
+    """
+    if instance.status == 'approved' and instance.trainee.status != 'dropout':
+        trainee_profile = instance.trainee
+        trainee_profile.status = 'dropout'
+        trainee_profile.save()
+
+        try:
+            from quiz.models import Notification
+            if instance.requester:
+                Notification.objects.create(
+                    recipient=instance.requester,
+                    notification_type='general',
+                    message=f"📢 [{trainee_profile.name}] 교육생의 중도 퇴사가 승인되었습니다. 최종 평가서를 마감해 주세요.",
+                    related_url=f"/quiz/manager/evaluate/{trainee_profile.id}/"
+                )
+        except Exception as e:
+            print(f"알림 발송 오류: {e}")
+
+
+@receiver(post_save, sender=Profile)
+def check_cohort_completion(sender, instance, **kwargs):
+    """
+    학생의 상태(수료, 퇴소 등)가 변경될 때마다 해당 기수의 마감 여부를 검사합니다.
+    """
+    cohort = instance.cohort
+    # 매니저, PL이 아니며, 소속 기수가 있고, 아직 마감되지 않은 기수일 때만 검사
+    if not cohort or instance.is_manager or instance.is_pl or cohort.is_closed:
+        return
+
+    # 1. 해당 기수의 전체 유효 학생 수 (매니저/PL 제외, 승인된 인원)
+    total_students = Profile.objects.filter(
+        cohort=cohort, is_manager=False, is_pl=False, is_approved=True
+    ).count()
+
+    # 2. 평가가 완전히 끝난 인원 (수료자 + 퇴소자)
+    finished_students = Profile.objects.filter(
+        cohort=cohort, is_manager=False, is_pl=False, is_approved=True,
+        status__in=['completed', 'dropout']
+    ).count()
+
+    # 3. 전원 평가 완료 감지!
+    if total_students > 0 and total_students == finished_students:
+        # 기수 마감 처리 (중복 알림 방지)
+        cohort.is_closed = True
+        cohort.save()
+
+        # 4. 모든 매니저와 관리자에게 축하/확인 알림 발송
+        managers = User.objects.filter(Q(profile__is_manager=True) | Q(is_superuser=True)).distinct()
+        
+        # [주의] Notification 모델이 있는 앱(quiz 또는 다른 앱)에서 임포트해야 합니다.
+        from quiz.models import Notification 
+        
+        for manager in managers:
+            Notification.objects.create(
+                recipient=manager,
+                notification_type='general',
+                message=f"🎉 [{cohort.name}] 기수의 모든 평가(수료/퇴소)가 마감되었습니다! 최종 종합 리포트를 확인하세요.",
+                related_url=f"/quiz/manager/cohort/{cohort.id}/report/" # 추후 만들 리포트 페이지 URL
+            )
