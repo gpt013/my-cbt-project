@@ -82,6 +82,101 @@
         </div>
     </div>
 
+    <!--  전체 문제 은행 요약 (태그 & 마의 문항) -->
+    <div class="row g-4 mb-4">
+        <!-- 1. 태그별 정답률 (좌측) -->
+        <div class="col-lg-5">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold m-0"><i class="bi bi-tags-fill text-primary me-2"></i>🔥 취약 개념 (하위 Top 5)</h6>
+                    <a href="{% url 'quiz:global_analytics_full' 'tag' %}" class="btn btn-sm btn-outline-secondary py-0">전체 보기</a>
+                </div>
+                <div class="card-body p-0">
+                    <!-- ★ 차트가 그려질 캔버스 추가 -->
+                    <div class="p-3" style="height: 220px;">
+                        <canvas id="tagChart"></canvas>
+                    </div>
+                    <!-- ★ 테이블 위쪽에 선(border-top)을 하나 그어주면 깔끔합니다 -->
+                    <table class="table table-hover mb-0 text-center align-middle border-top">
+                        <thead class="table-light text-secondary" style="font-size: 0.85rem;">
+                            <tr>
+                                <th>태그명</th>
+                                <th>정답 / 출제</th>
+                                <th>평균 정답률</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tag in tag_stats %}
+                            <tr>
+                                <td class="fw-bold text-start ps-4">{{ tag.name }}</td>
+                                <td><span class="text-muted">{{ tag.correct_tries }} / {{ tag.total_tries }}회</span></td>
+                                <td>
+                                    <span class="badge {% if tag.accuracy < 50 %}bg-danger{% elif tag.accuracy < 70 %}bg-warning text-dark{% else %}bg-success{% endif %} rounded-pill px-2">
+                                        {{ tag.accuracy|floatformat:1 }}%
+                                    </span>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="3" class="py-4 text-muted small">풀이 기록이 부족합니다.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 마의 문항 (우측) -->
+        <div class="col-lg-7">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold m-0"><i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>🚨 마의 문항 (오답률 Top 5)</h6>
+                    <a href="{% url 'quiz:global_analytics_full' 'question' %}" class="btn btn-sm btn-outline-secondary py-0">전체 보기</a>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light text-secondary text-center" style="font-size: 0.85rem;">
+                            <tr>
+                                <th style="width: 45%" class="text-start ps-4">문제 내용</th>
+                                <th style="width: 15%">유형</th>
+                                <th style="width: 20%">정답 / 출제</th>
+                                <th style="width: 20%">정답률</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for q in question_stats %}
+                            <tr>
+                                <td class="text-start ps-4">
+                                    <div class="text-truncate fw-bold text-dark" style="max-width: 250px;" title="{{ q.question_text }}">
+                                        {{ q.question_text }}
+                                    </div>
+                                    <!-- ★ 추가된 부분: 문제 이름 아래에 소속 시험 표시 -->
+                                    <div class="text-muted small text-truncate mt-1" style="max-width: 250px;">
+                                        {% for quiz in q.quizzes.all %}
+                                            <i class="bi bi-journal-text me-1"></i>{{ quiz.title }}{% if not forloop.last %}, {% endif %}
+                                        {% empty %}
+                                            미지정
+                                        {% endfor %}
+                                    </div>
+                                </td>
+                                <td class="text-center"><span class="badge bg-light text-dark border">{{ q.get_question_type_display|truncatechars:4 }}</span></td>
+                                <td class="text-center text-muted">{{ q.correct_tries }} / {{ q.total_tries }}회</td>
+                                <td class="text-center">
+                                    <strong class="{% if q.accuracy < 40 %}text-danger{% else %}text-dark{% endif %}">
+                                        {{ q.accuracy|floatformat:1 }}%
+                                    </strong>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr><td colspan="4" class="py-4 text-muted small text-center">풀이 기록이 부족합니다.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+
     <div class="accordion" id="analyticsAccordion">
         {% for cat_key, cat_data in grouped_data.items %}
         <div class="accordion-item shadow-sm border-0 mb-3 rounded-3 overflow-hidden">
@@ -168,4 +263,57 @@
         {% endfor %}
     </div>
 </div>
+
+<!-- ★ Chart.js 스크립트 추가 -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const tagNames = [{% for tag in tag_stats %} "{{ tag.name }}"{% if not forloop.last %}, {% endif %} {% endfor %}];
+        const tagAccuracies = [{% for tag in tag_stats %} {{ tag.accuracy|floatformat:1 }}{% if not forloop.last %}, {% endif %} {% endfor %}];
+
+        const ctx = document.getElementById('tagChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: tagNames,
+                datasets: [{
+                    label: '평균 정답률 (%)',
+                    data: tagAccuracies,
+                    // PMTC Danger(빨강)과 Warning(노랑) 느낌을 섞은 세련된 색상
+                    backgroundColor: 'rgba(220, 53, 69, 0.65)', 
+                    borderColor: 'rgba(220, 53, 69, 1)',
+                    borderWidth: 1,
+                    borderRadius: 6,      // 막대 모서리를 둥글게
+                    barPercentage: 0.5    // 막대기를 얇고 세련되게
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { 
+                    y: { 
+                        beginAtZero: true, 
+                        max: 100,
+                        grid: { borderDash: [5, 5], color: '#e9ecef' } // 배경 선을 연한 점선으로
+                    },
+                    x: {
+                        grid: { display: false } // 세로 배경 선 숨김 (더 깔끔함)
+                    }
+                },
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        padding: 12,
+                        titleFont: { size: 14 },
+                        bodyFont: { size: 14, weight: 'bold' },
+                        callbacks: {
+                            label: function(context) { return '정답률: ' + context.parsed.y + '%'; }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
 {% endblock %}

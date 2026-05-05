@@ -1,7 +1,8 @@
 from django.urls import path, reverse_lazy
 from . import views
 from django.contrib.auth import views as auth_views
-
+from django.views.decorators.cache import never_cache
+from .views import custom_password_change
 app_name = 'accounts'
 
 urlpatterns = [
@@ -9,7 +10,7 @@ urlpatterns = [
     
     # ★ [핵심 수정] 표준 LoginView 대신 우리가 만든 'custom_login' 사용
     # (그래야 '관리자 승인 대기' 체크와 '2차 정보 기입' 납치가 작동합니다)
-    path('login/', views.custom_login, name='login'),
+    path('login/', never_cache(views.custom_login), name='login'),
     
     path('logout/', auth_views.LogoutView.as_view(
         # 로그아웃 후 다시 로그인 페이지로
@@ -30,10 +31,7 @@ urlpatterns = [
 
     # --- 3. 비밀번호 변경 (로그인 한 상태에서 변경) ---
     # 이 기능은 이메일 발송이 필요 없으므로 유지합니다.
-    path('password_change/', auth_views.PasswordChangeView.as_view(
-        template_name='accounts/password_change_form.html', 
-        success_url=reverse_lazy('accounts:password_change_done')
-    ), name='password_change'),
+    path('password_change/', custom_password_change, name='password_change'),
 
     path('password_change/done/', auth_views.PasswordChangeDoneView.as_view(
         template_name='accounts/password_change_done.html'

@@ -73,34 +73,86 @@
     // 알림 클릭 시 이동 처리 함수
     function handleNotiClick(url, id) {
         if (url && url !== 'None' && url !== '#') {
-            location.href = url; // 링크가 있으면 이동
+            location.href = url;
         } else {
-            alert('이동할 페이지가 없는 알림입니다.');
+            Swal.fire({
+                icon: 'info',
+                title: '안내',
+                text: '이동할 상세 페이지가 없는 알림입니다.',
+                confirmButtonColor: '#0d6efd'
+            });
         }
     }
 
-    // 개별 삭제
+    // 개별 삭제 (SweetAlert2 적용)
     function deleteNotification(id, event) {
-        event.stopPropagation(); // 부모(li)의 클릭 이벤트(페이지 이동)가 발생하지 않도록 막음
-        if(!confirm('삭제하시겠습니까?')) return;
+        event.stopPropagation(); 
         
-        fetch(`/quiz/notification/read/${id}/`)
-        .then(res => res.json())
-        .then(data => {
-            if(data.status === 'success') {
-                document.getElementById(`page-noti-${id}`).remove();
-                if(typeof loadNotifications === 'function') loadNotifications(true);
+        Swal.fire({
+            title: '알림 삭제',
+            text: "이 알림을 삭제하시겠습니까?",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '삭제',
+            cancelButtonText: '취소'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                fetch(`/quiz/notification/read/${id}/`)
+                .then(res => res.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        // 리스트에서 부드럽게 사라지게 효과 추가
+                        const element = document.getElementById(`page-noti-${id}`);
+                        element.style.transition = 'all 0.3s ease';
+                        element.style.opacity = '0';
+                        element.style.transform = 'translateX(20px)';
+                        
+                        setTimeout(() => {
+                            element.remove();
+                            // 만약 리스트가 비었다면 새로고침해서 "알림이 없습니다" 표시
+                            if (document.querySelectorAll('#full-noti-list li').length === 0) {
+                                location.reload();
+                            }
+                        }, 300);
+                        
+                        if(typeof loadNotifications === 'function') loadNotifications(true);
+                    }
+                });
             }
         });
     }
 
-    // 전체 삭제
+    // 전체 삭제 (SweetAlert2 적용)
     function clearAllPageNotifications() {
-        if(!confirm('정말 모든 알림을 영구 삭제하시겠습니까?')) return;
-        fetch(`/quiz/notification/clear-all/`)
-        .then(res => res.json())
-        .then(data => {
-            if(data.status === 'success') location.reload();
+        Swal.fire({
+            title: '전체 알림 삭제',
+            text: "정말 모든 알림을 영구 삭제하시겠습니까?",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '<i class="bi bi-trash"></i> 전체 삭제',
+            cancelButtonText: '취소'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                fetch(`/quiz/notification/clear-all/`)
+                .then(res => res.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        Swal.fire({
+                            title: '삭제 완료',
+                            text: '모든 알림이 삭제되었습니다.',
+                            icon: 'success',
+                            timer: 1000,
+                            showConfirmButton: false
+                        }).then(() => {
+                            location.reload();
+                        });
+                    }
+                });
+            }
         });
     }
 </script>

@@ -7,25 +7,50 @@
     {% if requests %}
         <div class="list-group">
             {% for req in requests %}
-            <div class="list-group-item d-flex justify-content-between align-items-center">
+            <div class="list-group-item d-flex justify-content-between align-items-center py-3">
                 <div>
-                    <h5 class="mb-1">{{ req.requester.profile.name }} ({{ req.requester.profile.process.name }})</h5>
-                    <p class="mb-1">
-                        요청 대상: <strong>{{ req.target_process.name }}</strong> 공정
+                    <h5 class="mb-1 fw-bold text-dark">
+                        {{ req.requester.profile.name }} <span class="badge bg-secondary ms-1">{{ req.requester.profile.process.name|default:"소속없음" }}</span>
+                    </h5>
+                    <p class="mb-1 text-muted">
+                        요청 대상: 
+                        <strong class="text-primary">
+                            {% if req.target_process %}
+                                {{ req.target_process.name }} 공정
+                            {% else %}
+                                🌍 전체 공정
+                            {% endif %}
+                        </strong>
                     </p>
-                    <small class="text-muted">{{ req.created_at|date:"Y-m-d H:i" }}</small>
+                    <small class="text-muted"><i class="bi bi-clock"></i> {{ req.created_at|date:"Y-m-d H:i" }}</small>
                 </div>
-                <div>
-                    <a href="{% url 'quiz:approve_access_request' req.id 'approve' %}" class="btn btn-success btn-sm">승인</a>
-                    <a href="{% url 'quiz:approve_access_request' req.id 'reject' %}" class="btn btn-danger btn-sm">거절</a>
+                
+                <div class="d-flex align-items-center gap-2">
+                    <form action="{% url 'quiz:approve_access_request' req.id 'approve' %}" method="POST" class="d-inline-flex align-items-center gap-2 mb-0">
+                        {% csrf_token %}
+                        <select name="hours" class="form-select form-select-sm fw-bold text-primary shadow-sm" style="width: 100px;">
+                            <option value="1">1시간</option>
+                            <option value="3">3시간</option>
+                            <option value="6">6시간</option>
+                            <option value="12">12시간</option>
+                            <option value="24" selected>24시간</option>
+                        </select>
+                        <button type="submit" class="btn btn-sm btn-success fw-bold shadow-sm">
+                            <i class="bi bi-check-circle"></i> 승인
+                        </button>
+                    </form>
+                    
+                    <a href="{% url 'quiz:approve_access_request' req.id 'reject' %}" class="btn btn-sm btn-danger fw-bold shadow-sm">
+                        <i class="bi bi-x-circle"></i> 거절
+                    </a>
                 </div>
-            </div>
+                </div>
             {% endfor %}
         </div>
     {% else %}
-        <div class="alert alert-info">대기 중인 요청이 없습니다.</div>
+        <div class="alert alert-info shadow-sm">대기 중인 요청이 없습니다.</div>
     {% endif %}
     
-    <a href="{% url 'quiz:dashboard' %}" class="btn btn-secondary mt-3">대시보드로 돌아가기</a>
+    <a href="{% url 'quiz:dashboard' %}" class="btn btn-secondary mt-4 shadow-sm">대시보드로 돌아가기</a>
 </div>
 {% endblock %}

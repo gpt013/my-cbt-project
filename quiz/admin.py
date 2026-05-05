@@ -2,6 +2,7 @@ from django.contrib import admin
 from django import forms
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from django.db.models import Count
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -120,7 +121,8 @@ class QuizAdmin(admin.ModelAdmin):
 
 
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ('question_text_short', 'question_type', 'difficulty', 'image_icon', 'created_at')
+    # ★ 'created_at' 제거 (모델에 해당 필드가 없어서 에러 발생)
+    list_display = ('question_text_short', 'question_type', 'difficulty', 'image_icon')
     list_filter = ('question_type', 'difficulty', 'tags')
     search_fields = ('question_text',)
     inlines = [ChoiceInline]
@@ -132,7 +134,8 @@ class QuestionAdmin(admin.ModelAdmin):
 
     def image_icon(self, obj):
         if obj.image:
-            return format_html('<i class="bi bi-image" title="이미지 있음"></i> 📷')
+            # ★ format_html을 mark_safe로 변경! (변수 없는 태그는 이렇게 써야 에러가 안 납니다)
+            return mark_safe('<i class="bi bi-image" title="이미지 있음"></i> 📷')
         return ""
     image_icon.short_description = "이미지"
 
@@ -280,6 +283,26 @@ class ReservationAdmin(admin.ModelAdmin):
     list_filter = ('status', 'start_time', 'room')
     search_fields = ('title', 'user__username')
 
+from .models import ChatRoom, ChatMessage
+
+@admin.register(ChatRoom)
+class ChatRoomAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'is_group_chat', 'created_at')
+    filter_horizontal = ('participants',) # 참여자 다중 선택 UI 예쁘게
+
+@admin.register(ChatMessage)
+class ChatMessageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'room', 'sender', 'content', 'created_at')
+    list_filter = ('room', 'sender')
+
+from .models import ReferenceLink
+
+@admin.register(ReferenceLink)
+class ReferenceLinkAdmin(admin.ModelAdmin):
+    list_display = ('title', 'url', 'icon', 'order')
+    list_editable = ('order',)
+    ordering = ('order',)
+    
 # ------------------------------------------------------------------
 # 4. 최종 등록 (중복 방지)
 # ------------------------------------------------------------------

@@ -4,16 +4,29 @@
 {% block content %}
 <div class="container mt-4" style="max-width: 1200px;">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h3 class="fw-bold"><i class="bi bi-shield-exclamation text-danger"></i> 교육생 통합 관리</h3>
-        <div>
-            <a href="{% url 'quiz:manager_trainee_detail' profile.id %}" class="btn btn-secondary me-2">
-                <i class="bi bi-arrow-left"></i> 상세 정보
+        <h3 class="fw-bold mb-0"><i class="bi bi-shield-exclamation text-danger"></i> 교육생 통합 관리</h3>
+        <div class="d-flex align-items-center gap-2">
+            
+            <!-- ★ [수정] 현재 누적 경고 횟수에 딱 맞는 버튼 1개만 노출 -->
+            {% if profile.warning_count == 3 %}
+            <button class="btn btn-warning fw-bold shadow-sm d-inline-flex align-items-center me-2" onclick="copyBriefing('pl')">
+                <i class="bi bi-clipboard-data-fill me-1"></i> 📢 PL 면담 브리핑 복사
+            </button>
+            {% elif profile.warning_count >= 4 %}
+            <button class="btn btn-danger fw-bold shadow-sm d-inline-flex align-items-center me-2" onclick="copyBriefing('dropout')">
+                <i class="bi bi-clipboard-data-fill me-1"></i> 🚨 퇴소 품의 브리핑 복사
+            </button>
+            {% endif %}
+
+            <a href="{% url 'quiz:manager_trainee_detail' profile.id %}" class="btn btn-secondary d-inline-flex align-items-center">
+                <i class="bi bi-arrow-left me-1"></i> 상세 정보
             </a>
-            <a href="{% url 'quiz:dashboard' %}" class="btn btn-outline-secondary">
-                <i class="bi bi-grid-3x3-gap"></i> 대시보드
+            <a href="{% url 'quiz:manager_dashboard' %}" class="btn btn-outline-secondary d-inline-flex align-items-center">
+                <i class="bi bi-grid-3x3-gap me-1"></i> 대시보드
             </a>
         </div>
     </div>
+                
 
     <div class="card bg-white border-0 shadow-sm mb-4">
         <div class="card-body">
@@ -106,7 +119,27 @@
                                             3차+
                                         </button>
                                     </div>
-                                </td>
+                                    <div class="d-flex justify-content-center gap-1 mt-2">
+        {% if item.try_2 %}
+        <button type="button"
+                class="btn btn-warning fw-bold shadow-sm"
+                style="font-size:0.7rem; padding:2px 8px;"
+                onclick="copyExamBriefing('pl', {{ item.quiz.id }})">
+            <i class="bi bi-clipboard-data-fill"></i> PL면담
+        </button>
+        {% endif %}
+        {% if item.try_3 %}
+        <button type="button"
+                class="btn btn-danger fw-bold shadow-sm"
+                style="font-size:0.7rem; padding:2px 8px;"
+                onclick="copyExamBriefing('dropout', {{ item.quiz.id }})">
+            <i class="bi bi-clipboard-data-fill"></i> 퇴소
+        </button>
+        {% endif %}
+    </div>
+</td>
+
+                                
                                 <td class="text-muted small">{{ item.date|default:"-" }}</td>
                             </tr>
                             {% endif %}
@@ -133,22 +166,30 @@
                     <i class="bi bi-pencil-square"></i> 관리자 조치 / 기록 작성
                 </div>
                 <div class="card-body">
-                    <form method="post">
+                    <form method="post" enctype="multipart/form-data" id="logForm">
                         {% csrf_token %}
+                        
                         <div class="mb-3">
                             <label class="form-label fw-bold">기록 유형</label>
-                            <select name="log_type" class="form-select" id="logTypeSelect">
-                                <option value="counseling" {% if not is_my_student %}disabled{% endif %}>
-                                    🔓 면담 및 잠금 해제 (담당 매니저 전용)
+                            <select name="log_type" class="form-select border-secondary shadow-sm" id="logTypeSelect">
+                                {% if profile.status == 'counseling' or locked_logs %}
+                                <option value="counseling" {% if not is_my_student %}disabled{% else %}selected{% endif %}>
+                                    🔓 면담 및 잠금 해제 (현재 잠금 상태)
                                 </option>
-                                <option value="warning" {% if not is_my_student %}selected{% endif %}>⚠️ 구두 경고 / 주의 (Warning)</option>
-                                <option value="warning_letter">⛔ 경고장 발송 (Warning Letter)</option>
-                                <option value="attitude">👎 태도/행동 불량 (Attitude)</option>
-                                <option value="others">📝 기타 특이사항 (Others)</option>
+                                {% endif %}
+                                
+                                <option value="warning" {% if not is_my_student or profile.status != 'counseling' and not locked_logs %}selected{% endif %}>
+                                    ⚠️ 구두 경고 / 주의 (Warning)
+                                </option>
+                                
+                                <option value="warning_letter">
+                                    ⛔ 경고장 발송 (발부 사실 기록)
+                                </option>
+
                             </select>
                             {% if not is_my_student %}
-                            <div class="form-text text-danger small mt-1">
-                                * 타 공정 학생의 '시험 잠금 해제'는 불가합니다. 담당 매니저에게 요청해주세요.
+                            <div class="form-text text-danger small mt-1 fw-bold">
+                                * 타 공정 학생의 '잠금 해제'는 담당 매니저만 가능합니다.
                             </div>
                             {% endif %}
                         </div>
@@ -156,7 +197,7 @@
                         <div id="lockedExamDiv" class="mb-3 p-3 bg-light border rounded" style="display: none;">
                             <label class="form-label fw-bold text-danger"><i class="bi bi-lock-fill"></i> 해제할 시험 선택</label>
                             <select name="related_quiz_id" class="form-select" id="lockedQuizSelect">
-                                <option value="">-- 선택 안 함 (경고 누적 해제 시) --</option>
+                                <option value="">-- 시험 선택 안 함 (경고 누적 해제 시) --</option>
                                 {% for log in locked_logs %}
                                     <option value="{{ log.related_quiz.id }}" 
                                             data-exam-title="{{ log.related_quiz.title }}"
@@ -172,23 +213,22 @@
 
                         <div class="mb-3">
                             <label class="form-label fw-bold">사유 및 내용 <span class="text-danger">*</span></label>
-                            <textarea name="reason" id="reasonArea" class="form-control" rows="4" required></textarea>
-                            <div class="form-text small">* 시험을 선택하면 내용이 자동으로 입력됩니다.</div>
+                            <textarea name="reason" id="reasonArea" class="form-control" rows="4" required placeholder="상세 사유를 입력하세요."></textarea>
                         </div>
 
                         <div class="mb-3">
                             <label class="form-label fw-bold">조치 사항</label>
-                            <input type="text" name="action_taken" id="actionInput" class="form-control">
+                            <input type="text" name="action_taken" id="actionInput" class="form-control" placeholder="예: 재응시 기회 부여, 경고장 발부 등">
                         </div>
 
-                        <div id="unlockOptions" class="card bg-light border-warning mb-3" style="display: none;">
+                        <div id="unlockOptions" class="card bg-light border-warning mb-3 shadow-sm" style="display: none;">
                             <div class="card-body p-3">
-                                <h6 class="fw-bold text-dark border-bottom pb-2 mb-2">🔓 잠금 해제 옵션</h6>
+                                <h6 class="fw-bold text-dark border-bottom pb-2 mb-2"><i class="bi bi-unlock-fill text-warning"></i> 잠금 해제 옵션</h6>
                                 <div class="form-check mb-2">
-                                    <input type="checkbox" class="form-check-input" name="resolve_lock" id="resolveCheck">
-                                    <label class="form-check-label fw-bold text-primary" for="resolveCheck">조치 완료 및 잠금 해제</label>
+                                    <input type="checkbox" class="form-check-input border-warning" name="resolve_lock" id="resolveCheck">
+                                    <label class="form-check-label fw-bold text-primary" for="resolveCheck">학생 계정 잠금 해제 (정상화)</label>
                                 </div>
-                                {% if profile.warning_count == 3 %}
+                                {% if profile.warning_count >= 3 %}
                                 <div class="form-check bg-white p-2 border rounded mt-2">
                                     <input type="checkbox" class="form-check-input" name="pl_check" id="plCheck">
                                     <label class="form-check-label text-danger fw-bold small" for="plCheck">[필수] PL(파트장) 면담 진행 확인</label>
@@ -197,7 +237,15 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary w-100 fw-bold py-2"><i class="bi bi-save"></i> 기록 저장 및 적용</button>
+                        <div id="fileUploadDiv" class="mb-3 p-3 bg-danger bg-opacity-10 border border-danger rounded shadow-sm" style="display: none;">
+                            <label class="form-label fw-bold text-danger mb-2"><i class="bi bi-file-earmark-arrow-up-fill"></i> 증빙 서류 첨부 [필수]</label>
+                            <input class="form-control form-control-sm border-danger" type="file" name="attached_file" id="attachedFile" accept=".pdf,.jpg,.jpeg,.png">
+                            <div class="form-text text-danger" style="font-size: 0.75rem; font-weight: bold;">
+                                * 학생 자필 서명이 포함된 스캔본(경고장/사유서)을 업로드하세요.
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary w-100 fw-bold py-2 shadow-sm"><i class="bi bi-save"></i> 기록 저장 및 적용</button>
                     </form>
                 </div>
             </div>
@@ -207,23 +255,78 @@
             <h5 class="fw-bold mb-3 mt-4 mt-lg-0"><i class="bi bi-clock-history"></i> 기록 히스토리</h5>
             <div class="vstack gap-3">
                 {% for log in logs %}
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body border-start border-5 
-                        {% if log.log_type == 'warning' %}border-warning
-                        {% elif log.log_type == 'warning_letter' %}border-danger
-                        {% elif log.log_type == 'counseling' %}border-success
-                        {% elif log.log_type == 'exam_fail' %}border-secondary
-                        {% else %}border-info{% endif %}">
-                        <div class="d-flex justify-content-between mb-2">
-                            <span class="badge rounded-pill {% if log.log_type == 'warning' %}bg-warning text-dark{% elif log.log_type == 'warning_letter' %}bg-danger{% elif log.log_type == 'counseling' %}bg-success{% else %}bg-secondary{% endif %}">{{ log.get_log_type_display }}</span>
-                            <small class="text-muted">{{ log.created_at|date:"Y-m-d H:i" }}</small>
+                <div class="card shadow-sm mb-2 border-0" style="border-radius: 10px; overflow: hidden;">
+                    <div class="row g-0">
+                        <!-- 좌측 컬러 띠 (상태 표시용 굵은 띠) -->
+                        <div class="col-auto 
+                            {% if log.log_type == 'warning' %}bg-warning
+                            {% elif log.log_type == 'warning_letter' %}bg-danger
+                            {% elif log.log_type == 'counseling' %}bg-success
+                            {% elif log.log_type == 'exam_fail' %}bg-secondary
+                            {% else %}bg-info{% endif %}" style="width: 8px;">
                         </div>
-                        <div class="mb-2"><strong>내용:</strong><br>{{ log.reason|linebreaksbr }}</div>
-                        {% if log.related_quiz %}<div class="small text-primary mb-2"><i class="bi bi-clipboard-check"></i> 관련 시험: {{ log.related_quiz.title }}</div>{% endif %}
-                        {% if log.action_taken %}<div class="bg-light p-2 rounded small mb-2 text-secondary"><strong>⚡ 조치:</strong> {{ log.action_taken }}</div>{% endif %}
-                        <div class="d-flex justify-content-between align-items-end mt-2 pt-2 border-top">
-                            <small class="text-muted"><i class="bi bi-pencil"></i> 기록자: {{ log.recorder.profile.name|default:"시스템" }}</small>
-                            {% if log.is_resolved %}<span class="badge bg-primary-subtle text-primary border border-primary"><i class="bi bi-check-all"></i> 조치 완료</span>{% endif %}
+                        
+                        <div class="col">
+                            <div class="card-body p-4">
+                                <!-- 상단: 뱃지 및 시간 -->
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <span class="badge px-3 py-2 rounded-pill shadow-sm 
+                                        {% if log.log_type == 'warning' %}bg-warning text-dark
+                                        {% elif log.log_type == 'warning_letter' %}bg-danger text-white
+                                        {% elif log.log_type == 'counseling' %}bg-success text-white
+                                        {% else %}bg-secondary text-white{% endif %}" style="font-size: 0.9rem;">
+                                        {{ log.get_log_type_display }}
+                                    </span>
+                                    <span class="text-muted fw-bold small"><i class="bi bi-clock"></i> {{ log.created_at|date:"Y-m-d H:i" }}</span>
+                                </div>
+
+                                <!-- 중앙: 메인 사유 (불필요한 '내용:' 텍스트 제거하고 크기 키움) -->
+                                <div class="mb-3 text-dark fw-bold" style="font-size: 1.05rem; line-height: 1.6;">
+                                    {{ log.reason|linebreaksbr }}
+                                </div>
+
+                                <!-- 관련 정보 음영 박스 (시험, 조치사항, 파일) -->
+                                {% if log.related_quiz or log.action_taken or log.attached_file %}
+                                <div class="bg-light p-3 rounded-3 border mb-3">
+                                    {% if log.related_quiz %}
+                                    <div class="text-primary fw-bold small mb-1"><i class="bi bi-journal-text me-1"></i>관련 시험 : {{ log.related_quiz.title }}</div>
+                                    {% endif %}
+                                    
+                                    {% if log.action_taken %}
+                                    <div class="text-dark fw-bold small mb-1"><i class="bi bi-check2-circle text-success me-1"></i>조치 내용 : {{ log.action_taken }}</div>
+                                    {% endif %}
+
+                                    {% if log.attached_file %}
+                                    <div class="mt-2">
+                                        <a href="{{ log.attached_file.url }}" target="_blank" class="btn btn-sm btn-outline-danger fw-bold rounded-pill px-3">
+                                            <i class="bi bi-file-earmark-pdf-fill"></i> 증빙 서류 확인
+                                        </a>
+                                    </div>
+                                    {% endif %}
+                                    
+                                    <!-- ★ [추가] 경고장 양식 출력 버튼 -->
+                                    {% if log.log_type == 'warning_letter' %}
+                                    <div class="mt-2 border-top pt-2">
+                                        <a href="{% url 'quiz:print_warning_letter' log.id %}" target="_blank" class="btn btn-sm btn-dark fw-bold rounded-pill px-3 shadow-sm">
+                                            <i class="bi bi-printer-fill text-warning"></i> 경고장 양식 출력(인쇄)
+                                        </a>
+                                        <span class="text-muted small ms-2">* 학생 알림창에도 동일한 양식 다운로드 링크가 발송되었습니다.</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+
+                                <!-- 하단: 기록자 및 처리 상태 -->
+                                <div class="d-flex justify-content-between align-items-end mt-2 pt-2 border-top">
+                                    <span class="text-secondary small fw-bold"><i class="bi bi-pencil-square"></i> 기록 : {{ log.recorder.profile.name|default:"시스템" }}</span>
+                                    
+                                    {% if log.is_resolved %}
+                                        <span class="text-primary fw-bold small"><i class="bi bi-check-circle-fill"></i> 조치 완료</span>
+                                    {% elif log.log_type == 'exam_fail' or log.log_type == 'warning_letter' %}
+                                        <span class="text-danger fw-bold small"><i class="bi bi-exclamation-circle-fill"></i> 조치 대기중</span>
+                                    {% endif %}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -235,6 +338,8 @@
     </div>
 </div>
 
+
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const logTypeSelect = document.getElementById('logTypeSelect');
@@ -244,41 +349,552 @@
         const reasonArea = document.getElementById('reasonArea');
         const actionInput = document.getElementById('actionInput');
         const resolveCheck = document.getElementById('resolveCheck');
+        const fileUploadDiv = document.getElementById('fileUploadDiv'); 
+        const attachedFile = document.getElementById('attachedFile'); 
 
-        function toggleUI() {
-            if (logTypeSelect.value === 'counseling') {
-                lockedExamDiv.style.display = 'block';
-                unlockOptions.style.display = 'block';
+        // 충돌 방지용 독립 UI 업데이트 함수
+        function updateUI() {
+            if (!logTypeSelect) return;
+            const type = logTypeSelect.value;
+            const isResolveChecked = resolveCheck && resolveCheck.checked;
+            const isExamSelected = quizSelect && quizSelect.value !== ""; // ★ 추가: 해제할 시험이 선택되었는지 확인
+
+            // 1. 잠금 해제 박스 제어
+            if (type === 'counseling') {
+                if(lockedExamDiv) lockedExamDiv.style.display = 'block';
+                if(unlockOptions) unlockOptions.style.display = 'block';
             } else {
-                lockedExamDiv.style.display = 'none';
-                unlockOptions.style.display = 'none';
+                if(lockedExamDiv) lockedExamDiv.style.display = 'none';
+                if(unlockOptions) unlockOptions.style.display = 'none';
                 if(resolveCheck) resolveCheck.checked = false;
                 if(quizSelect) quizSelect.value = "";
             }
+
+            // 2. 파일 업로드 창 제어 (★ 시험 해제일 때는 서류 요구 안 함!)
+            const newIsResolveChecked = resolveCheck && resolveCheck.checked;
+            
+            // 만약 '잠금 해제'를 체크했는데, '해제할 시험'이 선택되어 있지 않다면? 
+            // -> 이것은 "인성/태도 경고 누적" 잠금이므로 서류(경고장)가 필수!
+            if (type === 'counseling' && newIsResolveChecked && !isExamSelected) {
+                if(fileUploadDiv) fileUploadDiv.style.display = 'block';
+                if(attachedFile) attachedFile.setAttribute('required', 'required');
+            } else {
+                // 일반 구두 경고이거나, "시험 과락" 잠금 해제일 때는 서류 불필요!
+                if(fileUploadDiv) fileUploadDiv.style.display = 'none';
+                if(attachedFile) attachedFile.removeAttribute('required'); // 필수 해제!
+            }
         }
 
+        // 이벤트 연결
+        if (logTypeSelect) logTypeSelect.addEventListener('change', updateUI);
+        if (resolveCheck) resolveCheck.addEventListener('change', updateUI);
+        
         if (quizSelect) {
             quizSelect.addEventListener('change', function() {
                 const selectedOption = this.options[this.selectedIndex];
-                if (this.value) {
-                    const title = selectedOption.getAttribute('data-exam-title');
-                    const stage = selectedOption.getAttribute('data-fail-stage');
-                    const date = selectedOption.getAttribute('data-fail-date');
+                if (this.value && selectedOption) {
+                    const title = selectedOption.getAttribute('data-exam-title') || '';
+                    const stage = selectedOption.getAttribute('data-fail-stage') || '';
+                    const date = selectedOption.getAttribute('data-fail-date') || '';
                     
                     if(resolveCheck) resolveCheck.checked = true;
                     
                     if (!reasonArea.value.trim()) { 
-                        reasonArea.value = `[${stage}차 불합격 면담]\n- 시험명: ${title}\n- 응시일: ${date}\n\n[면담 내용]\n- 불합격 사유 파악 및 재응시 기회 부여함.`;
+                        reasonArea.value = `[${stage}차 불합격 면담]\n- 시험명: ${title}\n- 응시일: ${date}\n\n[학습 면담 내용]\n- 불합격 사유 파악 및 재응시 기회 부여함.`;
                     }
                     if (!actionInput.value.trim()) actionInput.value = "재응시 잠금 해제 완료";
                 }
+                updateUI();
             });
         }
         
-        if(logTypeSelect) {
-            logTypeSelect.addEventListener('change', toggleUI);
-            toggleUI();
-        }
+        updateUI(); // 페이지 켜질 때 오류 방지용 1회 실행
+
+        // ★ [기존 기능 유지] 팝오버(말풍선) 초기화 코드 (누락되었던 부분 복구!)
+        var popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'))
+        var popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
+            return new bootstrap.Popover(popoverTriggerEl)
+        });
     });
 </script>
+
+
+<div id="briefing-pl" style="position: absolute; left: -9999px; top: -9999px; font-family: 'Malgun Gothic', sans-serif; color: #333;">
+    <div style="border: 2px solid #ffc107; padding: 15px; border-radius: 8px; max-width: 650px;">
+        <h3 style="color: #d39e00; margin-top: 0;">📢 [PMTC] 교육생 특이사항 발생 (면담 요청)</h3>
+        <p>수고 많으십니다. 아래 교육생에 대한 <strong>위기 관리 및 PL(파트장) 면담</strong>을 요청드립니다.</p>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+            <tr>
+                <td style="background: #f8f9fa; border: 1px solid #ddd; padding: 8px; width: 100px; font-weight: bold;">소속 / 기수</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">{{ profile.company.name|default:"-" }} ({{ profile.process.name|default:"-" }}) / {{ profile.cohort.name|default:"-" }}</td>
+            </tr>
+            <tr>
+                <td style="background: #f8f9fa; border: 1px solid #ddd; padding: 8px; font-weight: bold;">성 명</td>
+                <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold; color: #0056b3;">{{ profile.name }} ({{ profile.employee_id|default:"-" }})</td>
+            </tr>
+            <tr>
+                <td style="background: #f8f9fa; border: 1px solid #ddd; padding: 8px; font-weight: bold;">누적 경고</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">
+                    <span style="color: red; font-weight: bold;">{{ profile.warning_count }}회</span> / 4회 (퇴소 기준)
+                    <br>
+                    <span style="font-family: monospace; letter-spacing: 2px; color: #dc3545; font-size: 15px;">
+                        {% if profile.warning_count == 1 %}■□□□{% elif profile.warning_count == 2 %}■■□□{% elif profile.warning_count == 3 %}■■■□{% elif profile.warning_count >= 4 %}■■■■{% else %}□□□□{% endif %}
+                    </span>
+                </td>
+            </tr>
+        </table>
+
+        <!-- ★ [수정] PL 면담용에도 세분화된 시험 표 및 자동 계산 영역 추가 -->
+        <h4 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-bottom: 10px; font-size: 16px;">📊 시험 평가 현황</h4>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: center; margin-bottom: 10px;">
+            <tr style="background: #f1f3f5;">
+                <th style="border: 1px solid #ddd; padding: 6px;">과목명</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 12%;">1차</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 12%;">2차</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 12%;">3차+</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 22%;">최종 응시일</th>
+            </tr>
+            {% for item in exam_process_list %}
+            <tr class="briefing-exam-row" data-score1="{{ item.try_1.score|default:'' }}" data-retakes="{% if item.try_2 %}1{% else %}0{% endif %}">
+                <td style="border: 1px solid #ddd; padding: 6px; text-align: left;">{{ item.quiz.title }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; {% if not item.try_1.is_pass and item.try_1 %}color:red;{% endif %}">{{ item.try_1.score|default:"-" }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; {% if not item.try_2.is_pass and item.try_2 %}color:red;{% endif %}">{{ item.try_2.score|default:"-" }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; {% if not item.try_3.is_pass and item.try_3 %}color:red;{% endif %}">{{ item.try_3.score|default:"-" }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">{{ item.date|default:"-" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" style="border: 1px solid #ddd; padding: 10px;">등록된 응시 내역이 없습니다.</td></tr>
+            {% endfor %}
+        </table>
+        
+        <!-- ★ JS로 자동 계산되어 들어갈 요약 영역 -->
+        <div class="briefing-exam-summary" style="background-color: #f8f9fa; padding: 8px 12px; border-radius: 4px; font-weight: bold; text-align: right; font-size: 13px; margin-bottom: 15px; border: 1px solid #ddd;">
+            시험 요약 계산 중...
+        </div>
+        
+        <p style="margin-top: 15px; font-size: 14px;">현재 경고 누적 및 성적 과락으로 인해 집중 관리가 필요한 상태입니다. 상세 내역 확인 후 면담 진행을 부탁드립니다.</p>
+    </div>
+</div>
+
+<div id="briefing-dropout" style="position: absolute; left: -9999px; top: -9999px; font-family: 'Malgun Gothic', sans-serif; color: #333;">
+    <div style="border: 2px solid #dc3545; padding: 15px; border-radius: 8px; max-width: 650px;">
+        <h3 style="color: #c82333; margin-top: 0;">🚨 [PMTC] 교육생 퇴소 품의 상신</h3>
+        <p>수고 많으십니다. 아래 교육생에 대하여 <strong>규정에 의거한 강제 퇴소(제적) 조치</strong>를 상신합니다.</p>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+            <tr>
+                <td style="background: #f8f9fa; border: 1px solid #ddd; padding: 8px; width: 100px; font-weight: bold;">소속 / 기수</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">{{ profile.company.name|default:"-" }} ({{ profile.process.name|default:"-" }}) / {{ profile.cohort.name|default:"-" }}</td>
+            </tr>
+            <tr>
+                <td style="background: #f8f9fa; border: 1px solid #ddd; padding: 8px; font-weight: bold;">성 명</td>
+                <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold; color: #c82333;">{{ profile.name }} ({{ profile.employee_id|default:"-" }})</td>
+            </tr>
+            <tr>
+                <td style="background: #f8f9fa; border: 1px solid #ddd; padding: 8px; font-weight: bold;">퇴소 사유</td>
+                <td style="border: 1px solid #ddd; padding: 8px; font-weight: bold; color: red;">
+                    {% if profile.warning_count >= 4 %}
+                    [경고 {{ profile.warning_count }}회 누적] 태도 불량 및 규정 위반
+                    {% else %}
+                    [성적 미달] 시험 과락 및 기준 미달
+                    {% endif %}
+                </td>
+            </tr>
+            <tr>
+                <td style="background: #f8f9fa; border: 1px solid #ddd; padding: 8px; font-weight: bold;">진행률 (경고)</td>
+                <td style="border: 1px solid #ddd; padding: 8px;">
+                    <span style="color: red; font-weight: bold;">{{ profile.warning_count }}회</span> / 4회 (한계초과)
+                    <br>
+                    <span style="font-family: monospace; letter-spacing: 2px; color: #dc3545; font-size: 15px;">
+                        {% if profile.warning_count == 1 %}■□□□{% elif profile.warning_count == 2 %}■■□□{% elif profile.warning_count == 3 %}■■■□{% elif profile.warning_count >= 4 %}■■■■{% else %}□□□□{% endif %}
+                    </span>
+                </td>
+            </tr>
+        </table>
+
+        <!-- ★ [수정] 시험 평가 현황 표 세분화 -->
+        <h4 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-bottom: 10px; font-size: 16px;">📊 시험 평가 현황</h4>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: center; margin-bottom: 10px;">
+            <tr style="background: #f1f3f5;">
+                <th style="border: 1px solid #ddd; padding: 6px;">과목명</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 12%;">1차</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 12%;">2차</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 12%;">3차+</th>
+                <th style="border: 1px solid #ddd; padding: 6px; width: 22%;">최종 응시일</th>
+            </tr>
+            {% for item in exam_process_list %}
+            <tr class="briefing-exam-row" data-score1="{{ item.try_1.score|default:'' }}" data-retakes="{% if item.try_2 %}1{% else %}0{% endif %}">
+                <td style="border: 1px solid #ddd; padding: 6px; text-align: left;">{{ item.quiz.title }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; {% if not item.try_1.is_pass and item.try_1 %}color:red;{% endif %}">{{ item.try_1.score|default:"-" }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; {% if not item.try_2.is_pass and item.try_2 %}color:red;{% endif %}">{{ item.try_2.score|default:"-" }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; {% if not item.try_3.is_pass and item.try_3 %}color:red;{% endif %}">{{ item.try_3.score|default:"-" }}</td>
+                <td style="border: 1px solid #ddd; padding: 6px; font-size: 11px;">{{ item.date|default:"-" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" style="border: 1px solid #ddd; padding: 10px;">등록된 응시 내역이 없습니다.</td></tr>
+            {% endfor %}
+        </table>
+        <!-- ★ JS로 자동 계산되어 들어갈 요약 영역 -->
+        <div class="briefing-exam-summary" style="background-color: #f8f9fa; padding: 8px 12px; border-radius: 4px; font-weight: bold; text-align: right; font-size: 13px; margin-bottom: 15px; border: 1px solid #ddd;">
+            시험 요약 계산 중...
+        </div>
+
+        <h4 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-bottom: 10px; font-size: 16px;">🛑 최근 주요 징계/특이사항 내역</h4>
+        <ul style="font-size: 13px; padding-left: 20px; line-height: 1.6;">
+            {% for log in logs|slice:":5" %}
+            <li><strong>[{{ log.created_at|date:"m/d" }}]</strong> {{ log.get_log_type_display }} : {{ log.reason|truncatechars:40 }}</li>
+            {% empty %}
+            <li>기록 없음</li>
+            {% endfor %}
+        </ul>
+        
+        <p style="margin-top: 15px; font-size: 14px; font-weight: bold;">상기 사유로 교육 진행이 불가하다 판단되어 퇴소를 상신하오니 재가 바랍니다.</p>
+    </div>
+</div>
+
+<script>
+    function copyBriefing(type) {
+        const targetId = type === 'pl' ? 'briefing-pl' : 'briefing-dropout';
+        const el = document.getElementById(targetId);
+        
+        if (!el) {
+            alert("오류: 복사할 내용을 찾을 수 없습니다.");
+            return;
+        }
+
+        // ========================================================
+        // ★ [핵심 추가] 복사 직전에 시험 통계를 동적으로 계산해서 꽂아넣기
+        // ========================================================
+        let totalExams = 0;
+        let retakeCount = 0;
+        let sumScore1 = 0;
+        let score1Count = 0;
+
+        // 현재 복사할 템플릿 내의 시험 기록(row)들을 긁어옴
+        const rows = el.querySelectorAll('.briefing-exam-row');
+        rows.forEach(row => {
+            totalExams++;
+            // 2차 시험 데이터가 있으면 재시험 건수로 +1
+            if (row.dataset.retakes === '1') retakeCount++;
+            
+            // 1차 점수가 숫자로 존재하면 합산
+            let score1 = parseInt(row.dataset.score1);
+            if (!isNaN(score1)) {
+                sumScore1 += score1;
+                score1Count++;
+            }
+        });
+
+        // 1차 평균 점수 계산 (소수점 1자리)
+        const avgScore1 = score1Count > 0 ? (sumScore1 / score1Count).toFixed(1) : 0;
+        
+        // 요약 텍스트 업데이트
+        const summaryDiv = el.querySelector('.briefing-exam-summary');
+        if (summaryDiv) {
+            summaryDiv.innerHTML = `시험 <span style="color: #0056b3;">${totalExams}개</span> 중 재시험 <span style="color: #dc3545;">${retakeCount}건</span> / 1차 평균: <span style="color: #dc3545;">${avgScore1}점</span>`;
+        }
+        // ========================================================
+
+        el.style.display = 'block';
+        el.style.position = 'absolute';
+        el.style.left = '-9999px';
+        el.style.top = '-9999px';
+
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        let success = false;
+        try {
+            success = document.execCommand('copy');
+        } catch (err) {
+            console.error('복사 에러:', err);
+        }
+        
+        selection.removeAllRanges();
+        el.style.display = 'none';
+
+        if (success) {
+            const msg = type === 'pl' ? "📢 PL 면담 브리핑 복사 완료!" : "🚨 퇴소 품의 브리핑 복사 완료!";
+            showToast(msg, 'success');
+        } else {
+            alert("복사에 실패했습니다. 브라우저가 클립보드를 차단했습니다.");
+        }
+    }
+
+    function showToast(message, type) {
+        const existing = document.getElementById('copy-toast-msg');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.id = 'copy-toast-msg';
+        toast.className = 'position-fixed top-0 start-50 translate-middle-x mt-4 p-3 rounded-3 shadow-lg text-white bg-dark';
+        toast.style.zIndex = '99999';
+        toast.style.minWidth = '320px';
+        toast.style.transition = 'opacity 0.3s ease-in-out';
+        
+        toast.innerHTML = `
+            <div class="d-flex align-items-center">
+                <i class="bi bi-check-circle-fill text-success fs-4 me-3"></i>
+                <div>
+                    <h6 class="mb-0 fw-bold">${message}</h6>
+                    <div class="small mt-1 text-white-50">메신저/메일에 붙여넣기(Ctrl+V) 하세요.</div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => {
+                if (toast.parentElement) toast.remove();
+            }, 300);
+        }, 3000);
+    }
+
+function copyExamBriefing(type, quizId) {
+    const el = document.getElementById(`exam-briefing-${type}-${quizId}`);
+    if (!el) { alert("오류: 브리핑 내용을 찾을 수 없습니다."); return; }
+
+    // PL면담: 경고 항목 없으면 경고 섹션 통째로 숨김
+    if (type === 'pl') {
+        const warnSection = el.querySelector('.pl-warning-section');
+        const warnItems   = el.querySelector('.pl-warning-items');
+        if (warnSection && warnItems) {
+            warnSection.style.display =
+                warnItems.querySelectorAll('li').length > 0 ? 'block' : 'none';
+        }
+    }
+
+    el.style.display  = 'block';
+    el.style.position = 'absolute';
+    el.style.left     = '-9999px';
+    el.style.top      = '-9999px';
+
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    let success = false;
+    try { success = document.execCommand('copy'); } catch (err) { console.error(err); }
+
+    selection.removeAllRanges();
+    el.style.display = 'none';
+
+    if (success) {
+        const msg = type === 'pl'
+            ? '📢 PL 면담 브리핑 복사 완료!'
+            : '🚨 퇴소 품의 브리핑 복사 완료!';
+        showToast(msg, 'success');  // 기존 showToast 함수 재사용
+    } else {
+        alert('복사 실패: 브라우저가 클립보드를 차단했습니다.');
+    }
+}
+</script>
+
+
+
+{% for item in exam_process_list %}
+{% if item.status == 'fail' %}
+
+{# ─── PL 면담 브리핑 (시험별) ─── #}
+<div id="exam-briefing-pl-{{ item.quiz.id }}"
+     style="display:none; position:absolute; left:-9999px; top:-9999px;
+            font-family:'Malgun Gothic',sans-serif; color:#333;">
+    <div style="border:2px solid #ffc107; padding:15px; border-radius:8px; max-width:650px;">
+        <h3 style="color:#d39e00; margin-top:0;">
+            📢 [PMTC] 시험 불합격 - 파트장(PL) 면담 요청
+        </h3>
+        <p>
+            수고 많으십니다.<br>
+            <strong>{{ profile.name }}</strong> 교육생이
+            <strong style="color:#c82333;">「{{ item.quiz.title }}」</strong>
+            시험 불합격으로 인해 <strong>파트장(PL) 면담</strong>이 필요합니다.
+        </p>
+
+        <table style="width:100%; border-collapse:collapse; margin-bottom:15px;">
+            <tr>
+                <td style="background:#f8f9fa; border:1px solid #ddd; padding:8px; width:110px; font-weight:bold;">소속 / 기수</td>
+                <td style="border:1px solid #ddd; padding:8px;">
+                    {{ profile.company.name|default:"-" }}
+                    ({{ profile.process.name|default:"-" }}) / {{ profile.cohort.name|default:"-" }}
+                </td>
+            </tr>
+            <tr>
+                <td style="background:#f8f9fa; border:1px solid #ddd; padding:8px; font-weight:bold;">성 명</td>
+                <td style="border:1px solid #ddd; padding:8px; font-weight:bold; color:#0056b3;">
+                    {{ profile.name }} ({{ profile.employee_id|default:"-" }})
+                </td>
+            </tr>
+            <tr>
+                <td style="background:#f8f9fa; border:1px solid #ddd; padding:8px; font-weight:bold;">누적 경고</td>
+                <td style="border:1px solid #ddd; padding:8px;">
+                    <span style="color:red; font-weight:bold;">{{ profile.warning_count }}회</span> / 4회
+                </td>
+            </tr>
+        </table>
+
+        <h4 style="border-bottom:1px solid #ccc; padding-bottom:5px; margin-bottom:10px; font-size:16px;">
+            📊 해당 시험 응시 현황
+        </h4>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:center; margin-bottom:10px;">
+            <tr style="background:#f1f3f5;">
+                <th style="border:1px solid #ddd; padding:6px;">과목명</th>
+                <th style="border:1px solid #ddd; padding:6px; width:13%;">1차</th>
+                <th style="border:1px solid #ddd; padding:6px; width:13%;">2차</th>
+                <th style="border:1px solid #ddd; padding:6px; width:13%;">3차+</th>
+                <th style="border:1px solid #ddd; padding:6px; width:22%;">최종 응시일</th>
+            </tr>
+            <tr>
+                <td style="border:1px solid #ddd; padding:6px; text-align:left;">{{ item.quiz.title }}</td>
+                <td style="border:1px solid #ddd; padding:6px;
+                    {% if item.try_1 and not item.try_1.is_pass %}color:red;{% endif %}">
+                    {{ item.try_1.score|default:"-" }}
+                </td>
+                <td style="border:1px solid #ddd; padding:6px;
+                    {% if item.try_2 and not item.try_2.is_pass %}color:red;{% endif %}">
+                    {{ item.try_2.score|default:"-" }}
+                </td>
+                <td style="border:1px solid #ddd; padding:6px;
+                    {% if item.try_3 and not item.try_3.is_pass %}color:red;{% endif %}">
+                    {{ item.try_3.score|default:"-" }}
+                </td>
+                <td style="border:1px solid #ddd; padding:6px; font-size:11px;">{{ item.date|default:"-" }}</td>
+            </tr>
+        </table>
+
+        
+        <div class="pl-warning-section">
+            <h4 style="border-bottom:1px solid #ffc107; padding-bottom:5px; margin-bottom:10px;
+                        font-size:15px; color:#856404;">
+                ⚠️ 누적 경고 / 경고장 내역 (참고)
+            </h4>
+            <ul class="pl-warning-items" style="font-size:13px; padding-left:20px; line-height:1.7;">
+                {% for log in logs %}
+                    {% if log.log_type == 'warning' or log.log_type == 'warning_letter' %}
+                    <li>
+                        <strong>[{{ log.created_at|date:"m/d" }}]</strong>
+                        {{ log.get_log_type_display }} : {{ log.reason|truncatechars:50 }}
+                    </li>
+                    {% endif %}
+                {% endfor %}
+            </ul>
+        </div>
+
+        <p style="margin-top:15px; font-size:14px;">
+            상기 시험 과락으로 인해 파트장(PL) 면담 진행을 요청드립니다. 확인 후 면담 일정 조율 부탁드립니다.
+        </p>
+    </div>
+</div>
+
+<!-- ─── 퇴소 브리핑 (시험별) ─── -->
+<div id="exam-briefing-dropout-{{ item.quiz.id }}"
+     style="display:none; position:absolute; left:-9999px; top:-9999px;
+            font-family:'Malgun Gothic',sans-serif; color:#333;">
+    <div style="border:2px solid #dc3545; padding:15px; border-radius:8px; max-width:650px;">
+        <h3 style="color:#c82333; margin-top:0;">🚨 [PMTC] 교육생 퇴소 품의 상신</h3>
+        <p>수고 많으십니다. 아래 교육생에 대하여 <strong>규정에 의거한 강제 퇴소(제적) 조치</strong>를 상신합니다.</p>
+
+        <table style="width:100%; border-collapse:collapse; margin-bottom:15px;">
+            <tr>
+                <td style="background:#f8f9fa; border:1px solid #ddd; padding:8px; width:110px; font-weight:bold;">소속 / 기수</td>
+                <td style="border:1px solid #ddd; padding:8px;">
+                    {{ profile.company.name|default:"-" }}
+                    ({{ profile.process.name|default:"-" }}) / {{ profile.cohort.name|default:"-" }}
+                </td>
+            </tr>
+            <tr>
+                <td style="background:#f8f9fa; border:1px solid #ddd; padding:8px; font-weight:bold;">성 명</td>
+                <td style="border:1px solid #ddd; padding:8px; font-weight:bold; color:#c82333;">
+                    {{ profile.name }} ({{ profile.employee_id|default:"-" }})
+                </td>
+            </tr>
+            <tr>
+                <td style="background:#f8f9fa; border:1px solid #ddd; padding:8px; font-weight:bold;">퇴소 트리거</td>
+                <td style="border:1px solid #ddd; padding:8px; font-weight:bold; color:red;">
+                    [성적 미달] 「{{ item.quiz.title }}」 3차 이상 과락
+                </td>
+            </tr>
+            <tr>
+                <td style="background:#f8f9fa; border:1px solid #ddd; padding:8px; font-weight:bold;">누적 경고</td>
+                <td style="border:1px solid #ddd; padding:8px;">
+                    <span style="color:red; font-weight:bold;">{{ profile.warning_count }}회</span> / 4회
+                    <br>
+                    <span style="font-family:monospace; letter-spacing:2px; color:#dc3545; font-size:15px;">
+                        {% if profile.warning_count == 1 %}■□□□
+                        {% elif profile.warning_count == 2 %}■■□□
+                        {% elif profile.warning_count == 3 %}■■■□
+                        {% elif profile.warning_count >= 4 %}■■■■
+                        {% else %}□□□□{% endif %}
+                    </span>
+                </td>
+            </tr>
+        </table>
+
+        <h4 style="border-bottom:1px solid #ccc; padding-bottom:5px; margin-bottom:10px; font-size:16px;">
+            📊 전체 시험 평가 현황
+        </h4>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:center; margin-bottom:10px;">
+            <tr style="background:#f1f3f5;">
+                <th style="border:1px solid #ddd; padding:6px;">과목명</th>
+                <th style="border:1px solid #ddd; padding:6px; width:13%;">1차</th>
+                <th style="border:1px solid #ddd; padding:6px; width:13%;">2차</th>
+                <th style="border:1px solid #ddd; padding:6px; width:13%;">3차+</th>
+                <th style="border:1px solid #ddd; padding:6px; width:22%;">최종 응시일</th>
+            </tr>
+            {% for exam in exam_process_list %}
+            <tr>
+                <td style="border:1px solid #ddd; padding:6px; text-align:left;
+                    {% if exam.quiz.id == item.quiz.id %}font-weight:bold; background:#fff3cd;{% endif %}">
+                    {{ exam.quiz.title }}
+                    {% if exam.quiz.id == item.quiz.id %}
+                        <span style="color:#c82333; font-size:11px;"> ◀ 퇴소 사유</span>
+                    {% endif %}
+                </td>
+                <td style="border:1px solid #ddd; padding:6px;
+                    {% if exam.try_1 and not exam.try_1.is_pass %}color:red;{% endif %}">
+                    {{ exam.try_1.score|default:"-" }}
+                </td>
+                <td style="border:1px solid #ddd; padding:6px;
+                    {% if exam.try_2 and not exam.try_2.is_pass %}color:red;{% endif %}">
+                    {{ exam.try_2.score|default:"-" }}
+                </td>
+                <td style="border:1px solid #ddd; padding:6px;
+                    {% if exam.try_3 and not exam.try_3.is_pass %}color:red;{% endif %}">
+                    {{ exam.try_3.score|default:"-" }}
+                </td>
+                <td style="border:1px solid #ddd; padding:6px; font-size:11px;">{{ exam.date|default:"-" }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+
+        <h4 style="border-bottom:1px solid #ccc; padding-bottom:5px; margin-bottom:10px; font-size:16px;">
+            🛑 최근 주요 징계 / 특이사항
+        </h4>
+        <ul style="font-size:13px; padding-left:20px; line-height:1.6;">
+            {% for log in logs|slice:":5" %}
+            <li>
+                <strong>[{{ log.created_at|date:"m/d" }}]</strong>
+                {{ log.get_log_type_display }} : {{ log.reason|truncatechars:40 }}
+            </li>
+            {% empty %}
+            <li>기록 없음</li>
+            {% endfor %}
+        </ul>
+
+        <p style="margin-top:15px; font-size:14px; font-weight:bold;">
+            상기 사유로 교육 진행이 불가하다 판단되어 퇴소를 상신하오니 재가 바랍니다.
+        </p>
+    </div>
+</div>
+
+{% endif %}
+{% endfor %}
+
 {% endblock %}

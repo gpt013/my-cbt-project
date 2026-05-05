@@ -4,6 +4,8 @@ from django.utils import timezone
 from .models import Profile
 from django.contrib.auth import logout
 from django.contrib import messages
+from datetime import timedelta         
+from django.http import JsonResponse
 
 # [1] 비밀번호 강제 변경 미들웨어 (기존 유지)
 class ForcePasswordChangeMiddleware:
@@ -18,6 +20,11 @@ class ForcePasswordChangeMiddleware:
             
             profile = request.user.profile
             
+            if hasattr(profile, 'password_updated_at') and profile.password_updated_at:
+                if timezone.now() > profile.password_updated_at + timedelta(days=90):
+                    profile.must_change_password = True
+                    profile.save()
+
             # URL 이름이 실제 urls.py와 일치하는지 꼭 확인하세요!
             password_change_url = reverse('accounts:password_change')
             password_change_done_url = reverse('accounts:password_change_done')
@@ -27,6 +34,10 @@ class ForcePasswordChangeMiddleware:
             if request.path == password_change_done_url:
                 if profile.must_change_password:
                     profile.must_change_password = False
+
+                    if hasattr(profile, 'password_updated_at'):
+                        profile.password_updated_at = timezone.now()
+
                     profile.save()
                 return self.get_response(request)
 
@@ -45,6 +56,9 @@ class AccountStatusMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        if not request.user.is_authenticated and request.path.startswith('/quiz/api/'):
+            from django.http import JsonResponse
+            return JsonResponse({'error': 'not_logged_in'}, status=401)
         # 1. 로그인한 사용자만 검사
         if request.user.is_authenticated:
             
@@ -143,13 +157,12 @@ class ConcurrentLoginMiddleware:
             # 2. 내 번호와 DB의 최신 번호가 다르다? -> 누군가 다른 곳에서 로그인해서 내 접속증을 뺏어갔다!
             if current_key and valid_key and current_key != valid_key:
                 
-                # 3. 짐 싸서 내보냄 (로그아웃 처리)
+                if request.path.startswith('/quiz/api/'):
+                    return JsonResponse({'error': 'concurrent_login'}, status=401)
+                
+                # (기존 코드) 일반적인 짐 싸서 내보냄
                 logout(request) 
-                
-                # 4. 내보내면서 손에 빨간색 쪽지(안내 메시지)를 쥐어줌
                 messages.error(request, "⚠️ 다른 기기(또는 브라우저)에서 로그인이 감지되어 안전하게 자동 로그아웃 되었습니다.")
-                
-                # 5. 로그인 화면으로 돌려보냄
                 return redirect('accounts:login') 
 
         return self.get_response(request)

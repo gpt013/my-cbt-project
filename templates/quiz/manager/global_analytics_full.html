@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid mt-4 mb-5" style="max-width: 1200px;">
+    
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="fw-bold m-0">{{ title }}</h3>
+        <a href="javascript:history.back();" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>대시보드로 돌아가기
+        </a>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card border-0 shadow-sm">
+        <div class="card-body p-4">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0 align-middle text-center text-nowrap" id="analyticsTable">
+                    <thead class="table-light text-secondary" style="font-size: 0.95rem;">
+                    <tr>
+                        <th style="width: 5%">순위</th>
+                        {% if type == 'tag' %}
+                            <th style="width: 45%" class="text-start">태그명 (개념)</th>
+                        {% else %}
+                            <th style="width: 30%" class="text-start">문제 내용</th>
+                            <!-- ★ 추가된 부분: 소속 시험 헤더 -->
+                            <th style="width: 15%">소속 시험</th>
+                            <th style="width: 10%">유형</th>
+                        {% endif %}
+                        <th style="width: 15%">정답수 / 총 응시수</th>
+                        <th style="width: 15%">평균 정답률</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in stats %}
+                    <tr>
+                        <td class="text-muted fw-bold">{{ forloop.counter }}</td>
+                        
+                        {% if type == 'tag' %}
+                            <td class="text-start fw-bold text-dark fs-5">{{ item.name }}</td>
+                        {% else %}
+                            <td class="text-start">
+                                <div class="text-truncate fw-bold text-dark" style="max-width: 350px;" title="{{ item.question_text }}">
+                                    {{ item.question_text }}
+                                </div>
+                            </td>
+                            <!-- ★ 추가된 부분: 소속 시험 데이터 출력 -->
+                            <td>
+                                {% for quiz in item.quizzes.all %}
+                                    <span class="badge bg-secondary bg-opacity-10 text-secondary border mb-1 text-truncate" style="max-width: 150px;" title="{{ quiz.title }}">
+                                        {{ quiz.title }}
+                                    </span><br>
+                                {% empty %}
+                                    <span class="text-muted small">미지정 (문제은행 대기)</span>
+                                {% endfor %}
+                            </td>
+                            <td><span class="badge bg-light text-dark border">{{ item.get_question_type_display }}</span></td>
+                        {% endif %}
+
+                        <!-- ★ 수정됨: data-order 추가 -->
+                        <td data-order="{{ item.correct_tries }}">
+                            <span class="fs-5">{{ item.correct_tries }}</span> 
+                            <span class="text-muted">/ {{ item.total_tries }}회</span>
+                        </td>
+                        
+                        <!-- ★ 수정됨: data-order 추가 -->
+                        <td data-order="{{ item.accuracy }}">
+                            <span class="badge {% if item.accuracy < 50 %}bg-danger{% elif item.accuracy < 70 %}bg-warning text-dark{% else %}bg-success{% endif %} rounded-pill px-3 py-2 fs-6">
+                                {{ item.accuracy|floatformat:1 }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="py-5 text-center text-muted">
+                            <i class="bi bi-inbox fs-1 d-block mb-3 opacity-50"></i>
+                            분석할 수 있는 풀이 기록이 없습니다.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<!-- ★ DataTables 스크립트 추가 -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+<script>
+    $(document).ready(function() {
+        $('#analyticsTable').DataTable({
+            language: {
+                search: "",           // "검색" 글자를 없애고
+                searchPlaceholder: "🔍 키워드로 검색...", // 입력창 안에 예쁘게 힌트를 넣습니다
+                lengthMenu: "_MENU_ 개씩 보기",
+                info: "<span class='text-muted small'>총 _TOTAL_개 항목 중 _START_ ~ _END_</span>",
+                infoEmpty: "<span class='text-muted small'>데이터가 없습니다.</span>",
+                paginate: {
+                    first: "처음",
+                    last: "마지막",
+                    next: "다음",
+                    previous: "이전"
+                }
+            },
+            order: [[0, "asc"]],
+            pageLength: 20,
+            // 테이블을 감싸는 div에 여백(마진)을 약간 줘서 상단 버튼과 표 사이 공간 확보
+            dom: "<'row mb-3'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'f>>" +
+                 "<'row'<'col-sm-12'tr>>" +
+                 "<'row mt-3'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>"
+        });
+    });
+</script>
+{% endblock %}

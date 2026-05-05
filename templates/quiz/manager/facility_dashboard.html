@@ -14,9 +14,9 @@
     
     /* 오전/오후 분할 스타일 */
     .time-slot-container { display: flex; flex-direction: column; height: 100%; width: 100%; }
-    .time-slot { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 0.75em; cursor: pointer; transition: background 0.2s; }
-    .time-slot:first-child { border-bottom: 1px dashed #eee; }
-    .time-slot:hover { background-color: #e9ecef; }
+    .matrix-time-slot { height: 30px; display: flex; align-items: center; justify-content: center; font-size: 0.75em; cursor: pointer; transition: background 0.2s; }
+    .matrix-time-slot:first-child { border-bottom: 1px dashed #dee2e6; }
+    .matrix-time-slot:hover { background-color: #e9ecef; }
 
     /* 예약 상태 색상 */
     .booked-am { background-color: #a5d8ff !important; color: #004085; font-weight: bold; }
@@ -24,6 +24,82 @@
 
     /* 탭 스타일 */
     .nav-tabs .nav-link.active { font-weight: bold; color: #495057; background-color: #fff; border-color: #dee2e6 #dee2e6 #fff; }
+
+    /* ========================================================= */
+    /* ★ 주말 및 주간 인디케이터 스타일 */
+    /* ========================================================= */
+    
+    /* 1. 주말 배경색 (월간/주간 공통) */
+    .fc-day-sun { background-color: #fff0f0 !important; }
+    .fc-day-sat { background-color: #f4f8ff !important; }
+    .fc-day-sun .fc-col-header-cell-cushion, .fc-day-sun .fc-daygrid-day-number { color: #dc3545 !important; }
+    .fc-day-sat .fc-col-header-cell-cushion, .fc-day-sat .fc-daygrid-day-number { color: #0d6efd !important; }
+    .matrix-weekend-sun { background-color: #fff0f0 !important; }
+    .matrix-weekend-sat { background-color: #f4f8ff !important; }
+
+    /* 2. ★ 찐 달력 모양 인디케이터 (상혁님 디자인 적용) */
+    .cal-icon {
+        width: 36px; height: 40px; 
+        background-color: #dee2e6; border-radius: 4px; 
+        position: relative; display: inline-block; vertical-align: middle; 
+        margin-left: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border: 1px solid #ced4da; margin-bottom: 2px;
+    }
+    .cal-header { /* 달력 위쪽 빨간부분 */
+        background-color: #dc3545; height: 10px; width: 100%; 
+        position: absolute; top: 0; left: 0;
+        border-top-left-radius: 3px; border-top-right-radius: 3px;
+    }
+    .cal-rings { /* 달력 링(스프링) 4개 */
+        position: absolute; top: -3px; width: 100%; 
+        display: flex; justify-content: space-evenly; padding: 0 4px; z-index: 2;
+    }
+    .cal-ring {
+        width: 6px; height: 8px; border: 2px solid #6c757d; 
+        border-radius: 3px; background-color: #dee2e6; 
+    }
+    .cal-body { /* 달력 몸통 (가로줄 들어가는 곳) */
+        margin-top: 13px; padding: 0 3px;
+        display: flex; flex-direction: column; gap: 2px;
+    }
+    .cal-row { /* 달력 안의 가로 1줄 */
+        display: flex; gap: 2px; justify-content: center; 
+    }
+    .cal-cell { /* 가로줄 안의 하얀 네모칸 */
+        background-color: #ffffff; width: 6px; height: 3.5px; border-radius: 1px; 
+    }
+    /* ★ 현재 주차(행)에 파란색 불 켜기 */
+    .cal-row.active-row .cal-cell { 
+        background-color: #0d6efd; 
+        box-shadow: 0 0 3px rgba(13,110,253,0.5); 
+    }
+
+    .status-pending { background: repeating-linear-gradient(45deg, #e9ecef, #e9ecef 10px, #f8f9fa 10px, #f8f9fa 20px) !important; color: #6c757d !important; border: 1px dashed #adb5bd !important; }
+    .status-rejected { 
+        background: repeating-linear-gradient(-45deg, #ffe3e3, #ffe3e3 8px, #ffc9c9 8px, #ffc9c9 16px) !important; 
+        color: #a80000 !important; 
+        border: 1px dashed #dc3545 !important; 
+        text-decoration: line-through; 
+    }
+    
+    .status-confirmed { color: white !important; }
+
+    .today-highlight-th { background-color: #fff3cd !important; border-bottom: 2px solid #ffc107 !important; }
+    .today-highlight-td { background-color: rgba(255, 193, 7, 0.05) !important; }
+
+    /* 일간 타임라인 전용 스타일 */
+    .timeline-container { display: flex; border: 1px solid #dee2e6; background: #fff; border-radius: 8px; overflow-x: auto; }
+    .time-axis { width: 70px; flex-shrink: 0; background: #f8f9fa; border-right: 1px solid #dee2e6; text-align: center; }
+    .time-slot { height: 60px; border-bottom: 1px solid #eee; display: flex; align-items: flex-start; justify-content: center; font-size: 0.8rem; color: #6c757d; padding-top: 5px; font-weight: bold; }
+    .room-cols-wrapper { display: flex; flex-grow: 1; min-width: 400px; }
+    .room-col { flex: 1; min-width: 80px; border-right: 1px solid #dee2e6; position: relative; }
+    .room-col-header { height: 45px; background: #f8f9fa; border-bottom: 1px solid #dee2e6; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.95rem; color: #343a40;}
+    /* 07:00 ~ 22:00 = 총 15시간 * 60px = 900px */
+    .room-col-body { position: relative; height: 900px; background-image: linear-gradient(to bottom, transparent 59px, #eee 60px); background-size: 100% 60px; }
+    
+    .timeline-event { position: absolute; left: 4px; right: 4px; border-radius: 6px; padding: 6px 8px; font-size: 0.8rem; color: #fff; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.15); overflow: hidden; z-index: 10; transition: transform 0.1s, z-index 0.1s; opacity: 0.95; }
+    .timeline-event:hover { transform: scale(1.02); z-index: 20; opacity: 1; }
+
 </style>
 
 <div class="container-fluid mt-4">
@@ -43,6 +119,25 @@
                 </div>
             </div>
 
+            {% if is_manager %}
+            <div class="card shadow border-0 mb-4 border-start border-4 border-primary">
+                <div class="card-header bg-white fw-bold py-2"><i class="bi bi-bar-chart-fill text-primary"></i> <span id="stat-month-title">이번 달</span> 전체 예약 통계</div>
+                <div class="card-body p-2 small">
+                    <div class="d-flex justify-content-between mb-2 px-1">
+                        <span style="cursor:pointer;" onclick="openStatsList('confirmed')">확정: <b class="text-success fs-6" id="stat-confirmed">0</b></span>
+                        <span style="cursor:pointer;" onclick="openStatsList('pending')">대기: <b class="text-secondary fs-6" id="stat-pending">0</b></span>
+                        <span style="cursor:pointer;" onclick="openStatsList('rejected')">반려: <b class="text-danger fs-6" id="stat-rejected">0</b></span>
+                    </div>
+                    
+                    <hr class="my-1">
+                    <div id="stat-companies" style="max-height: 100px; overflow-y: auto;" class="px-1">
+                        </div>
+                </div>
+            </div>
+            {% endif %}
+
+            
+
             <div class="card shadow border-0 mb-4 bg-primary text-white">
                 <div class="card-body p-3">
                     <h6 class="fw-bold mb-3"><i class="bi bi-calendar-check"></i> 예약하기</h6>
@@ -57,7 +152,6 @@
                 <div class="card-body p-2" style="max-height: 400px; overflow-y: auto;">
                     {% if today_reservations %}
                         <div class="list-group list-group-flush">
-                        
                         {% for group in today_reservations %}
                             
                             <div class="list-group-item bg-light fw-bold py-1 small text-secondary">
@@ -65,20 +159,26 @@
                             </div>
 
                             {% for res in group.events %}
-                            <div class="list-group-item list-group-item-action border-0 py-2 ps-4" 
-                                 onclick="focusOnEvent('{{ res.start_time|date:'c' }}')" 
-                                 style="cursor: pointer; border-left: 2px solid #ddd !important;">
+                            <div class="list-group-item list-group-item-action border-0 py-2 ps-3 mb-1" 
+                                 onclick="openSidebarDetail(this)"
+                                 data-id="{{ res.id }}"
+                                 data-title="{{ res.title }}"
+                                 data-company="{{ res.company_name|default:'소속 미상' }}"
+                                 data-username="{{ res.user.profile.name|default:res.user.username }}"
+                                 data-attendees="{{ res.attendees|default:0 }}"
+                                 data-start="{{ res.start_time|date:'c' }}"
+                                 data-end="{{ res.end_time|date:'c' }}"
+                                 data-status-label="{% if res.status == 'confirmed' %}예약 확정{% elif res.status == 'rejected' %}반려됨{% else %}승인 대기{% endif %}"
+                                 data-status-code="{{ res.status }}"
+                                 data-can-approve="{% if request.user.is_superuser or request.user.profile.is_manager %}true{% else %}false{% endif %}"
+                                 data-can-edit="{% if request.user == res.user %}true{% else %}false{% endif %}"
+                                 style="cursor: pointer; border-left: 3px solid #0d6efd !important; background-color: #fcfcfc;">
                                 
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <span class="badge bg-info text-dark opacity-75 me-2" style="font-size: 0.7em;">
-                                        {{ res.start_time|date:"H:i" }}~{{ res.end_time|date:"H:i" }}
-                                    </span>
-                                    <small class="text-primary fw-bold" style="font-size: 0.8em;">
-                                        {{ res.user.profile.name|default:res.user.username }}
-                                    </small>
-                                </div>
-                                <div class="text-truncate small text-muted mt-1 ps-1">
-                                    {{ res.title }}
+                                <div class="text-truncate" style="font-size: 0.85em;">
+                                    <span class="fw-bold text-primary"><i class="bi bi-building"></i> {{ res.company_name|default:"소속 미상" }}</span>
+                                    <span class="text-muted mx-1">|</span>
+                                    <span class="fw-bold text-dark">{{ res.title }}</span>
+                                    <span class="badge bg-white text-secondary border ms-2"><i class="bi bi-clock"></i> {{ res.start_time|date:"H:i" }}~{{ res.end_time|date:"H:i" }}</span>
                                 </div>
                             </div>
                             {% endfor %}
@@ -92,9 +192,40 @@
                     {% endif %}
                 </div>
             </div>
-        </div>
+            
 
-        <div class="col-md-9">
+            <div class="card shadow border-0 mb-3 border-start border-4 border-success">
+                <div class="card-header bg-white fw-bold py-2"><i class="bi bi-person-bounding-box text-success"></i> <span id="my-stat-month-title">이번 달</span> 내 예약 통계</div>
+                <div class="card-body p-2 small">
+                    <div class="d-flex justify-content-between mb-1 px-1">
+                        <span style="cursor:pointer;" onclick="openMyStatsList('confirmed')">확정: <b class="text-success fs-6" id="my-stat-confirmed">0</b></span>
+                        <span style="cursor:pointer;" onclick="openMyStatsList('pending')">대기: <b class="text-secondary fs-6" id="my-stat-pending">0</b></span>
+                        <span style="cursor:pointer;" onclick="openMyStatsList('rejected')">반려: <b class="text-danger fs-6" id="my-stat-rejected">0</b></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card shadow border-0 mb-4 border-start border-4 border-success">
+                <div class="card-header bg-white fw-bold py-2"><i class="bi bi-list-ul text-success"></i> <span id="my-month-title">이번 달</span> 내 예약 현황</div>
+                <div class="card-body p-2" style="max-height: 250px; overflow-y: auto;">
+                    <div id="my-reservations-list" class="list-group list-group-flush">
+                        </div>
+                </div>
+            </div>
+            </div> 
+            
+            <div class="col-md-9">
+            
+            {% if user.is_staff %}
+            <div class="d-flex justify-content-end align-items-center mb-3">
+                <button type="button" class="btn btn-success shadow-sm fw-bold" data-bs-toggle="modal" data-bs-target="#excelDownloadModal">
+                    <i class="bi bi-file-earmark-excel-fill me-1"></i> {% now "Y" %}년 배포용 연간 달력 다운로드
+                </button>
+            </div>
+            {% endif %}
+
+            
+
             <div class="card shadow border-0" style="min-height: 850px;">
                 <div class="card-header bg-white">
                     <ul class="nav nav-tabs card-header-tabs" id="viewTabs" role="tablist">
@@ -108,19 +239,52 @@
                                 <i class="bi bi-table"></i> 📋 주간 강의실 현황
                             </button>
                         </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="daily-tab" data-bs-toggle="tab" data-bs-target="#daily-view" type="button" onclick="changeDailyDate(0, true)">
+                                <i class="bi bi-calendar-day text-success"></i> 🌞 일간 타임라인
+                            </button>
+                        </li>
                     </ul>
                 </div>
                 
                 <div class="card-body p-3 tab-content">
                     <div class="tab-pane fade show active" id="month-view">
+                        <div class="d-flex justify-content-between align-items-center mb-3 mt-2">
+                            
+                            <button class="btn btn-outline-secondary text-nowrap" onclick="if(calendar) calendar.prev();" style="min-width: 100px;">
+                                <i class="bi bi-chevron-left"></i> 지난달
+                            </button>
+                            
+                            <div class="text-center d-flex align-items-center justify-content-center">
+                                <h4 class="fw-bold m-0 d-inline-flex align-items-center justify-content-center" id="custom-month-title"></h4>
+                                <button class="btn btn-outline-primary ms-3 fw-bold text-nowrap" onclick="if(calendar) calendar.today();" style="padding: 4px 12px;">오늘</button>
+                            </div>
+                            
+                            <button class="btn btn-outline-secondary text-nowrap" onclick="if(calendar) calendar.next();" style="min-width: 100px;">
+                                다음달 <i class="bi bi-chevron-right"></i>
+                            </button>
+                            
+                        </div>
+                        
                         <div id='calendar'></div>
                     </div>
 
                     <div class="tab-pane fade" id="week-view">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <button class="btn btn-outline-secondary btn-sm" onclick="changeWeek(-1)"><i class="bi bi-chevron-left"></i> 지난주</button>
-                            <h5 class="fw-bold m-0" id="matrix-title"></h5>
-                            <button class="btn btn-outline-secondary btn-sm" onclick="changeWeek(1)">다음주 <i class="bi bi-chevron-right"></i></button>
+                        <div class="d-flex justify-content-between align-items-center mb-3 mt-2">
+                            
+                            <button class="btn btn-outline-secondary" onclick="changeWeek(-1)" style="width: 80px;">
+                                <i class="bi bi-chevron-left"></i> 이전
+                            </button>
+                            
+                            <div class="text-center d-flex align-items-center justify-content-center">
+                                <h4 class="fw-bold m-0 d-inline-flex align-items-center justify-content-center" id="matrix-title"></h4>
+                                <button class="btn btn-outline-primary ms-3 fw-bold" onclick="goToday()" style="padding: 4px 12px;">오늘</button>
+                            </div>
+                            
+                            <button class="btn btn-outline-secondary" onclick="changeWeek(1)" style="width: 80px;">
+                                다음 <i class="bi bi-chevron-right"></i>
+                            </button>
+                            
                         </div>
                         <div class="table-responsive">
                             <table class="matrix-table" id="matrix-table">
@@ -129,8 +293,40 @@
                             </table>
                         </div>
                     </div>
-                </div>
-            </div>
+                    <div class="tab-pane fade" id="daily-view" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-3 mt-2">
+                            <button class="btn btn-outline-secondary" onclick="changeDailyDate(-1)" style="width: 80px;">
+                                <i class="bi bi-chevron-left"></i> 이전
+                            </button>
+                            
+                            <div class="text-center d-flex align-items-center justify-content-center">
+                                <h4 class="fw-bold m-0 d-inline-flex align-items-center justify-content-center" id="daily-date-text" style="color: #3b1e1e;"></h4>
+                                <button class="btn btn-outline-primary ms-3 fw-bold" onclick="changeDailyDate(0, true)" style="padding: 4px 12px;">오늘</button>
+                            </div>
+                            
+                            <button class="btn btn-outline-secondary" onclick="changeDailyDate(1)" style="width: 80px;">
+                                다음 <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+
+                        <div class="timeline-container shadow-sm">
+                            <div class="time-axis">
+                                <div style="height: 45px; border-bottom: 1px solid #dee2e6; background: #e9ecef;"></div>
+                                <script>
+                                    for(let i=7; i<=21; i++) {
+                                        document.write(`<div class="time-slot">${i.toString().padStart(2, '0')}:00</div>`);
+                                    }
+                                </script>
+                            </div>
+                            <div class="room-cols-wrapper" id="daily-rooms-container" style="position: relative;">
+                                <div id="current-time-line" style="position: absolute; left: 0; right: 0; height: 2px; background-color: #dc3545; z-index: 50; display: none; pointer-events: none; box-shadow: 0 0 4px rgba(220,53,69,0.5);">
+                                    <div style="position: absolute; left: -55px; top: -12px; background: #dc3545; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; z-index: 51;" id="current-time-label"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+        </div>
+            
         </div>
     </div>
 </div>
@@ -214,16 +410,30 @@
 
 <div class="modal fade" id="detailModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header"><h5 class="modal-title fw-bold">상세 정보</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title fw-bold">상세 정보</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
             <div class="modal-body">
-                <h4 id="d_title" class="mb-3 fw-bold"></h4>
-                <p><strong>신청자:</strong> <span id="d_user"></span> (<span id="d_info"></span>)</p>
-                <p><strong>상태:</strong> <span id="d_status" class="badge"></span></p>
+                
+                <div class="p-3 mb-3 bg-white rounded" style="border: 2px solid #0d6efd;">
+                    <h4 id="d_purpose" class="fw-bold text-dark mb-3"></h4>
+                    <p class="mb-1"><i class="bi bi-building text-muted"></i> <span class="text-muted">소속(회사):</span> <span id="d_company" class="text-primary fw-bold"></span></p>
+                    <p class="mb-0"><i class="bi bi-person text-muted"></i> <span class="text-muted">신청자:</span> <span id="d_user" class="text-secondary"></span> <span class="text-secondary">(<span id="d_info"></span>)</span></p>
+                </div>
+                
+                <div class="d-flex align-items-center mb-3">
+                    <strong class="me-2">상태:</strong> 
+                    <span id="d_status" class="badge"></span>
+                </div>
                 <hr>
                 <p class="small text-muted mb-1">예약 시간:</p>
                 <p class="fw-bold fs-5" id="d_time"></p>
-                <input type="hidden" id="d_id"> <div id="adminBtns" class="d-none mt-4 text-end">
+                
+                <input type="hidden" id="d_id"> 
+                
+                <div id="adminBtns" class="d-none mt-4 text-end">
                     <button onclick="editEvent()" class="btn btn-primary btn-sm me-1"><i class="bi bi-pencil"></i> 수정</button>
                     <button onclick="doAction('approve')" class="btn btn-success btn-sm">승인</button>
                     <button onclick="doAction('reject')" class="btn btn-warning btn-sm text-white">반려</button>
@@ -238,12 +448,79 @@
     </div>
 </div>
 
+<div class="modal fade" id="statsListModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title fw-bold" id="statsListTitle">예약 내역</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0" style="max-height: 500px; overflow-y: auto;">
+                <table class="table table-hover align-middle mb-0 text-center small">
+                    <thead class="table-light">
+                        <tr><th>일시</th><th>강의실</th><th>소속</th><th>신청자</th><th>목적</th></tr>
+                    </thead>
+                    <tbody id="statsListBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="slotListModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-light">
+                <h5 class="modal-title fw-bold" id="slotListTitle">해당 시간대 예약 목록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0" style="max-height: 500px; overflow-y: auto;">
+                <table class="table table-hover align-middle mb-0 text-center small">
+                    <thead class="table-light">
+                        <tr><th>상태</th><th>소속/신청자</th><th>목적</th><th>시간</th><th>관리</th></tr>
+                    </thead>
+                    <tbody id="slotListBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="reservationListModal" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header bg-light py-3">
+                <h5 class="modal-title fw-bold text-dark" id="resListModalTitle">예약 목록</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead class="table-light text-secondary">
+                            <tr>
+                                <th style="width: 10%;">상태</th>
+                                <th style="width: 20%;">소속/신청자</th>
+                                <th style="width: 35%;">목적</th>
+                                <th style="width: 15%;">시간</th>
+                                <th style="width: 20%;">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resListModalBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
-    // ----------------------------------------------------
-    // 1. 전역 변수 및 초기화
-    // ----------------------------------------------------
     let calendar;
     let currentWeekStart = new Date(); 
+    currentWeekStart.setHours(0,0,0,0);
+    
+    // ★ 통계 리스트를 저장해둘 전역 변수
+    let currentMonthStats = {};
+    let currentMyMonthStats = {};
 
     const roomList = [
         {% for room in rooms %}
@@ -251,19 +528,82 @@
         {% endfor %}
     ];
 
+    function getLocalYYYYMMDD(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+
+    function goToday() {
+        currentWeekStart = new Date(); 
+        currentWeekStart.setHours(0,0,0,0);
+        const day = currentWeekStart.getDay();
+        const diff = currentWeekStart.getDate() - day + (day === 0 ? -6 : 1);
+        currentWeekStart.setDate(diff); 
+        loadWeeklyMatrix(); 
+        if(calendar) calendar.today();
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
         const calendarEl = document.getElementById('calendar');
         if (calendarEl) {
             calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
                 locale: 'ko',
-                headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth' },
+                // ★ 기본 헤더를 숨깁니다 (우리가 만든 HTML 헤더를 쓸 겁니다)
+                headerToolbar: false, 
                 height: 'auto',
                 events: '{% url "quiz:facility_events" %}',
                 selectable: true,
                 editable: true,
                 eventStartEditable: true, 
                 eventDurationEditable: true, 
+
+                // ★ 상태별 디자인 (반려 디자인 추가)
+                eventClassNames: function(arg) {
+                    if(arg.event.extendedProps.is_cohort) return ['fw-bold', 'border-2', 'border-warning', 'shadow-sm'];
+                    const status = arg.event.extendedProps.status_code;
+                    if(status === 'pending') return ['status-pending'];
+                    if(status === 'rejected') return ['status-rejected']; // 반려!
+                    return ['status-confirmed'];
+                },
+                
+                eventContent: function(arg) {
+                    if (arg.event.extendedProps.is_cohort) {
+                        return { html: `<div class="fc-event-title fc-sticky">${arg.event.title}</div>` };
+                    }
+                    const comp = arg.event.extendedProps.company || '소속 미상';
+                    const roomId = arg.event.extendedProps.room_id;
+                    const room = roomList.find(r => r.id == roomId);
+                    let roomName = room ? room.name.replace(/LAB/gi, '').trim() : '';
+                    let username = arg.event.extendedProps.username || '';
+                    let purpose = arg.event.extendedProps.full_desc || arg.event.title;
+                    
+                    const match = arg.event.title.match(/^\[.*?\]\s*(.*?)\s*-\s*(.*)$/);
+                    if (match) {
+                        if (!username) username = match[1].trim();
+                        purpose = match[2].trim();
+                    }
+
+                    return { 
+                        html: `<div class="fc-event-main text-truncate px-1" style="font-size: 0.85em; line-height: 1.5;">
+                                   <span class="text-primary fw-bold">[<i class="bi bi-building"></i> ${comp}]</span> 
+                                   <span class="text-success fw-bold mx-1">${roomName}</span>
+                                   <span class="fw-bold text-dark">${purpose} - ${username}</span>
+                               </div>` 
+                    };
+                },
+                
+                // ★ [핵심] 달력이 렌더링되거나 월이 넘어갈 때마다 데이터 갱신!!
+                datesSet: function(info) {
+                    // ★ 우리가 만든 중앙 제목칸에 글씨를 쏴줍니다.
+                    if(document.getElementById('custom-month-title')) {
+                        document.getElementById('custom-month-title').innerText = info.view.title;
+                    }
+                    fetchMonthlyData(info.view.currentStart);
+                },
+
                 select: function(info) { openReserve(info.startStr, info.endStr); },
                 eventClick: function(info) { 
                     if (info.event.extendedProps.is_cohort) return; 
@@ -272,82 +612,227 @@
                 eventDrop: function(info) { updateTime(info); },
                 eventResize: function(info) { updateTime(info); }
             });
-            calendar.render();
+            calendar.render(); 
         }
 
+        // 폼 전송 시 새로고침 방지
         const form = document.getElementById('reserveForm');
         if(form) {
             form.onsubmit = function(e) {
                 e.preventDefault();
-                
-                // ★ 전송 직전에 값이 꼬이지 않도록 동기화
                 toggleCompanyInput(); 
-
                 const formData = new FormData(this);
                 fetch('{% url "quiz:facility_reserve" %}', { 
-                    method: 'POST', 
-                    headers: {'X-CSRFToken': '{{ csrf_token }}'}, 
-                    body: formData 
-                })
-                .then(r => r.json()).then(d => {
-                    alert(d.message);
-                    if(d.status === 'success') location.reload();
-                })
-                .catch(err => alert("통신 오류: " + err));
+                    method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}, body: formData 
+                }).then(r => r.json()).then(d => {
+                    const loader = document.getElementById('global-loader');
+                    if(loader) loader.style.display = 'none';
+
+                    if(d.status === 'success') {
+                        if(calendar) calendar.refetchEvents();
+                        loadWeeklyMatrix();
+                        fetchMonthlyData(calendar.view.currentStart);
+                        bootstrap.Modal.getInstance(document.getElementById('reserveModal')).hide();
+                        Swal.fire({ title: '완료!', text: d.message, icon: 'success', timer: 1500, showConfirmButton: false });
+                    } else {
+                        Swal.fire({ title: '오류', text: d.message, icon: 'error' });
+                    }
+                }).catch(err => {
+                    const loader = document.getElementById('global-loader');
+                    if(loader) loader.style.display = 'none';
+                    Swal.fire({ title: '통신 오류', text: String(err), icon: 'error' });
+                });
             };
         }
 
-        // [핵심 1] 빠른 시간 버튼: 오전(08:00~12:00), 오후(13:00~17:00) 세팅
+        // ... (나머지 DOMContentLoaded 로직 유지: 라디오 버튼, 탭 변경 등) ...
         document.querySelectorAll('input[name="time_preset"]').forEach(radio => {
             radio.addEventListener('change', function() {
                 const s = document.getElementById('start_time');
                 const e = document.getElementById('end_time');
-                let d = s.value ? s.value.slice(0, 10) : new Date().toISOString().slice(0, 10);
-                
+                let d = s.value ? s.value.slice(0, 10) : getLocalYYYYMMDD(new Date());
                 if (this.value === 'am') { s.value = d + 'T08:00'; e.value = d + 'T12:00'; }
                 else if (this.value === 'pm') { s.value = d + 'T13:30'; e.value = d + 'T17:00'; }
                 else if (this.value === 'all') { s.value = d + 'T08:00'; e.value = d + 'T17:00'; }
             });
         });
 
-        // 회사명 드롭다운 초기화
         const compSelect = document.getElementById('company_select');
         if (compSelect) {
             compSelect.addEventListener('change', toggleCompanyInput);
-            toggleCompanyInput(); // 로드 시 한 번 실행
+            toggleCompanyInput(); 
         }
 
         const day = currentWeekStart.getDay();
-        const diff = currentWeekStart.getDate() - day + (day == 0 ? -6 : 1);
+        const diff = currentWeekStart.getDate() - day + (day === 0 ? -6 : 1);
         currentWeekStart.setDate(diff);
-    });
 
-    // ----------------------------------------------------
-    // 2. 회사명 입력 및 기타 UI 제어 함수
-    // ----------------------------------------------------
-    function toggleCompanyInput() {
-    const sel = document.getElementById('company_select');
-    const inp = document.getElementById('reserve_company');
-    
-    if (sel.value === 'direct') {
-        inp.style.display = 'block';
-        inp.value = ''; // 직접 입력해야 하므로 비움
-    } else {
-        inp.style.display = 'none';
-        inp.value = sel.value; // 드롭다운에서 선택한 값을 숨김 필드에 자동 복사
+        const tabElements = document.querySelectorAll('button[data-bs-toggle="tab"]');
+        tabElements.forEach(tab => {
+            tab.addEventListener('shown.bs.tab', function (event) {
+                sessionStorage.setItem('activeFacilityTab', event.target.id);
+                if (event.target.id === 'month-tab' && calendar) calendar.render(); 
+                else if (event.target.id === 'week-tab') loadWeeklyMatrix();
+            });
+        });
+
+        if (calendar) setTimeout(() => calendar.render(), 100);
+
+        // ★ 탭 전환 이벤트 (중복 방지를 위해 여기에 통합)
+        document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(tab => {
+            tab.addEventListener('shown.bs.tab', function (event) {
+                sessionStorage.setItem('activeFacilityTab', event.target.id);
+                if (event.target.id === 'month-tab' && calendar) {
+                    calendar.render();
+                } else if (event.target.id === 'week-tab') {
+                    loadWeeklyMatrix();
+                } else if (event.target.id === 'daily-tab') {
+                    changeDailyDate(0, true);
+                }
+            });
+        });
+
+        // ★ 현재 시간선 주기 갱신
+        setInterval(updateCurrentTimeLine, 60000);
+        window.addEventListener('focus', updateCurrentTimeLine);
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') updateCurrentTimeLine();
+        });
+    });   // ← 첫 번째 DOMContentLoaded 닫는 곳
+
+    // ★ [새로운 기능] 서버에서 이번 달 데이터 가져와서 화면에 뿌려주는 함수
+    function fetchMonthlyData(dateObj) {
+        const dateStr = getLocalYYYYMMDD(dateObj);
+        fetch(`{% url "quiz:facility_events" %}?action=monthly_stats&date=${dateStr}`)
+        .then(res => res.json())
+        .then(data => {
+            // 모든 카드의 제목을 현재 달력의 'O월'로 변경!
+            const titleEls = ['my-month-title', 'my-stat-month-title', 'stat-month-title'];
+            titleEls.forEach(id => {
+                if(document.getElementById(id)) document.getElementById(id).innerText = data.month_str;
+            });
+            
+            // 1. 내 예약 통계 업데이트
+            if(document.getElementById('my-stat-confirmed')) {
+                document.getElementById('my-stat-confirmed').innerText = data.my_stats.confirmed.length;
+                document.getElementById('my-stat-pending').innerText = data.my_stats.pending.length;
+                document.getElementById('my-stat-rejected').innerText = data.my_stats.rejected.length;
+                
+                // ★ 팝업 모달을 위해 내 통계 데이터를 저장!
+                currentMyMonthStats = data.my_stats;
+            }
+
+            // 2. 내 예약 리스트 업데이트 (다중일 표기 적용됨)
+            const myList = document.getElementById('my-reservations-list');
+            myList.innerHTML = '';
+            if(data.my_reservations.length > 0) {
+                data.my_reservations.forEach(r => {
+                    let badge = r.status === 'confirmed' ? '<span class="badge bg-success">확정</span>' :
+                               (r.status === 'rejected' ? '<span class="badge bg-danger">반려</span>' : '<span class="badge bg-secondary">대기중</span>');
+                    myList.innerHTML += `
+                        <div class="list-group-item px-2 py-2 border-0 border-bottom small">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-bold text-dark text-truncate" style="max-width: 150px;">${r.title}</span>
+                                ${badge}
+                            </div>
+                            <div class="text-muted" style="font-size: 0.8em;">
+                                <i class="bi bi-door-open"></i> ${r.room_name} <br> <i class="bi bi-clock"></i> ${r.time_str}
+                            </div>
+                        </div>`;
+                });
+            } else {
+                myList.innerHTML = '<p class="text-center text-muted small my-3">해당 월에 신청한 예약이 없습니다.</p>';
+            }
+
+            // 3. 관리자 통계 업데이트
+            if(data.is_manager && document.getElementById('stat-confirmed')) {
+                document.getElementById('stat-confirmed').innerText = data.stats.confirmed.length;
+                document.getElementById('stat-pending').innerText = data.stats.pending.length;
+                document.getElementById('stat-rejected').innerText = data.stats.rejected.length;
+                
+                // 모달 팝업용 데이터 저장
+                currentMonthStats = data.stats;
+
+                const compDiv = document.getElementById('stat-companies');
+                compDiv.innerHTML = '';
+                if(data.stats.companies.length > 0) {
+                    data.stats.companies.forEach(c => {
+                        compDiv.innerHTML += `
+                            <div class="d-flex justify-content-between text-muted mb-1">
+                                <span><i class="bi bi-building"></i> ${c.name}</span>
+                                <span class="badge bg-light text-dark border">${c.count}건</span>
+                            </div>`;
+                    });
+                } else {
+                    compDiv.innerHTML = '<div class="text-center text-muted">확정 내역 없음</div>';
+                }
+            }
+        });
     }
-}
+    
+    // ★ 통계 숫자 클릭 시 상세 리스트 팝업 띄우기
+    function openStatsList(type) {
+        if(!currentMonthStats[type] || currentMonthStats[type].length === 0) {
+            alert("해당하는 내역이 없습니다."); return;
+        }
+        
+        let title = type === 'confirmed' ? '✅ 예약 확정 내역' : (type === 'pending' ? '⏳ 승인 대기 내역' : '❌ 반려 내역');
+        document.getElementById('statsListTitle').innerText = title;
+        
+        let tbody = document.getElementById('statsListBody');
+        tbody.innerHTML = '';
+        currentMonthStats[type].forEach(item => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="fw-bold">${item.start}</td>
+                    <td class="text-success fw-bold">${item.room_name}</td>
+                    <td>${item.company}</td>
+                    <td>${item.user_name}</td>
+                    <td class="text-start text-truncate" style="max-width: 150px;" title="${item.title}">${item.title}</td>
+                </tr>`;
+        });
+        
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('statsListModal')).show();
+    }
 
-// 폼 초기화 시 기본으로 드롭다운 값을 숨김 필드에 동기화
-document.getElementById('company_select').addEventListener('change', toggleCompanyInput);
+    function openMyStatsList(type) {
+        if(!currentMyMonthStats[type] || currentMyMonthStats[type].length === 0) {
+            alert("해당하는 내역이 없습니다."); return;
+        }
+        
+        let title = type === 'confirmed' ? '✅ 내 예약 확정 내역' : (type === 'pending' ? '⏳ 내 승인 대기 내역' : '❌ 내 반려 내역');
+        document.getElementById('statsListTitle').innerText = title;
+        
+        let tbody = document.getElementById('statsListBody');
+        tbody.innerHTML = '';
+        currentMyMonthStats[type].forEach(item => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="fw-bold">${item.start}</td>
+                    <td class="text-success fw-bold">${item.room_name}</td>
+                    <td>${item.company}</td>
+                    <td>${item.user_name}</td>
+                    <td class="text-start text-truncate" style="max-width: 150px;" title="${item.title}">${item.title}</td>
+                </tr>`;
+        });
+        
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('statsListModal')).show();
+    }
 
-    // ----------------------------------------------------
-    // 3. 주간 테이블 (Matrix View) 로직 (중략, 기존 동일)
-    // ----------------------------------------------------
+
+    // =======================================================
+    // 아래는 기존 코드들 + 패치 로직
+    // =======================================================
+    function toggleCompanyInput() {
+        const sel = document.getElementById('company_select');
+        const inp = document.getElementById('reserve_company');
+        if (!sel || !inp) return;
+        if (sel.value === 'direct') { inp.style.display = 'block'; inp.value = ''; } 
+        else { inp.style.display = 'none'; inp.value = sel.value; }
+    }
+
     function getDateColor(d) {
-        const month = d.getMonth() + 1;
-        const date = d.getDate();
-        const day = d.getDay();
+        const month = d.getMonth() + 1; const date = d.getDate(); const day = d.getDay();
         const solarHolidays = ['01-01', '03-01', '05-05', '06-06', '08-15', '10-03', '10-09', '12-25'];
         const dateStr = (month < 10 ? '0' : '') + month + '-' + (date < 10 ? '0' : '') + date;
         if (day === 0 || solarHolidays.includes(dateStr)) return '#dc3545'; 
@@ -355,19 +840,59 @@ document.getElementById('company_select').addEventListener('change', toggleCompa
         return '#212529';
     }
 
+    function getWeekInfo(dateObj) {
+        const date = new Date(dateObj.getTime());
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() + 3 - (date.getDay() || 7));
+        const yearStart = new Date(date.getFullYear(), 0, 1);
+        const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+        const thursday = new Date(date);
+        const firstDayOfMonth = new Date(thursday.getFullYear(), thursday.getMonth(), 1);
+        const firstDayWeekday = firstDayOfMonth.getDay(); 
+        const monthWeekNo = Math.ceil((thursday.getDate() + firstDayWeekday) / 7);
+        const lastDayOfMonth = new Date(thursday.getFullYear(), thursday.getMonth() + 1, 0);
+        const totalMonthWeeks = Math.ceil((lastDayOfMonth.getDate() + firstDayWeekday) / 7);
+        return { year: thursday.getFullYear(), month: thursday.getMonth() + 1, weekOfYear: weekNo, weekOfMonth: monthWeekNo, totalWeeks: totalMonthWeeks };
+    }
+
     function loadWeeklyMatrix() {
         const theadRow = document.querySelector('#matrix-table thead tr');
-        theadRow.innerHTML = '<th class="room-header bg-light">강의실</th>';
+        if (!theadRow) return;
+        theadRow.innerHTML = '<th class="room-header bg-light">강의실 / 날짜</th>';
         
         let loopDate = new Date(currentWeekStart);
+        loopDate.setHours(0,0,0,0);
         const weekDates = [];
-        document.getElementById('matrix-title').innerText = `${loopDate.getFullYear()}년 ${loopDate.getMonth()+1}월 주간 현황`;
+        const wInfo = getWeekInfo(loopDate);
+        let gridHtml = '';
+        for(let i=1; i<=wInfo.totalWeeks; i++) {
+            const isActive = (i === wInfo.weekOfMonth) ? 'active-row' : '';
+            gridHtml += `<div class="cal-row ${isActive}"><div class="cal-cell"></div><div class="cal-cell"></div><div class="cal-cell"></div><div class="cal-cell"></div></div>`;
+        }
+        
+        let calIconHtml = `<div class="cal-icon" title="${wInfo.weekOfMonth}주차"><div class="cal-rings"><div class="cal-ring"></div><div class="cal-ring"></div><div class="cal-ring"></div><div class="cal-ring"></div></div><div class="cal-header"></div><div class="cal-body">${gridHtml}</div></div>`;
+        
+        const titleEl = document.getElementById('matrix-title');
+        if (titleEl) {
+            titleEl.innerHTML = `${wInfo.year}년 ${wInfo.month}월 ${wInfo.weekOfMonth}주차 <span class="badge bg-secondary ms-1 fs-6 align-middle shadow-sm">${wInfo.weekOfYear}W</span>` + calIconHtml;
+        }
+
+        const todayStr = getLocalYYYYMMDD(new Date());
 
         for(let i=0; i<7; i++) {
-            const dStr = loopDate.toISOString().slice(0,10);
-            const dName = ['일','월','화','수','목','금','토'][loopDate.getDay()];
+            const dStr = getLocalYYYYMMDD(loopDate); 
+            const dayNum = loopDate.getDay();
+            const dName = ['일','월','화','수','목','금','토'][dayNum];
             const color = getDateColor(loopDate);
-            theadRow.innerHTML += `<th class="matrix-header" style="color: ${color};">${loopDate.getDate()} (${dName})</th>`;
+            
+            let bgClass = "bg-light";
+            if(dayNum === 0) bgClass = "matrix-weekend-sun";
+            if(dayNum === 6) bgClass = "matrix-weekend-sat";
+
+            // ★ 오늘 날짜 하이라이트!
+            if (dStr === todayStr) bgClass += " today-highlight-th";
+
+            theadRow.innerHTML += `<th class="matrix-header ${bgClass}" style="color: ${color};">${loopDate.getDate()} (${dName})</th>`;
             weekDates.push(dStr);
             loopDate.setDate(loopDate.getDate() + 1);
         }
@@ -377,11 +902,12 @@ document.getElementById('company_select').addEventListener('change', toggleCompa
         
         fetch(`{% url "quiz:facility_events" %}?start=${startStr}&end=${endStr}`)
         .then(res => res.json())
-        .then(events => { renderMatrixBody(weekDates, events); });
+        .then(events => { renderMatrixBody(weekDates, events, todayStr); });
     }
 
-    function renderMatrixBody(weekDates, events) {
+    function renderMatrixBody(weekDates, events, todayStr) {
         const tbody = document.getElementById('matrix-body');
+        if (!tbody) return;
         tbody.innerHTML = '';
 
         const cohortEvents = events.filter(e => e.extendedProps && e.extendedProps.is_cohort);
@@ -389,7 +915,7 @@ document.getElementById('company_select').addEventListener('change', toggleCompa
             let trCohort = document.createElement('tr');
             let tdTitle = document.createElement('td');
             tdTitle.className = 'fw-bold bg-light text-secondary';
-            tdTitle.innerText = '📌 전체 일정';
+            tdTitle.innerHTML = '<i class="bi bi-pin-angle-fill text-danger"></i> 전체 일정';
             trCohort.appendChild(tdTitle);
 
             weekDates.forEach(date => {
@@ -397,15 +923,23 @@ document.getElementById('company_select').addEventListener('change', toggleCompa
                 td.style.verticalAlign = 'middle';
                 td.style.padding = '4px';
                 
+                const dayNum = new Date(date + "T00:00:00").getDay();
+                if(dayNum === 0) td.classList.add('matrix-weekend-sun');
+                if(dayNum === 6) td.classList.add('matrix-weekend-sat');
+                if(date === todayStr) td.classList.add('today-highlight-td');
+                
                 const cEvt = cohortEvents.find(e => {
-                    const s = e.start.split('T')[0];
-                    const end = e.end.split('T')[0];
-                    return date >= s && date < end; 
+                    const evStart = new Date(e.start);
+                    const evEnd = new Date(e.end);
+                    const cellDate = new Date(date + "T00:00:00");
+                    evStart.setHours(0,0,0,0);
+                    evEnd.setHours(0,0,0,0);
+                    return cellDate >= evStart && cellDate < evEnd; 
                 });
 
                 if (cEvt) {
                     td.innerHTML = `<div style="background-color: ${cEvt.color}; color: ${cEvt.textColor}; font-weight: bold; font-size: 0.8em; padding: 6px 0; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.1); cursor: default;">${cEvt.title}</div>`;
-                } else {
+                } else if(dayNum !== 0 && dayNum !== 6 && date !== todayStr) {
                     td.style.backgroundColor = '#f8f9fa'; 
                 }
                 trCohort.appendChild(td);
@@ -422,42 +956,63 @@ document.getElementById('company_select').addEventListener('change', toggleCompa
 
             weekDates.forEach(date => {
                 let td = document.createElement('td');
+                const dayNum = new Date(date + "T00:00:00").getDay();
+                if(dayNum === 0) td.classList.add('matrix-weekend-sun');
+                if(dayNum === 6) td.classList.add('matrix-weekend-sat');
+                if(date === todayStr) td.classList.add('today-highlight-td');
+
                 const roomEvents = events.filter(e => {
-                    return e.room_id == room.id && e.start.startsWith(date) && e.extendedProps.status_code !== 'rejected';
+                    if(e.room_id != room.id) return false;
+                    const evStart = new Date(e.start);
+                    const evEnd = new Date(e.end);
+                    const cellDateStart = new Date(date + "T00:00:00");
+                    const cellDateEnd = new Date(date + "T23:59:59");
+                    return (evStart <= cellDateEnd && evEnd >= cellDateStart);
                 });
 
-                let amInfo = null, pmInfo = null;
+                let amEvents = [], pmEvents = [];
                 roomEvents.forEach(e => {
-                    const h = new Date(e.start).getHours();
-                    const endH = new Date(e.end).getHours();
-                    if (h < 13) amInfo = e; 
-                    if (endH > 12 || h >= 12) pmInfo = e; 
+                    const evStart = new Date(e.start);
+                    const evEnd = new Date(e.end);
+                    const amEnd = new Date(date + "T12:00:00");
+                    const pmStart = new Date(date + "T12:00:00");
+                    
+                    if (evStart < amEnd && evEnd > new Date(date + "T00:00:00")) amEvents.push(e); 
+                    if (evStart < new Date(date + "T23:59:59") && evEnd > pmStart) pmEvents.push(e); 
                 });
 
-                let divAm = document.createElement('div');
-                divAm.className = 'time-slot';
-                if(amInfo) {
-                    divAm.innerText = '예약됨';
-                    divAm.classList.add('booked-am');
-                    divAm.onclick = () => openDetail(amInfo);
-                } else {
-                    divAm.innerText = '오전';
-                    divAm.onclick = () => openReserveWithDate(date, 'am', room.id);
+                // 공통 셀 생성 함수
+                function createSlotDiv(events, timeSlotName) {
+                    let div = document.createElement('div');
+                    div.className = 'matrix-time-slot fw-bold'; // ★ 충돌 방지를 위해 클래스 이름 변경!
+                    if (events.length > 0) {
+                        let hasConfirmed = events.some(e => e.extendedProps.status_code === 'confirmed');
+                        let hasPending = events.some(e => e.extendedProps.status_code === 'pending');
+
+                        if (hasConfirmed) {
+                            div.innerText = events.length > 1 ? `확정 외 ${events.length-1}건` : '확정';
+                            div.classList.add(timeSlotName === 'am' ? 'booked-am' : 'booked-pm');
+                        } else if (hasPending) {
+                            div.innerText = events.length > 1 ? `대기 (${events.length}건)` : '대기';
+                            div.classList.add('status-pending');
+                        } else {
+                            div.innerText = events.length > 1 ? `반려 (${events.length}건)` : '반려';
+                            div.classList.add('status-rejected');
+                        }
+                        // ★ 다중 리스트 창 띄우기 함수 호출
+                        div.onclick = () => openSlotList(events, date, timeSlotName, room.name);
+                    } else {
+                        div.innerText = timeSlotName === 'am' ? '오전' : '오후';
+                        div.onclick = () => openReserveWithDate(date, timeSlotName, room.id);
+                    }
+                    return div;
                 }
 
-                let divPm = document.createElement('div');
-                divPm.className = 'time-slot';
-                if(pmInfo) {
-                    divPm.innerText = '예약됨';
-                    divPm.classList.add('booked-pm');
-                    divPm.onclick = () => openDetail(pmInfo);
-                } else {
-                    divPm.innerText = '오후';
-                    divPm.onclick = () => openReserveWithDate(date, 'pm', room.id);
-                }
-
-                td.appendChild(divAm);
-                td.appendChild(divPm);
+                const slotWrap = document.createElement('div');
+                slotWrap.className = 'time-slot-container';
+                slotWrap.appendChild(createSlotDiv(amEvents, 'am'));
+                slotWrap.appendChild(createSlotDiv(pmEvents, 'pm'));
+                td.appendChild(slotWrap);
                 tr.appendChild(td);
             });
             tbody.appendChild(tr);
@@ -467,27 +1022,34 @@ document.getElementById('company_select').addEventListener('change', toggleCompa
     function changeWeek(d) {
         currentWeekStart.setDate(currentWeekStart.getDate() + (d * 7));
         loadWeeklyMatrix();
+        fetchMonthlyData(currentWeekStart); // 주간 변경 시 왼쪽 패널 데이터도 그 주가 포함된 달로 변경!
     }
 
-    // ----------------------------------------------------
-    // 4. 모달(상세, 예약, 수정) 열기 함수들
-    // ----------------------------------------------------
     function openDetail(evt) {
         try {
             const p = evt.extendedProps || evt; 
             const eId = evt.id;
 
             document.getElementById('d_id').value = eId;
-            document.getElementById('d_title').innerText = p.full_desc || evt.title;
-            document.getElementById('d_user').innerText = p.username || '-';
+            let purpose = evt.title;
+            const match = purpose.match(/^\[.*?\]\s*(.*?)\s*-\s*(.*)$/);
+            if (match) { purpose = match[2].trim(); }
             
-            // ★ 상세창에 인원수 추가 표시
-            const infoText = `소속: ${p.company || ''} ${p.process || ''} | 인원: ${p.attendees || 0}명`;
-            document.getElementById('d_info').innerText = infoText;
+            const dPurpose = document.getElementById('d_purpose');
+            if(dPurpose) dPurpose.innerText = purpose; 
+            
+            const dCompany = document.getElementById('d_company');
+            if(dCompany) dCompany.innerText = p.company || '소속 미상';
+
+            document.getElementById('d_user').innerText = p.username || '-';
+            document.getElementById('d_info').innerText = `인원: ${p.attendees || 0}명`;
             
             const sDate = new Date(evt.start);
             const eDate = new Date(evt.end);
-            document.getElementById('d_time').innerText = sDate.toLocaleString() + ' ~ ' + eDate.toLocaleString();
+            
+            // ★ [수정] 시간 표시 형식 옵션 설정 (초 단위 제거, 연/월/일 오전/오후 시:분 까지만 표시)
+            const timeOptions = { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true };
+            document.getElementById('d_time').innerText = sDate.toLocaleString('ko-KR', timeOptions) + ' ~ ' + eDate.toLocaleString('ko-KR', timeOptions);
             
             const badge = document.getElementById('d_status');
             badge.innerText = p.status_label;
@@ -504,199 +1066,661 @@ document.getElementById('company_select').addEventListener('change', toggleCompa
             if(p.can_approve && adminBtns) adminBtns.classList.remove('d-none'); 
             else if(p.can_edit && userBtns) userBtns.classList.remove('d-none'); 
             
-            const modalEl = document.getElementById('detailModal');
-            bootstrap.Modal.getOrCreateInstance(modalEl).show();
-
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('detailModal')).show();
         } catch (error) {
-            console.error(error);
-            alert("상세 정보를 여는 중 오류가 발생했습니다.");
+            console.error(error); alert("상세 정보를 여는 중 오류가 발생했습니다.");
         }
     }
 
     function editEvent() {
-        const detailEl = document.getElementById('detailModal');
-        const detailModal = bootstrap.Modal.getInstance(detailEl);
-        if(detailModal) detailModal.hide();
-
+        bootstrap.Modal.getInstance(document.getElementById('detailModal')).hide();
         document.getElementById('reserveForm').reset();
         
         const id = document.getElementById('d_id').value;
         const event = calendar.getEventById(id);
-        
         if (event) {
             document.getElementById('reserve_id').value = id; 
             document.getElementById('reserveModalTitle').innerHTML = '<i class="bi bi-pencil-square"></i> 예약 정보 수정';
             
             const titleInput = document.querySelector('input[name="title"]');
-            if(titleInput) titleInput.value = event.extendedProps.full_desc || event.title;
+            if (titleInput) {
+                let purpose = event.title;
+                const match = purpose.match(/^\[.*?\]\s*(.*?)\s*-\s*(.*)$/);
+                if (match) purpose = match[2].trim(); 
+                titleInput.value = purpose;
+            }
 
-            // ★ 회사명 폼 채우기 로직 (드롭다운에 있는지 체크)
             const company = event.extendedProps.company || '';
             const sel = document.getElementById('company_select');
             const inp = document.getElementById('reserve_company');
             
             let optionExists = Array.from(sel.options).some(opt => opt.value === company);
-            
             if (optionExists && company !== '') {
-                sel.value = company;
-                inp.style.display = 'none';
-                inp.value = company;
+                sel.value = company; inp.style.display = 'none'; inp.value = company;
             } else if (company !== '') {
-                sel.value = 'direct'; // 리스트에 없으면 '기타'로 변경
-                inp.style.display = 'block';
-                inp.value = company;
+                sel.value = 'direct'; inp.style.display = 'block'; inp.value = company;
             }
 
-            // ★ 사용 인원 채우기
             document.getElementById('reserve_attendees').value = event.extendedProps.attendees || '';
-
-            // ★ 체크박스 세팅 (다 지우고 해당 방만 체크)
             document.querySelectorAll('.room-checkbox').forEach(cb => cb.checked = false);
             const roomCb = document.getElementById('room_' + event.extendedProps.room_id);
             if(roomCb) roomCb.checked = true;
 
-            const attendeesInput = document.getElementById('reserve_attendees');
-            if (attendeesInput) attendeesInput.value = event.extendedProps.attendees || '';
-
-            
-            const s = new Date(event.start);
-            const e = new Date(event.end);
+            const s = new Date(event.start); const e = new Date(event.end);
             s.setMinutes(s.getMinutes() - s.getTimezoneOffset());
             e.setMinutes(e.getMinutes() - e.getTimezoneOffset());
-            
             document.getElementById('start_time').value = s.toISOString().slice(0, 16);
             document.getElementById('end_time').value = e.toISOString().slice(0, 16);
         }
-
-        const reserveEl = document.getElementById('reserveModal');
-        bootstrap.Modal.getOrCreateInstance(reserveEl).show();
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('reserveModal')).show();
     }
 
-    // [핵심 2] 주간 달력 표에서 오전/오후 클릭 시 열리는 창 시간 보정 (12시)
     function openReserveWithDate(dateStr, timeSlot, roomId) {
-        const el = document.getElementById('reserveModal');
-        const modal = bootstrap.Modal.getOrCreateInstance(el);
-        
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('reserveModal'));
         document.getElementById('reserveForm').reset();
         document.getElementById('reserve_id').value = ''; 
         document.getElementById('reserveModalTitle').innerHTML = '<i class="bi bi-calendar-plus"></i> 시설 예약 신청';
-        
         document.querySelectorAll('.room-checkbox').forEach(cb => cb.checked = false);
         const roomCb = document.getElementById('room_' + roomId);
         if(roomCb) roomCb.checked = true;
-        
         const radio = document.getElementById(timeSlot === 'am' ? 'p_am' : 'p_pm');
         if(radio) radio.checked = true;
-        
-        const s = document.getElementById('start_time');
-        const e = document.getElementById('end_time');
-        
+        const s = document.getElementById('start_time'); const e = document.getElementById('end_time');
         if(timeSlot === 'am') { s.value = dateStr + 'T08:00'; e.value = dateStr + 'T12:00'; }
         else { s.value = dateStr + 'T13:30'; e.value = dateStr + 'T17:00'; }
-        
         modal.show();
     }
 
     function openReserve(s, e) {
-        const el = document.getElementById('reserveModal');
-        const modal = bootstrap.Modal.getOrCreateInstance(el);
-        
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('reserveModal'));
         document.getElementById('reserveForm').reset();
         document.getElementById('reserve_id').value = '';
         document.getElementById('reserveModalTitle').innerHTML = '<i class="bi bi-calendar-plus"></i> 시설 예약 신청';
-        
-        let startVal = "";
-        let endVal = "";
-
-        if (s) {
-            // 만약 s가 "2026-03-28" 처럼 10자 이하라면 (시간 정보가 없다면)
-            if (s.length <= 10) {
-                startVal = s + "T08:00"; // 클릭한 날짜의 오전 8시로 세팅
-            } else {
-                startVal = s.slice(0, 16);
-            }
-        }
-
-        if (e) {
-            // 종료 시간도 날짜만 왔다면 시작 날짜 기준으로 오후 5시 세팅
-            if (e.length <= 10) {
-                // FullCalendar 선택 범위상 종료일이 다음날로 잡히는 경우가 많아 s(시작일) 기준 오후 5시가 적당합니다.
-                endVal = s + "T17:00"; 
-            } else {
-                endVal = e.slice(0, 16);
-            }
-        }
-        
+        let startVal = "", endVal = "";
+        if (s) { startVal = s.length <= 10 ? s + "T08:00" : s.slice(0, 16); }
+        if (e) { endVal = e.length <= 10 ? s + "T17:00" : e.slice(0, 16); }
         document.getElementById('start_time').value = startVal;
         document.getElementById('end_time').value = endVal;
-        
         modal.show();
     }
 
     window.openReserveModal = function() {
-        const el = document.getElementById('reserveModal');
-        const modal = bootstrap.Modal.getOrCreateInstance(el);
-        
-        // 현재 로컬 시간 구하기
-        const now = new Date();
-        const offset = now.getTimezoneOffset() * 60000;
-        const localISOTime = new Date(now - offset).toISOString().slice(0, 10);
-
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('reserveModal'));
         document.getElementById('reserveForm').reset();
         document.getElementById('reserve_id').value = ''; 
         document.getElementById('reserveModalTitle').innerHTML = '<i class="bi bi-calendar-plus"></i> 시설 예약 신청';
-        
-        // 오늘 날짜 기준 8시 ~ 17시 기본 세팅
-        document.getElementById('start_time').value = localISOTime + "T08:00";
-        document.getElementById('end_time').value = localISOTime + "T17:00";
-        
+        document.getElementById('start_time').value = getLocalYYYYMMDD(new Date()) + "T08:00";
+        document.getElementById('end_time').value = getLocalYYYYMMDD(new Date()) + "T17:00";
         modal.show();
     }
-    // ----------------------------------------------------
-    // 5. 서버 통신 (Action) 로직
-    // ----------------------------------------------------
-    function doAction(act) {
-        if(!confirm('진행하시겠습니까?')) return;
-        const id = document.getElementById('d_id').value;
-        const fd = new FormData(); fd.append('action', act);
-        
-        fetch('/quiz/manager/facility/action/'+id+'/', { 
-            method:'POST', 
-            headers:{'X-CSRFToken':'{{csrf_token}}'}, 
-            body:fd 
-        })
-        .then(r=>r.json()).then(d=>{ 
-            alert(d.message); 
-            if(d.status==='success') location.reload(); 
-        });
-    }
 
-    function updateTime(info) {
-        if(!confirm('시간을 변경하시겠습니까? \n(일반 사용자는 승인 대기로 변경됩니다)')) { 
-            info.revert(); 
-            return; 
-        }
+   function _doActionExecute(act, rejectReason) {
+        const id = document.getElementById('d_id').value;
         const fd = new FormData(); 
-        fd.append('id', info.event.id);
-        fd.append('start', info.event.start.toISOString()); 
-        fd.append('end', info.event.end.toISOString());
-        
-        fetch('{% url "quiz:facility_update" %}', { 
-            method:'POST', 
-            headers:{'X-CSRFToken':'{{csrf_token}}'}, 
-            body:fd 
-        })
-        .then(r=>r.json())
-        .then(d=>{ 
-            if(d.status !== 'success'){ 
-                alert(d.message); 
-                info.revert(); 
-            } else { 
-                location.reload(); 
+        fd.append('action', act);
+        if(rejectReason) fd.append('reject_reason', rejectReason);
+
+        fetch('/quiz/manager/facility/action/'+id+'/', { 
+            method:'POST', headers:{'X-CSRFToken':'{{csrf_token}}'}, body:fd 
+        }).then(r=>r.json()).then(d=>{ 
+            if(d.status==='success') {
+                if(calendar) calendar.refetchEvents();
+                loadWeeklyMatrix();
+                fetchMonthlyData(calendar.view ? calendar.view.currentStart : new Date());
+                bootstrap.Modal.getInstance(document.getElementById('detailModal')).hide();
+                Swal.fire({ title: '완료!', text: d.message, icon: 'success', timer: 1500, showConfirmButton: false });
+            } else {
+                Swal.fire({ title: '오류', text: d.message, icon: 'error' });
             }
         });
     }
 
+    function doAction(act) {
+        if (act === 'approve') {
+            Swal.fire({
+                title: '예약을 승인하시겠습니까?',
+                text: '겹치는 대기열이 있다면 자동 반려됩니다.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#198754',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '<i class="bi bi-check-lg me-1"></i> 승인',
+                cancelButtonText: '취소'
+            }).then((result) => {
+                if (result.isConfirmed) _doActionExecute(act, '');
+            });
+
+        } else if (act === 'reject') {
+            Swal.fire({
+                title: '반려 사유 입력',
+                input: 'text',
+                inputPlaceholder: '예약자에게 알림으로 전송됩니다.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ffc107',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '반려',
+                cancelButtonText: '취소',
+                inputValidator: (value) => { if (!value) return '사유를 입력해주세요.'; }
+            }).then((result) => {
+                if (result.isConfirmed) _doActionExecute(act, result.value);
+            });
+
+        } else {
+            Swal.fire({
+                title: '삭제하시겠습니까?',
+                text: '이 작업은 되돌릴 수 없습니다.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc3545',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '삭제',
+                cancelButtonText: '취소'
+            }).then((result) => {
+                if (result.isConfirmed) _doActionExecute(act, '');
+            });
+        }
+    }
+
+    function updateTime(info) {
+        Swal.fire({
+            title: '예약 시간 변경',
+            text: '변경 사유를 입력해주세요. (일반 사용자는 승인 대기로 전환됩니다)',
+            input: 'text',
+            inputPlaceholder: '변경 사유 입력',
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonColor: '#0d6efd',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '변경 요청',
+            cancelButtonText: '취소'
+        }).then((result) => {
+            if (!result.isConfirmed) { info.revert(); return; }
+
+            const fd = new FormData(); 
+            fd.append('id', info.event.id);
+            fd.append('start', info.event.start.toISOString()); 
+            fd.append('end', info.event.end.toISOString());
+            fd.append('reason', result.value || '');
+            
+            fetch('{% url "quiz:facility_update" %}', { 
+                method:'POST', headers:{'X-CSRFToken':'{{csrf_token}}'}, body:fd 
+            }).then(r=>r.json()).then(d=>{ 
+                if(d.status !== 'success') {
+                    info.revert();
+                    Swal.fire({ title: '오류', text: d.message, icon: 'error' });
+                } else {
+                    if(calendar) calendar.refetchEvents();
+                    loadWeeklyMatrix();
+                    fetchMonthlyData(calendar.view ? calendar.view.currentStart : new Date());
+                    Swal.fire({ title: '완료!', text: '시간이 변경되었습니다.', icon: 'success', timer: 1200, showConfirmButton: false });
+                }
+            });
+        });
+    }
+
+    function openSidebarDetail(el) {
+        const mockEvt = {
+            id: el.getAttribute('data-id'), title: el.getAttribute('data-title'),
+            start: el.getAttribute('data-start'), end: el.getAttribute('data-end'),
+            extendedProps: {
+                company: el.getAttribute('data-company'), username: el.getAttribute('data-username'),
+                attendees: el.getAttribute('data-attendees'), status_label: el.getAttribute('data-status-label'),
+                status_code: el.getAttribute('data-status-code'), can_approve: el.getAttribute('data-can-approve') === 'true',
+                can_edit: el.getAttribute('data-can-edit') === 'true'
+            }
+        };
+        openDetail(mockEvt);
+    }
+
+    let currentSlotEvents = []; // 전역 변수
+
+    function openSlotList(events, dateStr, timeSlot, roomName) {
+        currentSlotEvents = events;
+        let timeStr = timeSlot === 'am' ? '오전' : '오후';
+        document.getElementById('slotListTitle').innerText = `${dateStr} (${timeStr}) - ${roomName} 예약 목록`;
+
+        let tbody = document.getElementById('slotListBody');
+        tbody.innerHTML = '';
+        
+        events.forEach(e => {
+            let p = e.extendedProps || e;
+            let statBadge = '';
+            if (p.status_code === 'confirmed') statBadge = '<span class="badge bg-success">확정</span>';
+            else if (p.status_code === 'rejected') statBadge = '<span class="badge bg-danger text-white">반려</span>';
+            else statBadge = '<span class="badge bg-secondary">대기</span>';
+
+            let sDate = new Date(e.start); let eDate = new Date(e.end);
+            let timeRange = `${String(sDate.getHours()).padStart(2,'0')}:${String(sDate.getMinutes()).padStart(2,'0')} ~ ${String(eDate.getHours()).padStart(2,'0')}:${String(eDate.getMinutes()).padStart(2,'0')}`;
+
+            // 관리 권한에 따른 버튼 생성
+            let actionBtns = '';
+            if(p.can_approve) {
+                actionBtns += `
+                    <button onclick="slotDoAction('${e.id}', 'approve')" class="btn btn-success btn-sm p-1 me-1 mb-1" title="승인">승인</button>
+                    <button onclick="slotDoAction('${e.id}', 'reject')" class="btn btn-warning btn-sm text-white p-1 me-1 mb-1" title="반려">반려</button>
+                `;
+            }
+            if(p.can_edit) {
+                actionBtns += `<button onclick="slotDoAction('${e.id}', 'delete')" class="btn btn-danger btn-sm p-1 mb-1" title="삭제">삭제</button>`;
+            }
+            // 상세창 열기 버튼 (기존 detailModal 연동)
+            actionBtns += `<button onclick="openDetailFromSlotId('${e.id}')" class="btn btn-primary btn-sm p-1 ms-1 mb-1" title="상세보기">상세정보</button>`;
+
+            tbody.innerHTML += `
+                <tr>
+                    <td>${statBadge}</td>
+                    <td class="text-start">
+                        <span class="text-primary fw-bold">[${p.company || '미상'}]</span><br>
+                        ${p.username}
+                    </td>
+                    <td class="text-start text-truncate" style="max-width:150px;" title="${e.title}">${e.title}</td>
+                    <td class="small fw-bold text-muted">${timeRange}</td>
+                    <td style="min-width: 140px;">${actionBtns}</td>
+                </tr>
+            `;
+        });
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('slotListModal')).show();
+    }
+
+    function openDetailFromSlotId(id) {
+        let evt = currentSlotEvents.find(x => x.id == id);
+        if(evt) {
+            bootstrap.Modal.getInstance(document.getElementById('slotListModal')).hide(); // 현재 리스트 모달 닫기
+            openDetail(evt); // 기존 상세 모달 열기
+        }
+    }
+
+   function _slotActionExecute(id, act, rejectReason) {
+        const fd = new FormData();
+        fd.append('action', act);
+        if(rejectReason) fd.append('reject_reason', rejectReason);
+
+        fetch('/quiz/manager/facility/action/'+id+'/', {
+            method:'POST', headers:{'X-CSRFToken':'{{csrf_token}}'}, body:fd
+        }).then(r=>r.json()).then(d=>{
+            if(d.status==='success') {
+                if(calendar) calendar.refetchEvents();
+                loadWeeklyMatrix();
+                fetchMonthlyData(calendar.view ? calendar.view.currentStart : new Date());
+                bootstrap.Modal.getInstance(document.getElementById('slotListModal')).hide();
+                Swal.fire({ title: '완료!', text: d.message, icon: 'success', timer: 1500, showConfirmButton: false });
+            } else {
+                Swal.fire({ title: '오류', text: d.message, icon: 'error' });
+            }
+        });
+    }
+
+    function slotDoAction(id, act) {
+        if (act === 'approve') {
+            Swal.fire({
+                title: '예약을 승인하시겠습니까?',
+                text: '겹치는 대기열이 있다면 자동 반려됩니다.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#198754',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '<i class="bi bi-check-lg me-1"></i> 승인',
+                cancelButtonText: '취소'
+            }).then((result) => {
+                if (result.isConfirmed) _slotActionExecute(id, act, '');
+            });
+        } else if (act === 'reject') {
+            Swal.fire({
+                title: '반려 사유 입력',
+                input: 'text',
+                inputPlaceholder: '예약자에게 알림으로 전송됩니다.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ffc107',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '반려',
+                cancelButtonText: '취소',
+                inputValidator: (value) => { if (!value) return '사유를 입력해주세요.'; }
+            }).then((result) => {
+                if (result.isConfirmed) _slotActionExecute(id, act, result.value);
+            });
+        } else {
+            Swal.fire({
+                title: '삭제하시겠습니까?',
+                text: '이 작업은 되돌릴 수 없습니다.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc3545',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '삭제',
+                cancelButtonText: '취소'
+            }).then((result) => {
+                if (result.isConfirmed) _slotActionExecute(id, act, '');
+            });
+        }
+    }
+    let currentDailyDate = new Date();
+
+    // ★ 1. 주간 뷰의 예쁜 달력 아이콘 + 날짜를 만들어주는 함수로 교체!
+    function updateDailyTitle(dateObj) {
+        const wInfo = getWeekInfo(dateObj); // 기존 함수 재활용
+        let gridHtml = '';
+        for(let i=1; i<=wInfo.totalWeeks; i++) {
+            const isActive = (i === wInfo.weekOfMonth) ? 'active-row' : '';
+            gridHtml += `<div class="cal-row ${isActive}"><div class="cal-cell"></div><div class="cal-cell"></div><div class="cal-cell"></div><div class="cal-cell"></div></div>`;
+        }
+        let calIconHtml = `<div class="cal-icon" title="${wInfo.weekOfMonth}주차"><div class="cal-rings"><div class="cal-ring"></div><div class="cal-ring"></div><div class="cal-ring"></div><div class="cal-ring"></div></div><div class="cal-header"></div><div class="cal-body">${gridHtml}</div></div>`;
+
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+        const dayName = days[dateObj.getDay()];
+        const m = dateObj.getMonth() + 1;
+        const d = dateObj.getDate();
+
+        // ★ [수정됨] "4주차"를 제거하고, 그 자리에 "O일 (O)" 형태로 들어가도록 깔끔하게 합침!
+        const titleHtml = `${wInfo.year}년 ${m}월 ${d}일 (${dayName}) <span class="badge bg-secondary ms-1 fs-6 align-middle shadow-sm">${wInfo.weekOfYear}W</span>` 
+                        + calIconHtml;
+        
+        document.getElementById('daily-date-text').innerHTML = titleHtml;
+    }
     
+    // ★ 2. 현재 시간 가로선 위치를 잡아주는 함수
+    function updateCurrentTimeLine() {
+        const line = document.getElementById('current-time-line');
+        const label = document.getElementById('current-time-label');
+        if (!line || !label) return;
+
+        const now = new Date();
+        // 현재 보고 있는 타임라인이 "오늘 날짜"인지 확인 (과거/미래면 선을 그리지 않음)
+        if (now.getFullYear() === currentDailyDate.getFullYear() &&
+            now.getMonth() === currentDailyDate.getMonth() &&
+            now.getDate() === currentDailyDate.getDate()) {
+            
+            // 현재 시간을 소수로 변환 (예: 10시 30분 -> 10.5)
+            const hour = now.getHours() + (now.getMinutes() / 60);
+            
+            if (hour >= 7 && hour <= 22) { // 07:00 ~ 22:00 구간 안에 있을 때만 그림
+                // 상단 헤더 45px을 더하고, (현재시간 - 7시) * 1시간당 60px
+                const topPx = (hour - 7) * 60 + 45; 
+                line.style.top = `${topPx}px`;
+                line.style.display = 'block';
+                label.innerText = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+            } else {
+                line.style.display = 'none';
+            }
+        } else {
+            line.style.display = 'none';
+        }
+    }
+
+    // ★ 3. 날짜 변경 로직
+    function changeDailyDate(offset, isToday = false) {
+        if (isToday) currentDailyDate = new Date();
+        else currentDailyDate.setDate(currentDailyDate.getDate() + offset);
+        
+        // 텍스트 업데이트 대신 HTML 타이틀 함수 호출!
+        updateDailyTitle(currentDailyDate);
+        
+        const tzOffset = currentDailyDate.getTimezoneOffset() * 60000;
+        const localISOTime = (new Date(currentDailyDate - tzOffset)).toISOString().split('T')[0];
+        
+        const startStr = localISOTime + 'T00:00:00';
+        const endStr = localISOTime + 'T23:59:59';
+
+        fetch(`{% url "quiz:facility_events" %}?start=${startStr}&end=${endStr}`)
+        .then(r => r.json())
+        .then(events => {
+            drawDailyTimeline(events);
+            updateCurrentTimeLine(); // 블록 다 그리고 나면 시간선도 업데이트!
+        });
+
+        fetchMonthlyData(currentDailyDate); // 좌측 통계 갱신
+    }
+
+
+    function drawDailyTimeline(events) {
+        const container = document.getElementById('daily-rooms-container');
+        container.innerHTML = ''; 
+
+        // ★ 지워진 빨간 선(현재 시간)을 컨테이너 안에 다시 부활시킵니다!
+        const timeLine = document.createElement('div');
+        timeLine.id = 'current-time-line';
+        timeLine.style.cssText = 'position: absolute; left: 0; right: 0; height: 2px; background-color: #dc3545; z-index: 50; display: none; pointer-events: none; box-shadow: 0 0 4px rgba(220,53,69,0.5);';
+        timeLine.innerHTML = '<div style="position: absolute; left: -55px; top: -12px; background: #dc3545; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: bold; z-index: 51;" id="current-time-label"></div>';
+        container.appendChild(timeLine);
+
+        roomList.forEach(room => {
+            const col = document.createElement('div');
+            col.className = 'room-col';
+            col.innerHTML = `
+                <div class="room-col-header text-truncate" title="${room.name}">${room.name}</div>
+                <div class="room-col-body" id="room-body-${room.id}"></div>
+            `;
+            container.appendChild(col);
+        });
+
+        events.forEach(e => {
+            if(e.extendedProps && e.extendedProps.is_cohort) return; 
+
+            const sDate = new Date(e.start);
+            const eDate = new Date(e.end);
+            
+            const gridStart = new Date(currentDailyDate); gridStart.setHours(7, 0, 0, 0);
+            const gridEnd = new Date(currentDailyDate); gridEnd.setHours(22, 0, 0, 0);
+
+            let renderStart = sDate < gridStart ? gridStart : sDate;
+            let renderEnd = eDate > gridEnd ? gridEnd : eDate;
+
+            if (renderStart >= gridEnd || renderEnd <= gridStart) return; 
+
+            const startHour = renderStart.getHours() + (renderStart.getMinutes() / 60);
+            const endHour = renderEnd.getHours() + (renderEnd.getMinutes() / 60);
+
+            const topPx = (startHour - 7) * 60; 
+            const heightPx = (endHour - startHour) * 60;
+
+            const roomBody = document.getElementById(`room-body-${e.room_id}`);
+            if (roomBody) {
+                const evDiv = document.createElement('div');
+                evDiv.className = 'timeline-event d-flex flex-column';
+                evDiv.style.top = `${topPx}px`;
+                evDiv.style.height = `${Math.max(heightPx, 22)}px`; 
+                evDiv.style.backgroundColor = e.color || '#0d6efd';
+
+                const isConfirm = e.extendedProps.status_code === 'confirmed';
+                const badgeClass = isConfirm ? 'bg-white text-dark' : (e.extendedProps.status_code === 'rejected' ? 'bg-danger text-white' : 'bg-warning text-dark');
+                const badgeText = isConfirm ? '확정' : (e.extendedProps.status_code === 'rejected' ? '반려' : '대기');
+
+                evDiv.innerHTML = `
+                    <span class="badge ${badgeClass} mb-1 align-self-start" style="font-size:0.65rem; padding: 2px 6px;">${badgeText}</span>
+                    <div class="fw-bold text-truncate" style="font-size:0.85rem;">${e.extendedProps.username}</div>
+                    <div class="text-truncate" style="font-size:0.75rem;">${e.title}</div>
+                `;
+
+                evDiv.onclick = () => openReservationListModal(e);
+                roomBody.appendChild(evDiv);
+            }
+        });
+    }
+
+    function openReservationListModal(e) {
+        const props = e.extendedProps;
+        const timeOpt = { hour: '2-digit', minute:'2-digit', hour12: false };
+        const sTime = new Date(e.start).toLocaleTimeString('ko-KR', timeOpt);
+        const eTime = new Date(e.end).toLocaleTimeString('ko-KR', timeOpt);
+        const dateStr = currentDailyDate.toISOString().split('T')[0];
+
+        const roomName = roomList.find(r => r.id == e.room_id)?.name || '알수없음';
+        
+        document.getElementById('resListModalTitle').innerText = `${dateStr} - ${roomName} 예약 목록`;
+
+        let statusBadge = `<span class="badge bg-success py-2 px-3">확정</span>`;
+        if (props.status_code === 'pending') statusBadge = `<span class="badge bg-secondary py-2 px-3">대기</span>`;
+        if (props.status_code === 'rejected') statusBadge = `<span class="badge bg-danger py-2 px-3">반려</span>`;
+
+        let btns = '';
+        if (props.can_approve) {
+            btns += `<button class="btn btn-sm btn-success me-1 fw-bold" onclick="handleDailyAction('${e.id}', 'approve')">승인</button>`;
+            btns += `<button class="btn btn-sm btn-warning me-1 fw-bold text-white" onclick="handleDailyAction('${e.id}', 'reject')">반려</button>`;
+        }
+        if (props.can_manage) {
+            btns += `<button class="btn btn-sm btn-danger me-1 fw-bold" onclick="handleDailyAction('${e.id}', 'delete')">삭제</button>`;
+        }
+        btns += `<button class="btn btn-sm btn-primary fw-bold" onclick="openDetailFromDaily('${e.id}')">상세정보</button>`;
+
+        document.getElementById('resListModalBody').innerHTML = `
+            <tr>
+                <td>${statusBadge}</td>
+                <td class="text-start px-4">
+                    <div class="text-primary fw-bold mb-1">[${props.company || '미상'}/${props.process || '미상'}]</div>
+                    <div>${props.username}</div>
+                </td>
+                <td class="text-start text-wrap px-4">${props.full_desc}</td>
+                <td class="fw-bold text-secondary">${sTime} ~ ${eTime}</td>
+                <td>${btns}</td>
+            </tr>
+        `;
+
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('reservationListModal')).show();
+    }
+
+    // 일간 모달용 액션 핸들러 (기존 서버 API 호출)
+    function handleDailyAction(id, act) {
+        if (act === 'approve') {
+            Swal.fire({
+                title: '예약을 승인하시겠습니까?',
+                text: '겹치는 대기열이 있다면 자동 반려됩니다.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#198754',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '<i class="bi bi-check-lg me-1"></i> 승인',
+                cancelButtonText: '취소'
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+                _dailyActionFetch(id, act, '');
+            });
+        } else if (act === 'reject') {
+            Swal.fire({
+                title: '반려 사유 입력',
+                input: 'text',
+                inputPlaceholder: '예약자에게 알림으로 전송됩니다.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ffc107',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '반려',
+                cancelButtonText: '취소',
+                inputValidator: (value) => { if (!value) return '사유를 입력해주세요.'; }
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+                _dailyActionFetch(id, act, result.value);
+            });
+        } else {
+            Swal.fire({
+                title: '삭제하시겠습니까?',
+                text: '이 작업은 되돌릴 수 없습니다.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc3545',
+                cancelButtonColor: '#6c757d',
+                confirmButtonText: '삭제',
+                cancelButtonText: '취소'
+            }).then((result) => {
+                if (!result.isConfirmed) return;
+                _dailyActionFetch(id, act, '');
+            });
+        }
+    }
+
+    function _dailyActionFetch(id, act, rejectReason) {
+        const fd = new FormData();
+        fd.append('action', act);
+        if(rejectReason) fd.append('reject_reason', rejectReason);
+
+        fetch('/quiz/manager/facility/action/'+id+'/', {
+            method:'POST', headers:{'X-CSRFToken':'{{csrf_token}}'}, body:fd
+        }).then(r=>r.json()).then(d=>{
+            if(d.status==='success') {
+                if(calendar) calendar.refetchEvents();
+                loadWeeklyMatrix();
+                fetchMonthlyData(calendar.view ? calendar.view.currentStart : new Date());
+                changeDailyDate(0);
+                bootstrap.Modal.getInstance(document.getElementById('reservationListModal')).hide();
+                Swal.fire({ title: '완료!', text: d.message, icon: 'success', timer: 1500, showConfirmButton: false });
+            } else {
+                Swal.fire({ title: '오류', text: d.message, icon: 'error' });
+            }
+        });
+    }
+    
+    // 일간 모달에서 상세정보 클릭 시 연결
+    function openDetailFromDaily(id) {
+        bootstrap.Modal.getInstance(document.getElementById('reservationListModal')).hide();
+        // 꼼수: 화면에 그려진 fullcalendar 이벤트 객체를 가져와서 기존 함수로 던짐
+        const evt = calendar.getEventById(id);
+        if(evt) openDetail(evt);
+    }
+
+    // ★ [수정] 두 번째 DOMContentLoaded를 제거하고 첫 번째 안으로 통합
+    // 첫 번째 DOMContentLoaded 블록 안 맨 마지막에 아래 코드 추가:
+    //
+    //     setInterval(updateCurrentTimeLine, 60000);
+    //     window.addEventListener('focus', updateCurrentTimeLine);
+    //     document.addEventListener('visibilitychange', function() {
+    //         if (document.visibilityState === 'visible') updateCurrentTimeLine();
+    //     });
+
+</script>
+<div class="modal fade" id="excelDownloadModal" tabindex="-1">
+  <div class="modal-dialog">
+    <form action="{% url 'quiz:export_facility_excel' %}" method="GET" class="modal-content border-0 shadow">
+      <div class="modal-header bg-success text-white py-3">
+        <h5 class="modal-title fw-bold"><i class="bi bi-calendar3 me-2"></i>배포용 일정표 생성</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4 bg-light">
+        <p class="small text-muted mb-4">타 부서 배포를 위한 달력을 생성합니다.<br><b class="text-danger">(해당 기간 내의 PMTC 일정은 시스템이 자동으로 찾아내어 차단 표시합니다!)</b></p>
+        
+        <div class="row g-2">
+            <div class="col-6 mb-3">
+                <label class="form-label fw-bold text-dark small">시작일</label>
+                <input type="date" class="form-control fw-bold" name="start_date" id="excel_start_date" required>
+            </div>
+            <div class="col-6 mb-3">
+                <label class="form-label fw-bold text-dark small">종료일</label>
+                <input type="date" class="form-control fw-bold" name="end_date" id="excel_end_date" required>
+            </div>
+        </div>
+        
+        <div class="d-flex justify-content-end gap-2 mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setExcelDate('year')">1년 전체 뽑기</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setExcelDate('month')">이번 달 뽑기</button>
+        </div>
+        
+      </div>
+      <div class="modal-footer bg-white">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+        <button type="submit" class="btn btn-success fw-bold px-4"><i class="bi bi-download me-1"></i> 달력 자동 생성 및 다운로드</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// 날짜 빠른 세팅 스크립트
+function setExcelDate(type) {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    
+    if (type === 'year') {
+        document.getElementById('excel_start_date').value = `${y}-01-01`;
+        document.getElementById('excel_end_date').value = `${y}-12-31`;
+    } else if (type === 'month') {
+        const lastDay = new Date(y, today.getMonth() + 1, 0).getDate();
+        document.getElementById('excel_start_date').value = `${y}-${m}-01`;
+        document.getElementById('excel_end_date').value = `${y}-${m}-${lastDay}`;
+    }
+}
+// 모달 열릴 때 기본으로 1년 치 세팅
+document.getElementById('excelDownloadModal').addEventListener('show.bs.modal', function () {
+    setExcelDate('year');
+});
 </script>
 {% endblock %}

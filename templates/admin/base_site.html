@@ -7,41 +7,32 @@
 <h1 id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Django administration') }}</a></h1>
 {% endblock %}
 
-{% block nav-global %}
-<div style="float: right; padding: 10px;">
-    <a href="{% url 'quiz:my_page' %}" style="color: #f8f9fa; text-decoration: none; margin-right: 5px;">
-        {% trans 'View site' %}
-    </a> /
+{% block usertools %}
+<div id="user-tools">
+    {% if user.is_authenticated %}
+    <span style="color: #adb5bd; margin-right: 10px; font-size: 0.9em;">
+        환영합니다, <strong>{{ user.username }}</strong>님
+    </span>
+    {% endif %}
+
+    <a href="{% url 'quiz:my_page' %}">사이트 보기</a> /
 
     {% if user.has_usable_password %}
-        <a href="{% url 'admin:password_change' %}" style="color: #f8f9fa; text-decoration: none; margin: 0 5px;">
-            {% trans 'Change password' %}
-        </a> /
+        <a href="{% url 'admin:password_change' %}">비밀번호 변경</a> /
     {% endif %}
-    <a href="{% url 'admin:logout' %}" style="color: #f8f9fa; text-decoration: none; margin-left: 5px;">
-        {% trans 'Log out' %}
-    </a>
+    <a href="{% url 'admin:logout' %}">로그아웃</a>
 
     {% if user.is_staff %}
-        | <a href="{% url 'quiz:manager_dashboard' %}" style="color: #ffc107; font-weight: bold; text-decoration: none; margin-left: 10px;">
-            🔙 매니저 센터
-          </a>
-          
-        | <a href="{% url 'quiz:pl_dashboard' %}" style="color: #0dcaf0; font-weight: bold; text-decoration: none; margin-left: 10px;">
-            📊 PL 대시보드
-          </a>
+        <span style="margin: 0 5px; color: #6c757d;">|</span>
+        <a href="{% url 'quiz:manager_dashboard' %}" style="color: #ffc107; font-weight: bold; text-decoration: none;">🔙 매니저 센터</a>
+        
+        <span style="margin: 0 5px; color: #6c757d;">|</span>
+        <a href="{% url 'quiz:pl_dashboard' %}" style="color: #0dcaf0; font-weight: bold; text-decoration: none;">📊 PL 대시보드</a>
     {% endif %}
 
     {% if user.is_superuser %}
-        | <a href="{% url 'quiz:export_student_data' %}?process_id=ALL" style="color: white; font-weight: bold; text-decoration: none; margin-left: 10px;">
-            📥 전체 데이터 다운로드
-          </a>
-    {% endif %}
-
-    {% if user.is_authenticated %}
-    <span style="color: #adb5bd; margin-left: 15px; font-size: 0.9em;">
-        (<strong>{{ user.username }}</strong>)
-    </span>
+        <span style="margin: 0 5px; color: #6c757d;">|</span>
+        <a href="{% url 'quiz:export_student_data' %}?process_id=ALL" style="color: #ffffff; font-weight: bold; text-decoration: none;">📥 전체 데이터 다운로드</a>
     {% endif %}
 </div>
 {% endblock %}

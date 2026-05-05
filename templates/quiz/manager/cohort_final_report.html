@@ -46,9 +46,16 @@
             </div>
         </div>
         <div class="no-print d-flex gap-2">
+            
+            <button type="button" class="btn btn-warning shadow-sm fw-bold" data-bs-toggle="modal" data-bs-target="#accessRequestModal">
+                <i class="bi bi-key-fill"></i> 권한 요청
+            </button>
+
             <a href="{% url 'quiz:export_cohort_excel' cohort_id=cohort.id|default:0 %}?process={{ f_process }}&company={{ f_company }}" class="btn btn-success shadow-sm">
                 <i class="bi bi-file-earmark-excel-fill me-1"></i> 엑셀 다운로드
             </a>
+            
+            <button class="btn btn-outline-secondary shadow-sm" onclick="window.print()">
             
             <button class="btn btn-outline-secondary shadow-sm" onclick="window.print()">
                 <i class="bi bi-printer-fill me-1"></i> PDF 인쇄
@@ -98,10 +105,30 @@
         공정: [{{ f_process|default:"전체" }}] | 소속회사: [{{ f_company|default:"전체" }}]
     </div>
 
-       
-    </div> <div class="row g-3 mb-4 d-flex align-items-stretch">
-        <div class="col">
-            <div class="card border-0 shadow-sm h-100 bg-primary text-white print-shadow-none">
+    {% if access_denied %}  <div class="card shadow-sm mb-4 border-0 bg-white print-shadow-none mt-4">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-shield-lock-fill text-secondary mb-3" style="font-size: 4rem;"></i>
+                <h4 class="fw-bold text-dark">타 공정 세부 분석 권한이 없습니다</h4>
+                <p class="text-muted mb-4">
+                    타 공정의 기수 마감 리포트 세부 데이터는 보안상 블라인드 처리됩니다.<br>
+                    조회가 필요하신 경우 아래 버튼을 통해 관리자에게 권한을 요청해 주세요.
+                </p>
+                
+                <form method="POST" action="{% url 'quiz:request_process_access' %}" class="d-inline-block">
+                    {% csrf_token %}
+                    <input type="hidden" name="target_process_id" value="{{ target_process_id }}">
+                    <button type="submit" class="btn btn-primary fw-bold px-4 py-2 shadow-sm">
+                        <i class="bi bi-key-fill"></i> 조회 권한 요청하기
+                    </button>
+                </form>
+            </div>
+        </div>
+
+    {% else %}
+        
+        <div class="row g-3 mb-4 d-flex align-items-stretch mt-2">
+            <div class="col">
+                <div class="card border-0 shadow-sm h-100 bg-primary text-white print-shadow-none">
                 <div class="card-body p-3 d-flex flex-column justify-content-between">
                     <h6 class="fw-bold mb-3 opacity-75"><i class="bi bi-award-fill me-1"></i>최종 수료율</h6>
                     <div>
@@ -270,5 +297,43 @@
             </div>
         </div>
     </div>
+    {% endif %} </div> 
+    <div class="modal fade" id="accessRequestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-warning bg-opacity-10">
+                <h5 class="modal-title fw-bold text-dark"><i class="bi bi-shield-lock-fill me-2"></i>타 공정 열람 권한 요청</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <form action="{% url 'quiz:request_process_access' %}" method="post">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        다른 공정의 기수 마감 리포트를 열람하려면 관리자의 승인이 필요합니다.<br>
+                        요청할 공정을 선택해주세요.
+                    </p>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">대상 공정</label>
+                        <select name="target_process_id" class="form-select" required>
+                            <option value="" disabled selected>공정을 선택하세요</option>
+                            <option value="ALL" class="fw-bold">🌍 전체 공정 (모든 권한)</option>
+                            <option disabled>──────────</option>
+                            {% for p in available_processes %}
+                                {% if request.user.profile.process.id != p.id %}
+                                    <option value="{{ p.id }}">{{ p.name }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-warning fw-bold">요청 보내기</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
-{% endblock %}
+    {% endblock %}

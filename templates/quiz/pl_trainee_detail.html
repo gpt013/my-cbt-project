@@ -196,28 +196,54 @@
                     <div class="card-header bg-white py-3">
                         <h5 class="fw-bold mb-0"><i class="bi bi-exclamation-triangle-fill text-danger"></i> 특이사항 요약</h5>
                     </div>
-                    <div class="card-body custom-scroll" style="max-height: 250px; overflow-y: auto;">
+                    <div class="card-body custom-scroll" style="max-height: 450px; overflow-y: auto;">
                         <ul class="list-group list-group-flush">
-                            <li class="list-group-item d-flex justify-content-between align-items-center py-3">
+                            <li class="list-group-item d-flex justify-content-between align-items-center py-3 px-1">
                                 <span class="fs-5"><i class="bi bi-exclamation-circle text-warning me-2"></i>일반 경고</span>
                                 <span class="badge bg-warning text-dark rounded-pill fs-6">{{ profile.warning_count }}회</span>
                             </li>
-                            <li class="list-group-item d-flex justify-content-between align-items-center py-3">
+                            <li class="list-group-item d-flex justify-content-between align-items-center py-3 px-1">
                                 <span class="fs-5"><i class="bi bi-file-earmark-x text-danger me-2"></i>경고장 발부</span>
                                 <span class="badge bg-danger rounded-pill fs-6">{{ warning_letter_count }}회</span>
                             </li>
-                            <li class="list-group-item d-flex justify-content-between align-items-center py-3">
+                            <li class="list-group-item d-flex justify-content-between align-items-center py-3 px-1">
                                 <span class="fs-5"><i class="bi bi-arrow-repeat text-secondary me-2"></i>2차 재시험 과목</span>
                                 <span class="fw-bold fs-5">{{ retake_2_count }}개</span>
                             </li>
-                            <li class="list-group-item d-flex justify-content-between align-items-center py-3">
+                            <li class="list-group-item d-flex justify-content-between align-items-center py-3 px-1">
                                 <span class="fs-5"><i class="bi bi-arrow-repeat text-danger me-2"></i>3차 재시험 과목</span>
                                 <span class="fw-bold text-danger fs-5">{{ retake_3_count }}개</span>
                             </li>
                         </ul>
+                        
+                        {% if logs %}
+                        <div class="mt-4 border-top pt-3">
+                            <h6 class="fw-bold text-muted small mb-3"><i class="bi bi-file-text"></i> 상세 기록 및 증빙 (경고장)</h6>
+                            {% for log in logs %}
+                                {% if log.log_type == 'warning_letter' or log.attached_file %}
+                                <div class="p-3 bg-light rounded mb-3 border border-danger border-opacity-25 shadow-sm">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <span class="badge bg-danger">{{ log.get_log_type_display }}</span>
+                                        <small class="text-muted">{{ log.created_at|date:"Y-m-d H:i" }}</small>
+                                    </div>
+                                    <div class="small text-dark mb-2 fw-bold">{{ log.reason|linebreaksbr }}</div>
+                                    
+                                    {% if log.attached_file %}
+                                    <div class="text-end mt-2">
+                                        <a href="{{ log.attached_file.url }}" target="_blank" class="btn btn-sm btn-secondary fw-bold">
+                                            <i class="bi bi-paperclip"></i> 증빙 사본 보기
+                                        </a>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        
                     </div>
                 </div>
-
+                
                 <div class="card shadow-sm border-0 border-start border-4 border-primary flex-grow-1">
                     <div class="card-header bg-white py-3">
                         <h5 class="fw-bold mb-0"><i class="bi bi-chat-quote-fill text-primary"></i> 매니저 종합 의견</h5>

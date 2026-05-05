@@ -65,6 +65,16 @@ def reset_password_to_default(modeladmin, request, queryset):
     else:
         modeladmin.message_user(request, "⚠️ 슈퍼유저는 초기화할 수 없습니다.", level='error')
 
+@admin.action(description='💬 선택한 인원 메신저 켜기 (ON)')
+def enable_messenger(modeladmin, request, queryset):
+    updated = queryset.update(can_use_messenger=True)
+    modeladmin.message_user(request, f"✅ {updated}명의 메신저 권한을 켰습니다.")
+
+@admin.action(description='🚫 선택한 인원 메신저 끄기 (OFF)')
+def disable_messenger(modeladmin, request, queryset):
+    updated = queryset.update(can_use_messenger=False)
+    modeladmin.message_user(request, f"⛔ {updated}명의 메신저 권한을 껐습니다.")
+
 @admin.action(description='🎓 선택된 교육생 일괄 수료 처리 (재직 인원만)')
 def mark_as_completed(modeladmin, request, queryset):
     if not request.user.is_staff: return
@@ -122,9 +132,13 @@ class RecordTypeAdmin(admin.ModelAdmin):
 
 @admin.register(Cohort)
 class CohortAdmin(admin.ModelAdmin):
-    list_display = ('name', 'start_date', 'end_date', 'is_registration_open')
+    # ★ 핵심 1: list_display를 딱 한 번만 쓰고, 필요한 걸 다 넣었습니다.
+    list_display = ('name', 'start_date', 'end_date', 'is_registration_open', 'is_manual_exam_allowed')
     list_filter = ('is_registration_open', 'start_date')
-    list_editable = ('is_registration_open',) 
+    
+    # ★ 핵심 2: list_editable도 딱 한 번만 쓰고, 두 개 다 넣었습니다.
+    list_editable = ('is_registration_open', 'is_manual_exam_allowed') 
+    
     search_fields = ('name',)
     ordering = ('-start_date',)
 
@@ -194,7 +208,13 @@ class ProfileAdmin(admin.ModelAdmin):
     filter_horizontal = ('badges',)
 
     # 액션 추가 (기존 유지)
-    actions = [activate_users, reset_password_to_default, mark_as_completed]
+    actions = [
+        activate_users, 
+        reset_password_to_default, 
+        mark_as_completed, 
+        enable_messenger, 
+        disable_messenger
+    ]
 
     # [보안 1] 매니저에게는 '슈퍼유저' 목록 숨김
     def get_queryset(self, request):
@@ -387,6 +407,7 @@ class UserAdmin(BaseUserAdmin):
 class ProcessAccessRequestAdmin(admin.ModelAdmin):
     list_display = ('requester', 'target_process', 'status', 'created_at')
     list_filter = ('status',)
+
 
 # 최종 등록 (User, Group)
 admin.site.unregister(User)

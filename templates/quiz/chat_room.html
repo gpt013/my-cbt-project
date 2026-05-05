@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #b2c7d9; font-family: 'Noto Sans KR', sans-serif; }
+        .chat-container { width: 100%; height: 100%; display: flex; flex-direction: column; }
+        .chat-header { background-color: #3b1e1e; color: white; padding: 10px 15px; font-weight: 600; flex-shrink: 0; z-index: 10; border-bottom: 1px solid rgba(0,0,0,0.1); position: relative; }
+        .chat-log { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 12px; position: relative; }
+        .chat-message { display: flex; align-items: flex-start; max-width: 85%; position: relative; }
+        
+        .profile-icon { width: 35px; height: 35px; border-radius: 40%; background-color: #ffffff; color: #707070; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-right: 8px; flex-shrink: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .message-content { display: flex; flex-direction: column; }
+        .sender-name { font-size: 0.75rem; color: #404040; margin-bottom: 3px; font-weight: bold; }
+        .msg-time { font-size: 0.65rem; color: #6c757d; white-space: text-nowrap; flex-shrink: 0; }
+
+        .bubble { padding: 8px 12px; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.1); font-size: 0.9rem; line-height: 1.4; position: relative; cursor: pointer; }
+        .bubble img { max-width: 100%; height: auto; max-height: 250px; object-fit: contain; border-radius: 8px; margin-top: 5px; cursor: pointer; border: 1px solid rgba(0,0,0,0.1); display: block; }
+        .bubble a { color: inherit; text-decoration: underline; font-weight: bold; }
+
+        /* 답장 스타일 */
+        .reply-box { background-color: rgba(0,0,0,0.08); border-radius: 6px; padding: 4px 8px; margin-bottom: 4px; font-size: 0.75rem; border-left: 3px solid rgba(0,0,0,0.2); }
+        .reply-btn { font-size: 1rem; color: #6c757d; cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 0 5px; }
+        .chat-message:hover .reply-btn { opacity: 1; } /* 마우스 올리면 답장 버튼 보임 */
+
+        .chat-message.other { align-self: flex-start; }
+        .chat-message.other .bubble { background-color: #ffffff; color: #000000; border-radius: 0px 12px 12px 12px; }
+        .chat-message.other .bubble-row { display: flex; align-items: flex-end; gap: 5px; }
+
+        .chat-message.me { align-self: flex-end; flex-direction: row-reverse; } 
+        .chat-message.me .bubble { background-color: #fae100; color: #3b1e1e; border-radius: 12px 0px 12px 12px; }
+        .chat-message.me .bubble-row { display: flex; align-items: flex-end; gap: 5px; flex-direction: row; justify-content: flex-end;}
+        
+        .unread-mark { color: #fae100; font-size: 0.7rem; font-weight: bold; margin-bottom: 1px; cursor: pointer; }
+        .unread-mark:hover { text-decoration: underline; }
+        
+        /* 돋보기 검색 바 */
+        #search-bar { display: none; background-color: #ffffff; padding: 10px; border-bottom: 1px solid #ddd; position: absolute; width: 100%; top: 100%; left: 0; z-index: 20; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .search-result-item { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 0.85rem; }
+        .search-result-item:hover { background-color: #f8f9fa; }
+    </style>
+</head>  
+<body>
+
+<div class="chat-container">
+    <div class="chat-header d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center">
+            <a href="#" onclick="window.close(); return false;" class="text-white text-decoration-none me-3" title="창 닫기">
+                <i class="bi bi-x-lg fs-5"></i>
+            </a>
+            <div class="d-flex flex-column">
+                <span class="m-0 text-truncate" style="max-width: 180px;">
+                    {% if room.is_group_chat %}
+                        <i class="bi bi-people-fill me-1"></i> [그룹] {{ room.name|default:"단톡방" }}
+                    {% else %}
+                        <i class="bi bi-person-fill me-1"></i> {{ other_user_name }}
+                    {% endif %}
+                </span>
+                <span class="badge bg-success" style="font-size: 0.6rem; width: fit-content;">🟢 접속중</span>
+            </div>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <button class="btn btn-link text-white p-0" onclick="toggleSearchBar()" title="대화 내용 검색"><i class="bi bi-search fs-5"></i></button>
+            <button class="btn btn-link text-white p-0" data-bs-toggle="offcanvas" data-bs-target="#participantsSidebar" title="대화상대 보기"><i class="bi bi-list fs-3"></i></button>
+        </div>
+        
+        <div id="search-bar">
+            <div class="input-group input-group-sm mb-2">
+                <input type="text" id="search-input" class="form-control" placeholder="메시지 검색..." autocomplete="off">
+                <button class="btn btn-primary" onclick="executeSearch()"><i class="bi bi-search"></i></button>
+            </div>
+            <div id="search-results" style="max-height: 200px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <div id="pinned-message-banner" class="bg-primary text-white px-3 py-2 shadow-sm d-flex justify-content-between align-items-center" style="font-size: 0.85rem; display: none; z-index: 5;">
+        <div class="text-truncate" style="max-width: 85%;">
+            <i class="bi bi-megaphone-fill me-2 text-warning"></i>
+            <span id="pinned-text" class="fw-bold">
+                {% if room.pinned_message %}
+                    {% if room.pinned_message.content %}{{ room.pinned_message.content }}{% else %}📁 파일/사진이 공지로 등록되었습니다.{% endif %}
+                {% endif %}
+            </span>
+        </div>
+        <button class="btn btn-sm text-white p-0" onclick="unpinMessage()" title="공지 내리기"><i class="bi bi-x-lg"></i></button>
+    </div>
+
+    <div class="offcanvas offcanvas-end" tabindex="-1" id="participantsSidebar" style="width: 260px; z-index: 1060;">
+        <div class="offcanvas-header bg-light border-bottom py-3">
+            <div class="d-flex justify-content-between align-items-center w-100 me-2">
+    <h6 class="offcanvas-title fw-bold m-0"><i class="bi bi-people-fill"></i> 대화 상대 ({{ room.participants.count }}명)</h6>
+    <button class="btn btn-sm btn-outline-primary py-0" data-bs-toggle="modal" data-bs-target="#inviteModal">
+        <i class="bi bi-person-plus-fill"></i> 초대
+    </button>
+</div>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+        </div>
+        <div class="offcanvas-body p-0 d-flex flex-column">
+            <ul class="list-group list-group-flush flex-grow-1 overflow-auto">
+                {% for p in room.participants.all %}
+                <li class="list-group-item d-flex align-items-center border-0 py-2 px-3">
+                    <div class="profile-icon bg-secondary text-white" style="width:30px; height:30px;"><i class="bi bi-person-fill"></i></div>
+                    <div style="line-height: 1.2;">
+                        <div class="fw-bold fs-6">{{ p.profile.name|default:p.username }}</div>
+                        <div class="text-muted" style="font-size: 0.7rem;">{{ p.profile.process.name|default:"소속없음" }}</div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="mt-auto border-top">
+                <a href="{% url 'quiz:chat_leave_room' room.id %}" class="btn btn-light w-100 text-danger d-flex align-items-center py-3 px-3 rounded-0 text-decoration-none" onclick="return confirm('정말 이 방에서 나가시겠습니까?');" style="font-weight: 600;">
+                    <i class="bi bi-box-arrow-right fs-4 me-2"></i> 채팅방 나가기
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div id="chat-log" class="chat-log">
+        <div class="text-center text-white small my-2 bg-secondary bg-opacity-25 rounded-pill py-1 mx-auto" style="width: 200px; font-size: 0.75rem;">
+            <i class="bi bi-calendar3 me-1"></i> {{ room.created_at|date:"Y년 m월 d일" }} 대화 시작
+        </div>
+
+        {% for msg in messages %}
+            {% if '📢' in msg.content|default:'' %}
+                <div class="d-flex justify-content-center my-2 chat-message-row" data-msg-id="{{ msg.id }}">
+                    <div class="bg-secondary bg-opacity-25 text-dark small px-3 py-1 rounded-pill shadow-sm fw-bold">
+                        {{ msg.content }}
+                    </div>
+                </div>
+            
+            {% elif msg.sender == request.user %}
+                <div class="chat-message me chat-message-row" data-msg-id="{{ msg.id }}">
+                    <div class="message-content align-items-end">
+                        <div class="bubble-row">
+                            <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply({{ msg.id }}, '나', '{{ msg.content|default:'[파일/사진]'|escapejs }}')"></i>
+                            
+                            {% if msg.unread_count > 0 %}
+                                <span class="unread-mark align-self-end mb-1 unread-mark-val" data-msg-id="{{ msg.id }}">{{ msg.unread_count }}</span>
+                            {% endif %}
+                            
+                            <span class="msg-time align-self-end">{{ msg.created_at|date:"H:i" }}</span>
+                            
+                            <div class="bubble">
+                                {% if msg.parent %}
+                                <div class="reply-box">
+                                    <strong>{{ msg.parent.sender.profile.name|default:msg.parent.sender.username }}</strong>에게 답장<br>
+                                    <span class="text-truncate d-inline-block" style="max-width: 150px; opacity:0.8;">{{ msg.parent.content|default:"[파일/사진]" }}</span>
+                                </div>
+                                {% endif %}
+                                
+                                {% if msg.file_url %}
+                                    {% if 'jpg' in msg.file_name|lower or 'png' in msg.file_name|lower or 'jpeg' in msg.file_name|lower or 'gif' in msg.file_name|lower %}
+                                        <img src="{{ msg.file_url }}" alt="{{ msg.file_name }}" onclick="openImageViewer('{{ msg.file_url }}')"><br>
+                                    {% else %}
+                                        <a href="{{ msg.file_url }}" target="_blank"><i class="bi bi-file-earmark-arrow-down-fill fs-5 align-middle"></i> <span>{{ msg.file_name }}</span></a><br>
+                                    {% endif %}
+                                {% endif %}
+                                
+                                {% if msg.content %}
+                                    <div class="mt-1 msg-text">{{ msg.content }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                <div class="chat-message other chat-message-row" data-msg-id="{{ msg.id }}">
+                    <div class="profile-icon"><i class="bi bi-person-fill"></i></div>
+                    <div class="message-content">
+                        <div class="sender-name">{{ msg.sender.profile.name|default:msg.sender.username }}</div>
+                        <div class="bubble-row">
+                            <div class="bubble">
+                                {% if msg.parent %}
+                                <div class="reply-box">
+                                    <strong>{{ msg.parent.sender.profile.name|default:msg.parent.sender.username }}</strong>에게 답장<br>
+                                    <span class="text-truncate d-inline-block" style="max-width: 150px; opacity:0.8;">{{ msg.parent.content|default:"[파일/사진]" }}</span>
+                                </div>
+                                {% endif %}
+
+                                {% if msg.file_url %}
+                                    {% if 'jpg' in msg.file_name|lower or 'png' in msg.file_name|lower or 'jpeg' in msg.file_name|lower or 'gif' in msg.file_name|lower %}
+                                        <img src="{{ msg.file_url }}" alt="{{ msg.file_name }}" onclick="openImageViewer('{{ msg.file_url }}')"><br>
+                                    {% else %}
+                                        <a href="{{ msg.file_url }}" target="_blank"><i class="bi bi-file-earmark-arrow-down-fill fs-5 align-middle"></i> <span>{{ msg.file_name }}</span></a><br>
+                                    {% endif %}
+                                {% endif %}
+                                
+                                {% if msg.content %}
+                                    <div class="mt-1 msg-text">{{ msg.content }}</div>
+                                {% endif %}
+                            </div>
+                            
+                            {% if msg.unread_count > 0 %}
+                                <span class="unread-mark align-self-end mb-1 unread-mark-val" data-msg-id="{{ msg.id }}">{{ msg.unread_count }}</span>
+                            {% endif %}
+                            
+                            <span class="msg-time align-self-end">{{ msg.created_at|date:"H:i" }}</span>
+                            <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply({{ msg.id }}, '{{ msg.sender.profile.name|default:msg.sender.username }}', '{{ msg.content|default:'[파일/사진]'|escapejs }}')"></i>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        {% endfor %}
+    </div>
+
+                        
+    <div style="flex-shrink: 0; display:flex; flex-direction:column; position: relative;">
+        
+        <div id="mention-dropdown" class="list-group shadow" style="display: none; position: absolute; bottom: 100%; left: 60px; max-height: 200px; overflow-y: auto; z-index: 1050; width: 220px; border-radius: 8px; margin-bottom: 5px;">
+        </div>
+
+        <div id="reply-preview-box" class="bg-light px-3 py-2 border-top border-bottom" style="display: none; font-size: 0.8rem; position: relative;">
+            <div class="fw-bold text-primary mb-1"><i class="bi bi-reply-fill"></i> <span id="reply-target-name"></span>에게 답장</div>
+            <div class="text-truncate text-secondary" id="reply-target-text" style="max-width: 90%;"></div>
+            <button class="btn btn-sm text-danger p-0 position-absolute" style="top: 10px; right: 15px;" onclick="cancelReply()"><i class="bi bi-x-circle-fill fs-5"></i></button>
+        </div>
+
+        <div class="d-flex gap-2 align-items-center py-2 px-3 bg-white">
+            <input type="file" id="chat-file-input" style="display: none;">
+            <button id="chat-file-btn" class="btn btn-outline-secondary border-0 bg-light rounded-circle" title="파일 첨부"><i class="bi bi-paperclip fs-5"></i></button>
+            <input id="chat-message-input" type="text" class="form-control bg-light border-0 rounded-pill px-3" placeholder="메시지, 파일, 캡처(Ctrl+V)..." autocomplete="off">
+            <button id="chat-message-submit" class="btn btn-warning rounded-circle text-dark border-0 shadow-sm"><i class="bi bi-send-fill"></i></button>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="fileUploadModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header bg-warning"><h5 class="modal-title fw-bold text-dark"><i class="bi bi-file-earmark-arrow-up"></i> 파일 전송</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body text-center"><div id="preview-image-container" style="display: none; background-color: #f8f9fa; padding: 10px; border-radius: 8px;"><img id="preview-image" src="" style="max-width: 100%; max-height: 250px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"></div><div id="preview-file-icon" style="display: none; padding: 30px;"><i id="file-type-icon" class="bi bi-file-earmark-text" style="font-size: 5rem; color: #6c757d;"></i></div><div class="mt-3 fw-bold text-truncate" id="preview-filename" style="font-size: 1.1rem;"></div><div class="text-muted small mb-4" id="preview-filesize"></div><input type="text" id="file-caption-input" class="form-control form-control-lg bg-light border-0" placeholder="간단한 설명을 입력해주세요" autocomplete="off"></div><div class="modal-footer border-0"><button type="button" class="btn btn-light fw-bold" data-bs-dismiss="modal">취소</button><button type="button" class="btn btn-warning fw-bold text-dark px-4" id="confirm-file-send-btn">전송</button></div></div></div>
+</div>
+
+<div class="modal fade" id="readStatusModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light py-2">
+                <h6 class="modal-title fw-bold fs-6">메시지 읽음 확인</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <ul class="nav nav-tabs nav-justified" id="readStatusTabs" role="tablist">
+                    <li class="nav-item" role="presentation"><button class="nav-link active fw-bold text-primary" id="read-tab" data-bs-toggle="tab" data-bs-target="#read-pane" type="button" role="tab" style="border-top:none; border-left:none;">읽음 (<span id="read-cnt">0</span>)</button></li>
+                    <li class="nav-item" role="presentation"><button class="nav-link fw-bold text-secondary" id="unread-tab" data-bs-toggle="tab" data-bs-target="#unread-pane" type="button" role="tab" style="border-top:none; border-right:none;">안 읽음 (<span id="unread-cnt">0</span>)</button></li>
+                </ul>
+                <div class="tab-content" id="readStatusTabsContent">
+                    <div class="tab-pane fade show active p-3" id="read-pane" role="tabpanel" style="max-height: 200px; overflow-y: auto;"><div id="read-list" style="font-size: 0.9rem; color: #0d6efd;"></div></div>
+                    <div class="tab-pane fade p-3" id="unread-pane" role="tabpanel" style="max-height: 200px; overflow-y: auto;"><div id="unread-list" style="font-size: 0.9rem; color: #6c757d;"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{{ request.user.profile.name|default:request.user.username|json_script:"user-name" }}
+{{ room.id|json_script:"room-id" }}
+
+<script id="room-participants" type="application/json">
+[
+    {% for p in room.participants.all %}
+        {% if p != request.user %}
+            "{{ p.profile.name|default:p.username }}"{% if not forloop.last %},{% endif %}
+        {% endif %}
+    {% endfor %}
+]
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<div class="modal fade" id="fileUploadModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title fw-bold text-dark"><i class="bi bi-file-earmark-arrow-up"></i> 파일 전송</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div id="preview-image-container" style="display: none; background-color: #f8f9fa; padding: 10px; border-radius: 8px;">
+                    <img id="preview-image" src="" style="max-width: 100%; max-height: 250px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                </div>
+                <div id="preview-file-icon" style="display: none; padding: 30px;">
+                    <i id="file-type-icon" class="bi bi-file-earmark-text" style="font-size: 5rem; color: #6c757d;"></i>
+                </div>
+                <div class="mt-3 fw-bold text-truncate" id="preview-filename" style="font-size: 1.1rem;"></div>
+                <div class="text-muted small mb-4" id="preview-filesize"></div>
+                <input type="text" id="file-caption-input" class="form-control form-control-lg bg-light border-0" placeholder="간단한 설명을 입력해주세요" autocomplete="off">
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light fw-bold" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-warning fw-bold text-dark px-4" id="confirm-file-send-btn">전송</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="readStatusModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-light py-2">
+                <h6 class="modal-title fw-bold fs-6">메시지 읽음 확인</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <ul class="nav nav-tabs nav-justified" id="readStatusTabs" role="tablist">
+                    <li class="nav-item" role="presentation"><button class="nav-link active fw-bold text-primary" id="read-tab" data-bs-toggle="tab" data-bs-target="#read-pane" type="button" role="tab" style="border-top:none; border-left:none;">읽음 (<span id="read-cnt">0</span>)</button></li>
+                    <li class="nav-item" role="presentation"><button class="nav-link fw-bold text-secondary" id="unread-tab" data-bs-toggle="tab" data-bs-target="#unread-pane" type="button" role="tab" style="border-top:none; border-right:none;">안 읽음 (<span id="unread-cnt">0</span>)</button></li>
+                </ul>
+                <div class="tab-content" id="readStatusTabsContent">
+                    <div class="tab-pane fade show active p-3" id="read-pane" role="tabpanel" style="max-height: 200px; overflow-y: auto;"><div id="read-list" style="font-size: 0.9rem; color: #0d6efd;"></div></div>
+                    <div class="tab-pane fade p-3" id="unread-pane" role="tabpanel" style="max-height: 200px; overflow-y: auto;"><div id="unread-list" style="font-size: 0.9rem; color: #6c757d;"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="imageViewerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content bg-transparent border-0">
+            <div class="modal-header border-0 pb-0 justify-content-end">
+                <button type="button" class="btn-close btn-close-white fs-4" data-bs-dismiss="modal" aria-label="Close" style="filter: invert(1);"></button>
+            </div>
+            <div class="modal-body text-center pt-0">
+                <img id="viewer-image" src="" style="max-width: 100%; max-height: 85vh; object-fit: contain; box-shadow: 0 8px 24px rgba(0,0,0,0.5); border-radius: 8px;">
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="inviteModal" tabindex="-1" style="z-index: 2000;">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content border-0 shadow">
+      <div class="modal-header bg-primary text-white py-2">
+        <h6 class="modal-title fw-bold">대화상대 초대</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0" style="max-height: 300px; overflow-y: auto;">
+        <div id="inviteUserList" class="list-group list-group-flush">
+            <div class="p-3 text-center text-muted small">불러오는 중...</div>
+        </div>
+      </div>
+      <div class="modal-footer p-1 border-0">
+        <button type="button" class="btn btn-primary w-100 fw-bold" onclick="executeInvite()">초대하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+    // --- [1] 기본 설정 및 소켓 연결 ---
+    const myName = JSON.parse(document.getElementById('user-name').textContent);
+    const roomId = JSON.parse(document.getElementById('room-id').textContent);
+    const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+    const chatSocket = new WebSocket(wsScheme + '://' + window.location.host + '/ws/chat/' + roomId + '/');
+    const chatLog = document.querySelector('#chat-log');
+    let pendingReplyId = null;
+
+    // ★ @멘션 포맷팅 함수 (글자 색상 및 뱃지 처리)
+    function formatMentions(text) {
+        if (!text) return '';
+        return text.replace(/@([가-힣a-zA-Z0-9_]+)/g, function(match, name) {
+            if (name === myName) {
+                // 나를 호출한 경우: 눈에 띄는 빨간 뱃지!
+                return `<span class="badge bg-danger rounded-pill px-2 py-1 shadow-sm"><i class="bi bi-bell-fill"></i> @${name}</span>`;
+            } else {
+                // 다른 사람을 호출한 경우: 파란색 글씨
+                return `<span class="text-primary fw-bold">@${name}</span>`;
+            }
+        });
+    }
+
+    // 문서 로드 시 기존 메시지들에 멘션 디자인 입히기
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.msg-text').forEach(el => {
+            el.innerHTML = formatMentions(el.innerHTML);
+            el.setAttribute('data-formatted', 'true');
+        });
+        chatLog.scrollTop = chatLog.scrollHeight;
+    });
+
+    // --- [2] 공지 & 알림 & 윈도우 이벤트 ---
+    if ("{{ room.pinned_message }}" !== "None" && "{{ room.pinned_message }}" !== "") {
+        document.getElementById('pinned-message-banner').style.display = 'flex';
+    }
+    if (window.parent && window.parent.updateChatBadge) { window.parent.updateChatBadge(); }
+
+    function sendReadStatus() {
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            chatSocket.send(JSON.stringify({ 'type': 'mark_read', 'username': myName }));
+        }
+    }
+    window.onfocus = sendReadStatus;
+    document.onclick = sendReadStatus;
+
+    window.onbeforeunload = function() {
+        if (window.opener && !window.opener.closed) window.opener.location.reload();
+    };
+
+    chatSocket.onopen = function(e) { sendReadStatus(); };
+
+    // --- [3] 메시지 수신 및 화면 그리기 ---
+    chatSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        
+        if (data.type === 'system_message' && data.action === 'reload_pin') { window.location.reload(); return; }
+        if (data.type === 'update_read_counts') {
+            document.querySelectorAll('.unread-mark-val').forEach(mark => {
+                let count = parseInt(mark.innerText);
+                if (count > 1) mark.innerText = count - 1; else mark.remove(); 
+            });
+            return; 
+        }
+        
+        data.is_me = (data.username === myName);
+        const now = new Date();
+        data.time_str = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+        data.is_system = data.message && data.message.includes('📢');
+
+        // ★ 멘션 알림 (내가 호출당했을 때!)
+        if (!data.is_me && data.message && data.message.includes(`@${myName}`)) {
+            if (Notification.permission === "granted") {
+                let notification = new Notification("🔴 멘션 알림", { body: `${data.username}님이 호출했습니다:\n${data.message}` });
+                notification.onclick = function() { window.focus(); };
+            }
+        } else if (!data.is_me && Notification.permission === "granted") {
+            if (document.hidden) {
+                let notiText = data.message ? data.message : "사진/파일이 전송되었습니다.";
+                let notification = new Notification("💬 " + data.username, { body: notiText });
+                notification.onclick = function() { window.focus(); };
+            }
+        }
+
+        // 메시지 HTML 생성
+        const messageHtml = buildMessageHtml(data);
+        chatLog.insertAdjacentHTML('beforeend', messageHtml);
+        
+        // 새로 추가된 메시지에 멘션 포맷팅 적용
+        chatLog.querySelectorAll('.msg-text:not([data-formatted])').forEach(el => {
+            el.innerHTML = formatMentions(el.innerHTML);
+            el.setAttribute('data-formatted', 'true');
+        });
+
+        chatLog.scrollTop = chatLog.scrollHeight; 
+        if (!document.hidden) sendReadStatus();
+    };
+
+    // --- [4] 메시지 생성 헬퍼 함수 (무한 스크롤과 소켓이 같이 씁니다) ---
+    function buildMessageHtml(data) {
+        // ★ 시스템 메시지 분리
+        if (data.is_system) {
+            return `
+            <div class="d-flex justify-content-center my-2 chat-message-row" data-msg-id="${data.msg_id}">
+                <div class="bg-secondary bg-opacity-25 text-dark small px-3 py-1 rounded-pill shadow-sm fw-bold">
+                    ${data.message}
+                </div>
+            </div>`;
+        }
+
+        let contentHtml = '';
+        if (data.file_url) {
+            const ext = data.file_name.split('.').pop().toLowerCase();
+            if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+                contentHtml = `<img src="${data.file_url}" alt="${data.file_name}" onclick="openImageViewer('${data.file_url}')"><br>`;
+            } else {
+                contentHtml = `<a href="${data.file_url}" target="_blank"><i class="bi bi-file-earmark-arrow-down-fill fs-4 align-middle"></i> <span>${data.file_name}</span></a><br>`;
+            }
+        }
+        if (data.message) { 
+            contentHtml += `<div class="mt-1 msg-text">${data.message}</div>`;
+        }
+
+        let parentHtml = ''; 
+        if (data.parent_text && data.parent_sender) {
+            parentHtml = `
+            <div class="reply-box">
+                <strong>${data.parent_sender}</strong>에게 답장<br>
+                <span class="text-truncate d-inline-block" style="max-width: 150px; opacity:0.8;">${data.parent_text}</span>
+            </div>`;
+        }
+
+        const msgIdAttr = data.msg_id ? `data-msg-id="${data.msg_id}"` : '';
+        const unreadHtml = data.unread_count > 0 ? `<span class="unread-mark align-self-end mb-1 unread-mark-val" ${msgIdAttr}>${data.unread_count}</span>` : '';
+
+        if (data.is_me) {
+            return `
+            <div class="chat-message me chat-message-row" ${msgIdAttr}>
+                <div class="message-content align-items-end">
+                    <div class="bubble-row">
+                        <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply(${data.msg_id}, '나', '${(data.message||'[파일]').replace(/'/g, "\\'")}')"></i>
+                        ${unreadHtml}
+                        <span class="msg-time align-self-end">${data.time_str}</span>
+                        <div class="bubble">${parentHtml}${contentHtml}</div>
+                    </div>
+                </div>
+            </div>`;
+        } else {
+            return `
+            <div class="chat-message other chat-message-row" ${msgIdAttr}>
+                <div class="profile-icon"><i class="bi bi-person-fill"></i></div>
+                <div class="message-content">
+                    <div class="sender-name">${data.username}</div>
+                    <div class="bubble-row">
+                        <div class="bubble">${parentHtml}${contentHtml}</div>
+                        ${unreadHtml} <span class="msg-time align-self-end">${data.time_str}</span>
+                        <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply(${data.msg_id}, '${data.username}', '${(data.message||'[파일]').replace(/'/g, "\\'")}')"></i>
+                    </div>
+                </div>
+            </div>`;
+        }
+    }
+
+    // --- [5] ★ 무한 스크롤 (Pagination) ---
+    let isFetchingMessages = false;
+    let hasMoreMessages = true;
+
+    chatLog.addEventListener('scroll', function() {
+        // 스크롤이 맨 위(0~5px)에 닿으면 추가 로딩
+        if (chatLog.scrollTop <= 5 && !isFetchingMessages && hasMoreMessages) {
+            const firstMsgEl = chatLog.querySelector('.chat-message-row');
+            if (!firstMsgEl) return;
+            
+            const firstMsgId = firstMsgEl.getAttribute('data-msg-id');
+            if (!firstMsgId) return;
+
+            isFetchingMessages = true;
+            const oldScrollHeight = chatLog.scrollHeight;
+            
+            fetch(`/quiz/chat/api/room/${roomId}/messages/?first_msg_id=${firstMsgId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.messages.length === 0) {
+                    hasMoreMessages = false; // 더 이상 없으면 중단
+                } else {
+                    let html = '';
+                    data.messages.forEach(m => {
+                        html += buildMessageHtml(m);
+                    });
+                    
+                    // 기존 메시지들 위쪽에 붙여넣기
+                    chatLog.insertAdjacentHTML('afterbegin', html);
+                    
+                    // 멘션 렌더링
+                    chatLog.querySelectorAll('.msg-text:not([data-formatted])').forEach(el => {
+                        el.innerHTML = formatMentions(el.innerHTML);
+                        el.setAttribute('data-formatted', 'true');
+                    });
+
+                    // 스크롤 위치 유지 (위로 튀는 현상 방지)
+                    chatLog.scrollTop = chatLog.scrollHeight - oldScrollHeight;
+                }
+                isFetchingMessages = false;
+            })
+            .catch(err => { isFetchingMessages = false; });
+        }
+    });
+
+    // --- [6] 기타 기능들 (기존 코드들) ---
+    function startReply(msgId, senderName, text) {
+        pendingReplyId = msgId;
+        document.getElementById('reply-target-name').innerText = senderName;
+        document.getElementById('reply-target-text').innerText = text;
+        document.getElementById('reply-preview-box').style.display = 'block';
+        document.getElementById('chat-message-input').focus();
+    }
+    function cancelReply() {
+        pendingReplyId = null;
+        document.getElementById('reply-preview-box').style.display = 'none';
+    }
+
+    function toggleSearchBar() {
+        const bar = document.getElementById('search-bar');
+        bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+        if(bar.style.display === 'block') document.getElementById('search-input').focus();
+    }
+    function executeSearch() {
+        const q = document.getElementById('search-input').value.trim();
+        const resDiv = document.getElementById('search-results');
+        if(!q) { resDiv.innerHTML = ''; return; }
+        
+        fetch(`/quiz/chat/api/room/${roomId}/search/?q=${encodeURIComponent(q)}`)
+        .then(r => r.json())
+        .then(data => {
+            if(data.results.length === 0) {
+                resDiv.innerHTML = '<div class="p-2 text-center text-muted small">검색 결과가 없습니다.</div>';
+            } else {
+                resDiv.innerHTML = data.results.map(m => `
+                    <div class="search-result-item">
+                        <div class="fw-bold text-primary" style="font-size:0.75rem;">${m.sender} <span class="text-muted fw-normal ms-1">${m.date}</span></div>
+                        <div class="text-truncate">${m.text}</div>
+                    </div>
+                `).join('');
+            }
+        });
+    }
+    document.getElementById('search-input').onkeyup = function(e) { if (e.keyCode === 13) executeSearch(); };
+
+    document.getElementById('chat-log').addEventListener('click', function(e) {
+        if (e.target.classList.contains('unread-mark-val')) {
+            const msgId = e.target.getAttribute('data-msg-id');
+            if(!msgId) return;
+
+            fetch(`/quiz/chat/api/message/${msgId}/read_status/`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('read-cnt').innerText = data.read.length;
+                document.getElementById('unread-cnt').innerText = data.unread.length;
+                document.getElementById('read-list').innerHTML = data.read.map(u => `<div>✓ ${u.name}</div>`).join('');
+                document.getElementById('unread-list').innerHTML = data.unread.map(u => `<div>- ${u.name}</div>`).join('');
+                new bootstrap.Modal(document.getElementById('readStatusModal')).show();
+            });
+        }
+    });
+
+    document.getElementById('chat-log').addEventListener('dblclick', function(e) {
+        const bubble = e.target.closest('.bubble');
+        if (bubble) {
+            const msgId = bubble.getAttribute('data-msg-id');
+            if(msgId && confirm("이 메시지를 공지사항으로 고정하시겠습니까?")) {
+                const formData = new FormData();
+                formData.append('msg_id', msgId);
+                fetch(`/quiz/chat/api/room/${roomId}/pin/`, {
+                    method: 'POST', body: formData,
+                    headers: {'X-CSRFToken': '{{ csrf_token }}'}
+                }).then(() => window.location.reload());
+            }
+        }
+    });
+
+    function unpinMessage() {
+        if(confirm("공지를 내리시겠습니까?")) {
+            fetch(`/quiz/chat/api/room/${roomId}/pin/`, {
+                method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}
+            }).then(() => window.location.reload());
+        }
+    }
+
+    document.querySelector('#chat-message-input').focus();
+    document.querySelector('#chat-message-input').onkeyup = function(e) {
+        if (e.keyCode === 13) document.querySelector('#chat-message-submit').click();
+    };
+    document.querySelector('#chat-message-submit').onclick = function() {
+        const inputDom = document.querySelector('#chat-message-input');
+        if (inputDom.value.trim() !== "") {
+            chatSocket.send(JSON.stringify({ 
+                'type': 'chat_message', 
+                'message': inputDom.value, 
+                'username': myName,
+                'parent_id': pendingReplyId 
+            }));
+            inputDom.value = ''; 
+            cancelReply(); 
+        }
+    };
+
+    let pendingFile = null;
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024, sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function showFileModal(file) {
+        if (!file) return;
+        pendingFile = file;
+        const ext = file.name.split('.').pop().toLowerCase();
+        
+        document.getElementById('preview-filename').innerText = file.name;
+        document.getElementById('preview-filesize').innerText = formatBytes(file.size);
+        document.getElementById('file-caption-input').value = '';
+
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext) || file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                document.getElementById('preview-image').src = e.target.result;
+                document.getElementById('preview-image-container').style.display = 'block';
+                document.getElementById('preview-file-icon').style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        } else {
+            document.getElementById('preview-image-container').style.display = 'none';
+            document.getElementById('preview-file-icon').style.display = 'block';
+            const icon = document.getElementById('file-type-icon');
+            if (ext === 'pdf') icon.className = 'bi bi-file-earmark-pdf-fill text-danger';
+            else if (['xls', 'xlsx', 'csv'].includes(ext)) icon.className = 'bi bi-file-earmark-excel-fill text-success';
+            else if (['ppt', 'pptx'].includes(ext)) icon.className = 'bi bi-file-earmark-slides-fill text-warning';
+            else icon.className = 'bi bi-file-earmark-text-fill text-secondary';
+        }
+        
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('fileUploadModal'));
+        modal.show();
+        document.getElementById('fileUploadModal').addEventListener('shown.bs.modal', () => document.getElementById('file-caption-input').focus(), {once:true});
+    }
+
+    document.getElementById('confirm-file-send-btn').onclick = function() {
+        const caption = document.getElementById('file-caption-input').value;
+        const modal = bootstrap.Modal.getInstance(document.getElementById('fileUploadModal'));
+        const btn = document.getElementById('confirm-file-send-btn');
+        
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 전송중...';
+        btn.disabled = true;
+
+        const formData = new FormData();
+        formData.append('file', pendingFile);
+
+        fetch("{% url 'quiz:chat_file_upload' %}", { 
+            method: "POST", 
+            body: formData,
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' } 
+        })
+        .then(res => {
+            if (res.status === 413) throw new Error("파일 용량이 너무 큽니다.");
+            if (!res.ok) throw new Error("서버 통신 오류.");
+            return res.json();
+        })
+        .then(data => {
+            if (data.status === 'success') {
+                chatSocket.send(JSON.stringify({ 
+                    'type': 'chat_message', 
+                    'message': caption, 
+                    'username': myName, 
+                    'file_url': data.file_url, 
+                    'file_name': data.file_name,
+                    'parent_id': pendingReplyId 
+                }));
+                modal.hide();
+                cancelReply();
+            } else alert("실패: " + data.message);
+        })
+        .catch(err => alert(err.message))
+        .finally(() => { btn.innerHTML = '전송'; btn.disabled = false; });
+    };
+
+    document.getElementById('file-caption-input').onkeyup = function(e) {
+        if (e.keyCode === 13) document.getElementById('confirm-file-send-btn').click();
+    };
+
+    document.querySelector('#chat-file-btn').onclick = () => document.querySelector('#chat-file-input').click();
+    document.querySelector('#chat-file-input').onchange = (e) => { if(e.target.files[0]) showFileModal(e.target.files[0]); e.target.value = ''; };
+
+    const chatContainer = document.querySelector('.chat-container');
+    chatContainer.addEventListener('dragover', (e) => { e.preventDefault(); chatContainer.style.opacity = '0.8'; });
+    chatContainer.addEventListener('dragleave', (e) => { e.preventDefault(); chatContainer.style.opacity = '1'; });
+    chatContainer.addEventListener('drop', (e) => {
+        e.preventDefault(); chatContainer.style.opacity = '1';
+        if (e.dataTransfer.files[0]) showFileModal(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById('chat-message-input').addEventListener('paste', function(e) {
+        const items = (e.clipboardData || window.clipboardData).items;
+        for (let i = 0; i < items.length; i++) {
+            if (items[i].kind === 'file') {
+                e.preventDefault();
+                const file = items[i].getAsFile();
+                let fileName = file.name;
+                if (fileName === 'image.png' || fileName === 'blob') fileName = '캡처_' + new Date().getTime() + '.png';
+                showFileModal(new File([file], fileName, {type: file.type}));
+                return;
+            }
+        }
+    });
+
+    function openImageViewer(url) {
+        const width = 800;
+        const height = 700;
+        const left = (window.screen.width / 2) - (width / 2);
+        const top = (window.screen.height / 2) - (height / 2);
+
+        const viewerWin = window.open('', '_blank', `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+        const fileName = url.substring(url.lastIndexOf('/') + 1) || 'image_download.jpg';
+
+        if (viewerWin) {
+            viewerWin.document.write(`
+                <!DOCTYPE html>
+                <html lang="ko">
+                <head>
+                    <title>사진 뷰어</title>
+                    <style>
+                        body { margin: 0; background-color: #222222; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: auto; }
+                        img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; transition: transform 0.2s; }
+                        img.zoomed { max-width: none; max-height: none; cursor: zoom-out; }
+                        .download-btn { position: fixed; bottom: 30px; right: 30px; background-color: rgba(255, 255, 255, 0.15); color: white; padding: 12px 20px; border-radius: 8px; text-decoration: none; font-family: sans-serif; font-weight: bold; font-size: 15px; transition: all 0.2s; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+                        .download-btn:hover { background-color: rgba(255, 255, 255, 0.35); transform: translateY(-2px); }
+                    </style>
+                </head>
+                <body>
+                    <img src="${url}" onclick="this.classList.toggle('zoomed')" title="클릭하면 원본 크기로 확대/축소됩니다.">
+                    <a href="${url}" download="${fileName}" class="download-btn" title="사진 저장하기">⬇ 다운로드</a>
+                </body>
+                </html>
+            `);
+            viewerWin.document.close();
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const inviteModalEl = document.getElementById('inviteModal');
+        if (inviteModalEl) {
+            inviteModalEl.addEventListener('shown.bs.modal', function () {
+                fetch("{% url 'quiz:chat_invite_targets' room.id %}")
+                .then(res => res.json())
+                .then(data => {
+                    let html = '';
+                    data.users.forEach(u => {
+                        html += `
+                        <label class="list-group-item d-flex align-items-center gap-3 py-2" style="cursor:pointer;">
+                            <input class="form-check-input invite-chk" type="checkbox" value="${u.id}">
+                            <div class="small fw-bold">${u.name} <span class="text-muted fw-normal">(${u.process})</span></div>
+                        </label>`;
+                    });
+                    document.getElementById('inviteUserList').innerHTML = html || '<div class="p-3 text-center">초대할 대상이 없습니다.</div>';
+                });
+            });
+        }
+    });
+
+    function executeInvite() {
+        const checked = document.querySelectorAll('.invite-chk:checked');
+        const ids = Array.from(checked).map(c => c.value);
+        
+        if(ids.length === 0) return alert("초대할 사람을 선택하세요.");
+        
+        fetch('{% url "quiz:chat_invite_users" room.id %}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+            body: JSON.stringify({ user_ids: ids })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.status === 'success') {
+                if(data.action === 'new_room') {
+                    window.location.href = `/quiz/chat/room/${data.new_room_id}/`;
+                } else {
+                    window.location.reload();
+                }
+            } else {
+                alert(data.message);
+            }
+        });
+    }
+// ========================================================
+    // ★ [신규 기능] @멘션 자동완성 (Autocomplete) 로직
+    // ========================================================
+    const chatInputEl = document.getElementById('chat-message-input');
+    const mentionDropdown = document.getElementById('mention-dropdown');
+    // 위에서 파이썬이 넘겨준 참가자 명단 가져오기
+    const roomParticipants = JSON.parse(document.getElementById('room-participants').textContent || '[]');
+
+    chatInputEl.addEventListener('input', function(e) {
+        const val = this.value;
+        const cursorPos = this.selectionStart;
+
+        // 커서 바로 앞부분까지의 텍스트 추출
+        const textBeforeCursor = val.substring(0, cursorPos);
+        
+        // 정규식: 공백(띄어쓰기) 뒤에 '@'가 오고 그 뒤에 글자를 치고 있는지 검사
+        // (맨 처음 시작할 때 '@' 치는 것도 포함)
+        const match = textBeforeCursor.match(/(?:^|\s)@([^\s]*)$/);
+
+        if (match) {
+            const searchKeyword = match[1].toLowerCase(); // @ 뒤에 친 글자 (예: '류')
+            
+            // 참가자 명단에서 검색어 포함된 사람 찾기
+            let filtered = roomParticipants.filter(name => name.toLowerCase().includes(searchKeyword));
+
+            if (filtered.length > 0) {
+                let html = '';
+                filtered.forEach(name => {
+                    // 드롭다운 아이템 만들기
+                    html += `
+                    <button type="button" class="list-group-item list-group-item-action py-2 px-3 fw-bold" onclick="insertMention('${name}')">
+                        <i class="bi bi-person-circle text-secondary me-2"></i>${name}
+                    </button>`;
+                });
+                mentionDropdown.innerHTML = html;
+                mentionDropdown.style.display = 'block';
+            } else {
+                mentionDropdown.style.display = 'none';
+            }
+        } else {
+            mentionDropdown.style.display = 'none'; // @가 아니면 숨김
+        }
+    });
+
+    // 드롭다운에서 사람 이름을 클릭했을 때 실행되는 함수
+    function insertMention(selectedName) {
+        const val = chatInputEl.value;
+        const cursorPos = chatInputEl.selectionStart;
+        
+        const textBeforeCursor = val.substring(0, cursorPos);
+        const textAfterCursor = val.substring(cursorPos);
+
+        // 현재 작성 중이던 '@글자' 부분을 '@선택한이름 ' 으로 교체 (뒤에 띄어쓰기 1칸 포함)
+        const newTextBefore = textBeforeCursor.replace(/(^|\s)@([^\s]*)$/, `$1@${selectedName} `);
+
+        // 입력창 값 업데이트 및 커서 이동
+        chatInputEl.value = newTextBefore + textAfterCursor;
+        mentionDropdown.style.display = 'none';
+        chatInputEl.focus();
+    }
+
+    // 채팅창이나 목록 바깥을 클릭하면 멘션 목록 숨기기
+    document.addEventListener('click', function(e) {
+        if (!chatInputEl.contains(e.target) && !mentionDropdown.contains(e.target)) {
+            mentionDropdown.style.display = 'none';
+        }
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>경고장 - {{ log.profile.name }}</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* A4 사이즈 인쇄용 CSS */
+        body { background: rgb(204,204,204); font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; }
+        page {
+            background: white;
+            display: block;
+            margin: 0 auto;
+            /* ★ 위아래 여백을 1cm로 확 줄여서 작성 공간 최대 확보 */
+            padding: 1cm 1.5cm; 
+            width: 21cm;
+            height: 29.7cm;
+            position: relative;
+            box-sizing: border-box; /* 높이 초과 방지 */
+        }
+        @media print {
+            @page { margin: 0; } /* 브라우저 기본 여백 강제 제거 */
+            body, page { margin: 0; box-shadow: none; background: white; width: 100%; height: 100%; }
+            .no-print { display: none !important; }
+        }
+        
+        /* 폰트 및 간격 최적화 (2장으로 넘어가지 않게 조절) */
+        .doc-title { font-size: 26px; font-weight: 900; text-align: center; margin-bottom: 1rem; letter-spacing: 15px; text-decoration: underline; text-underline-offset: 8px;}
+        .info-table { margin-bottom: 1rem; }
+        .info-table th { width: 100px; background-color: #f8f9fa !important; text-align: center; }
+        .info-table td, .info-table th { vertical-align: middle; padding: 6px 10px; border: 1px solid #dee2e6; font-size: 13px; }
+        
+        .history-table th, .history-table td { padding: 6px; font-size: 12px; vertical-align: middle; }
+        
+        /* 자필 작성용 빈 박스 */
+        .reason-box { border: 1px solid #dee2e6; padding: 15px; min-height: 250px; margin-bottom: 15px; font-size: 14px; }
+        .action-box { border: 1px solid #dee2e6; padding: 15px; min-height: 150px; margin-bottom: 15px; font-size: 14px; }
+        
+        .sign-area { display: flex; justify-content: flex-end; margin-top: 20px; font-size: 15px; }
+        .sign-box { text-align: center; margin-left: 40px; }
+        .watermark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 130px; color: rgba(220, 53, 69, 0.04); font-weight: 900; white-space: nowrap; pointer-events: none; z-index: 0; }
+    </style>
+</head>
+<body onload="window.print()">
+    <!-- 상단 인쇄 버튼 -->
+    <div class="text-center mt-3 mb-3 no-print">
+        <button class="btn btn-primary shadow" onclick="window.print()"><i class="bi bi-printer"></i> 인쇄 / PDF 저장</button>
+        <button class="btn btn-secondary shadow ms-2" onclick="window.close()">닫기</button>
+    </div>
+
+    <page>
+        <div class="watermark">WARNING</div>
+        
+        <div class="doc-title">경 고 장</div>
+
+        <table class="table table-bordered info-table" style="position: relative; z-index: 1;">
+            <tbody>
+                <tr>
+                    <th>소 속</th>
+                    <td>{{ log.profile.company.name|default:"-" }} / {{ log.profile.process.name|default:"-" }}</td>
+                    <th>기 수</th>
+                    <td>{{ log.profile.cohort.name|default:"-" }}</td>
+                </tr>
+                <tr>
+                    <th>사 번</th>
+                    <td>{{ log.profile.employee_id|default:"-" }}</td>
+                    <th>성 명</th>
+                    <td class="fw-bold fs-6">{{ log.profile.name }}</td>
+                </tr>
+                <tr>
+                    <th>발 부 일 자</th>
+                    <td colspan="3">{{ log.created_at|date:"Y년 m월 d일" }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- ★ 매니저가 적발한 누적 위반 내역 자동 표기 (경고 2번이면 2줄 나옴) -->
+        <div style="position: relative; z-index: 1;">
+            <h6 class="fw-bold mb-2">■ 누적 위반 및 징계 내역</h6>
+            <table class="table table-bordered history-table mb-3">
+                <thead class="bg-light text-center">
+                    <tr>
+                        <th width="15%">일자</th>
+                        <th width="15%">유형</th>
+                        <th width="70%">위반 내용 (매니저 작성)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for w in warning_history %}
+                    <!-- 현재 대상(log.id)은 빨간색, 그 외 모든 과거 내역은 인쇄 시에도 유지되는 확실한 회색 음영 처리 -->
+                    <tr class="{% if w.id == log.id %}table-danger fw-bold{% else %}text-muted{% endif %}"
+                        {% if w.id != log.id %}style="background-color: #f1f3f5 !important; print-color-adjust: exact; -webkit-print-color-adjust: exact;"{% endif %}>
+                        <td class="text-center align-middle">{{ w.created_at|date:"Y-m-d" }}</td>
+                        <td class="text-center align-middle">
+                            {% if w.log_type == 'warning' %}⚠️ 경고
+                            {% elif w.log_type == 'warning_letter' %}🚫 경고장
+                            {% elif w.log_type == 'exam_fail' %}📋 과락
+                            {% else %}{{ w.get_log_type_display }}{% endif %}
+                        </td>
+                        <td class="align-middle">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <!-- 내용은 좌측 정렬 -->
+                                <span>{{ w.reason }}</span>
+                                
+                                <!-- 뱃지는 텍스트 뒤(우측 끝)로 이동 -->
+                                <div class="text-end" style="min-width: 140px;">
+                                    {% if w.id == log.id %}
+                                        <span class="badge bg-danger ms-2">▶ 이번 사유서 작성 대상</span>
+                                    {% elif w.log_type == 'warning_letter' %}
+                                        <span class="badge bg-secondary ms-2">과거 작성 완료</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ★ 교육생 자필 작성란 (비워둠) -->
+        <div style="position: relative; z-index: 1;">
+            <h6 class="fw-bold mb-2">1. 위반 내용 및 사유 (학생 자필 작성)</h6>
+            <div class="reason-box">
+                <span class="text-muted" style="opacity: 0.5;">* 본인의 위반 내용을 육하원칙(누가, 언제, 어디서, 무엇을, 어떻게, 왜)에 의거하여 상세히 작성하시오.</span>
+            </div>
+        </div>
+
+        <div style="position: relative; z-index: 1;">
+            <h6 class="fw-bold mb-2">2. 향후 조치 및 계획 (학생 자필 작성)</h6>
+            <div class="action-box">
+                <span class="text-muted" style="opacity: 0.5;">* 본 경고장 발부 이후의 본인 행동 계획 및 다짐을 상세히 작성하시오.</span>
+            </div>
+        </div>
+
+        <div class="mt-4 text-center" style="position: relative; z-index: 1;">
+            <p class="mb-3 fw-bold" style="font-size: 1.05rem; line-height: 1.6;">
+                상기 본인은 위반 사실을 명확히 인지하며, 본 경고를 포함하여<br>
+                <span class="text-danger text-decoration-underline fs-5">누적 경고 3회 도달 시 교육 과정 강제 퇴소(제적) 조치</span>가 취해짐을<br>
+                엄중히 경고받았음을 확인하고 이에 서약합니다.
+            </p>
+            <h5 class="fw-bold mt-4">{{ log.created_at|date:"Y년 m월 d일" }}</h5>
+        </div>
+
+        <div class="sign-area" style="position: relative; z-index: 1;">
+            <div class="sign-box">
+                <div>작성자(매니저) : <strong style="display:inline-block; width:80px; text-align:center;">{{ log.recorder.profile.name|default:"시스템" }}</strong> (인)</div>
+            </div>
+            <div class="sign-box">
+                <div>서약자(교육생) : <strong style="display:inline-block; width:80px; text-align:center;">{{ log.profile.name }}</strong> (인)</div>
+            </div>
+        </div>
+    </page>
+</body>
+</html>

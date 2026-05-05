@@ -16,12 +16,15 @@ class Cohort(models.Model):
     name = models.CharField(max_length=100, unique=True, verbose_name="기수 이름 (예: 25-01기)")
     start_date = models.DateField(verbose_name="교육 시작일")
     end_date = models.DateField(verbose_name="교육 종료일", null=True, blank=True)
-    is_registration_open = models.BooleanField(
-        default=True, 
-        verbose_name="가입 활성화 여부",
-        help_text="이 옵션을 체크해야 해당 기수 인원이 가입할 수 있습니다."
-    )
+    is_registration_open = models.BooleanField(default=True, verbose_name="가입 활성화 여부")
     is_closed = models.BooleanField(default=False, verbose_name="평가 마감 완료")
+
+    # ★★★ 이 줄이 빠져서 에러가 났던 겁니다! 여기에 꼭 추가해 주세요! ★★★
+    is_manual_exam_allowed = models.BooleanField(
+        default=False, 
+        verbose_name="공통시험 수기 채점 허용",
+        help_text="체크 시 매니저/PL이 공통시험 점수를 수기로 일괄 입력할 수 있습니다."
+    )
 
     class Meta:
         verbose_name = "기수 (교육 차수)"
@@ -77,6 +80,12 @@ class RecordType(models.Model):
         verbose_name_plural = "평가 기록 유형"
     def __str__(self):
         return self.name
+    
+is_manual_exam_allowed = models.BooleanField(
+        default=False, 
+        verbose_name="공통시험 수기 채점 허용",
+        help_text="체크 시 매니저/PL이 공통시험 점수를 수기로 일괄 입력할 수 있습니다."
+    )
 
 
 # -----------------------------------------------------------
@@ -128,6 +137,8 @@ class Profile(models.Model):
     badges = models.ManyToManyField('Badge', blank=True, verbose_name="획득한 뱃지")
 
     session_key = models.CharField(max_length=40, null=True, blank=True, verbose_name="현재 세션 키")
+
+    can_use_messenger = models.BooleanField(default=False, verbose_name="사내 메신저 사용 가능")
     
     def __str__(self):
         return f"{self.name} ({self.get_status_display()})"
@@ -245,6 +256,7 @@ class ProcessAccessRequest(models.Model):
     target_process = models.ForeignKey(Process, on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True, verbose_name="권한 만료 일시")
 
     def __str__(self):
         target_name = self.target_process.name if self.target_process else "🌍 전체 공정"
@@ -508,3 +520,5 @@ def check_cohort_completion(sender, instance, **kwargs):
                 message=f"🎉 [{cohort.name}] 기수의 모든 평가(수료/퇴소)가 마감되었습니다! 최종 종합 리포트를 확인하세요.",
                 related_url=f"/quiz/manager/cohort/{cohort.id}/report/" # 추후 만들 리포트 페이지 URL
             )
+    
+

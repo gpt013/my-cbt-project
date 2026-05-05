@@ -58,7 +58,7 @@
         </div>
     {% else %}
 
-    <form method="post" id="examForm" action="">
+    <form method="post" id="examForm" action="" autocomplete="off">
     {% csrf_token %}
     
     <input type="hidden" name="custom_attempt_id" value="{{ attempt.id }}">
@@ -137,6 +137,8 @@
                                     <label class="form-label fw-bold">정답 입력</label>
                                     <input type="text" class="form-control form-control-lg" 
                                            name="question_{{ q.id }}" placeholder="정답을 입력하세요" 
+                                           autocomplete="off" spellcheck="false"
+                                           readonly onfocus="setTimeout(() => this.removeAttribute('readonly'), 50);"
                                            oninput="markOMR({{ forloop.counter }})">
                                 </div>
                             {% endif %}
@@ -281,8 +283,39 @@
         }
 
         // --- [기능] 문제 이동 (화살표 키) ---
-        if(e.key === 'ArrowRight') nextQuestion();
+        f(e.key === 'ArrowRight') nextQuestion();
         if(e.key === 'ArrowLeft') prevQuestion();
+    });
+
+
+    // ==========================================
+    // ★ [5] 부정행위(화면 이탈) 방지 시스템 (3진 아웃)
+    // ==========================================
+    let cheatCount = 0;
+    const maxCheatLimit = 3; // 최대 허용 횟수 (3번 걸리면 강제 제출)
+
+    // 브라우저 탭을 변경하거나 창을 내렸을 때 귀신같이 감지합니다.
+    document.addEventListener('visibilitychange', function() {
+        // 화면이 숨겨졌고(가려졌고), 시간이 남아있고, 정상 제출 중이 아닐 때만 발동!
+        if (document.hidden && timeLeft > 0 && !isSubmitting) {
+            cheatCount++;
+            let remainCount = maxCheatLimit - cheatCount;
+            
+            if (remainCount > 0) {
+                alert(`🚨 경고! 시험 화면을 이탈했습니다.\n(인터넷 검색 등 부정행위 방지)\n\n누적 경고: ${cheatCount}회\n앞으로 ${remainCount}회 더 이탈 시 시험이 강제로 종료됩니다.`);
+            } else {
+                alert(`🚨 경고 3회 누적!\n부정행위 의심으로 인해 시험이 강제 종료 및 제출됩니다.`);
+                
+                // 경고 3회 누적 시 얄짤없이 폼을 강제로 쏴버립니다.
+                isSubmitting = true;
+                const form = document.getElementById('examForm');
+                if (form) {
+                    // 버튼 비활성화 (중복 제출 방지)
+                    document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+                    form.submit();
+                }
+            }
+        }
     });
 
 

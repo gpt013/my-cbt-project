@@ -108,11 +108,11 @@
         <div class="row text-center fw-bold">
             <div class="col-md-4 border-end">
                 <span class="text-danger">🔴 위험 (Danger)</span>
-                <p class="text-muted fw-normal mb-0 mt-1" style="font-size: 0.75rem;">경고 2회 이상 누적 또는 성적 미달로 인한 <strong>시험 잠금(PL 면담 필수)</strong> 상태</p>
+                <p class="text-muted fw-normal mb-0 mt-1" style="font-size: 0.75rem;">경고 3회 이상 누적(PL 면담 필수) 등 <strong>심각한 조치 필요</strong> 상태</p>
             </div>
             <div class="col-md-4 border-end">
                 <span class="text-warning text-dark">🟡 주의 (Caution)</span>
-                <p class="text-muted fw-normal mb-0 mt-1" style="font-size: 0.75rem;">경고 1회 누적 또는 최근 시험 탈락 이력이 있어 <strong>집중 관찰</strong>이 필요한 상태</p>
+                <p class="text-muted fw-normal mb-0 mt-1" style="font-size: 0.75rem;">경고 1~2회 누적 또는 시험 탈락 잠금 등 <strong>매니저 면담 및 관찰</strong>이 필요한 상태</p>
             </div>
             <div class="col-md-4">
                 <span class="text-success">🟢 정상 (Normal)</span>
@@ -144,7 +144,7 @@
                                     {% for student in ps.danger %}
                                         <a href="{% url 'quiz:manager_trainee_detail' student.id %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center text-danger fw-bold">
                                             <span>{{ student.name }} <small class="text-muted">({{ student.cohort.name|default:"-" }})</small></span>
-                                            <span class="badge bg-danger rounded-pill">{{ student.warning_count }}회</span>
+                                            <span class="badge bg-danger rounded-pill fw-normal text-truncate" style="max-width: 50%; font-size: 0.8rem;" title="{{ student.risk_reason }}">{{ student.risk_reason }}</span>
                                         </a>
                                     {% empty %}
                                         <li class="list-group-item text-muted text-center py-3">위험 대상자가 없습니다. 🎉</li>
@@ -160,7 +160,7 @@
                                     {% for student in ps.caution %}
                                         <a href="{% url 'quiz:manager_trainee_detail' student.id %}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center fw-bold text-dark">
                                             <span>{{ student.name }} <small class="text-muted">({{ student.cohort.name|default:"-" }})</small></span>
-                                            <span class="badge bg-warning text-dark rounded-pill">{{ student.warning_count }}회</span>
+                                            <span class="badge bg-warning text-dark rounded-pill fw-normal text-truncate" style="max-width: 50%; font-size: 0.8rem;" title="{{ student.risk_reason }}">{{ student.risk_reason }}</span>
                                         </a>
                                     {% empty %}
                                         <li class="list-group-item text-muted text-center py-3">주의 대상자가 없습니다.</li>
@@ -303,7 +303,64 @@
             </div>
         </div>
     </div>
+
+    <div class="col-md-3"> 
+        <div class="card shadow-sm hover-card h-100" data-bs-toggle="modal" data-bs-target="#quickPracticeScoreModal" style="cursor: pointer; border-bottom: 4px solid #198754;">
+            <div class="card-body text-center py-4">
+                <div class="icon-box bg-success bg-opacity-10 text-success mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                    <i class="bi bi-clipboard-check-fill fs-3"></i>
+                </div>
+                <h5 class="text-dark fw-bold">빠른 실습 점수 입력</h5>
+                <p class="text-muted small mb-0">공정별 실습 점수 일괄 부여</p>
+            </div>
+        </div>
     </div>
+
+    <div class="col-md-3"> 
+    <div class="card shadow-sm hover-card h-100" data-bs-toggle="modal" data-bs-target="#quickManualExamModal" style="cursor: pointer; border-bottom: 4px solid #0d6efd;">
+        <div class="card-body text-center py-4">
+            <div class="icon-box bg-primary bg-opacity-10 text-primary mb-3 mx-auto rounded-circle d-flex align-items-center justify-content-center" style="width:60px; height:60px;">
+                <i class="bi bi-pencil-square fs-3"></i>
+            </div>
+            <h5 class="text-dark fw-bold">빠른 지필 점수 입력</h5>
+            <p class="text-muted small mb-0">공통시험 수기 채점 및 재시험 관리</p>
+        </div>
+    </div>
+</div>
+
+
+
+
+</div> <div class="mt-5 mb-4">
+    <h5 class="fw-bold mb-3">
+        <i class="bi bi-link-45deg text-primary"></i> 실무 참고 시스템 및 링크
+    </h5>
+    <div class="row g-3">
+        {% for link in reference_links %}
+        <div class="col-md-3">
+            <a href="{{ link.url }}" target="_blank" class="text-decoration-none">
+                <div class="card shadow-sm border-0 h-100 bg-white" style="transition: transform 0.2s, box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 .5rem 1rem rgba(0,0,0,.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 .125rem .25rem rgba(0,0,0,.075)';">
+                    <div class="card-body d-flex align-items-center py-3">
+                        <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex justify-content-center align-items-center me-3" style="width: 45px; height: 45px;">
+                            <i class="bi {{ link.icon }} fs-5"></i>
+                        </div>
+                        <div>
+                            <div class="fw-bold text-dark" style="font-size: 0.95rem;">{{ link.title }}</div>
+                            <div class="text-muted" style="font-size: 0.7rem; margin-top: -2px;">클릭 시 새 창 열림</div>
+                        </div>
+                    </div>
+                </div>
+            </a>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="p-3 bg-light rounded text-muted small text-center border">
+                <i class="bi bi-info-circle me-1"></i> 등록된 실무 참고 링크가 없습니다. 관리자 페이지에서 추가해 주세요.
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
 
 
 
@@ -425,7 +482,7 @@
 
                 <div class="mb-0">
                     <label class="small fw-bold text-muted mb-1">중도 퇴사 사유</label>
-                    <textarea class="form-control" id="dropoutReason" rows="6" placeholder="관리가 납득할 수 있는 구체적인 사유를 입력하세요." required></textarea>
+                    <textarea class="form-control" id="dropoutReason" rows="6" placeholder="관리자가 납득할 수 있는 구체적인 사유를 입력하세요." required></textarea>
                 </div>
             </div>
 
@@ -511,18 +568,27 @@ function submitDropout() {
     })
     .then(res => res.json())
     .then(data => {
+        // 글로벌 로딩바 해제 (있을 경우)
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+
         if (data.status === "success") { 
-            alert(data.message); 
-            location.reload(); 
+            Swal.fire({
+                title: '요청 완료',
+                text: data.message,
+                icon: 'success',
+                confirmButtonColor: '#198754'
+            }).then(() => location.reload()); 
         } else { 
-            alert("오류: " + data.message); 
+            Swal.fire('오류 발생', data.message, 'error'); 
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>최종 결재 요청 전송';
         }
     })
     .catch(err => {
-        console.error(err);
-        alert("전송 중 오류가 발생했습니다.");
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+        Swal.fire('오류 발생', '전송 중 서버 오류가 발생했습니다.', 'error');
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>최종 결재 요청 전송';
     });
@@ -746,19 +812,605 @@ document.getElementById('quickWarningForm').addEventListener('submit', function(
     })
     .then(response => response.json())
     .then(data => {
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+
         if(data.status === 'success') {
-            alert(data.message);
-            location.reload(); 
+            Swal.fire({
+                title: '기록 완료',
+                text: data.message,
+                icon: 'success',
+                confirmButtonColor: '#dc3545' // 경고 테마 빨간색
+            }).then(() => location.reload()); 
         } else {
-            alert("오류: " + data.message);
+            Swal.fire('등록 실패', data.message, 'error');
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="bi bi-save me-2"></i>일괄 등록 및 학생 상태 반영';
         }
     })
     .catch(error => {
-        console.error('Error:', error);
-        alert('서버 통신 중 오류가 발생했습니다.');
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+        Swal.fire('통신 오류', '서버와 연결하는 중 오류가 발생했습니다.', 'error');
         submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-save me-2"></i>일괄 등록 및 학생 상태 반영';
+    });
+});
+</script>
+
+<div class="modal fade" id="quickPracticeScoreModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl"> 
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-success text-white py-3">
+        <h5 class="modal-title fw-bold"><i class="bi bi-clipboard-check-fill me-2"></i>빠른 실습 점수 입력 (다중 선택)</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      
+      <div class="modal-body p-0">
+        <div class="row g-0">
+          <div class="col-lg-7 bg-white p-4 border-end">
+            <div class="d-flex align-items-center mb-3">
+                <span class="badge bg-success me-2">STEP 1</span>
+                <h6 class="fw-bold mb-0">내 공정 교육생 필터링 및 선택</h6>
+            </div>
+            
+            <div class="row g-2 mb-3 bg-light p-3 rounded border">
+                <div class="col-md-4">
+                    <label class="small fw-bold text-muted">기수</label>
+                    <select id="qpFilterCohort" class="form-select form-select-sm" onchange="qpFilterTrainees()">
+                        <option value="">전체 기수</option>
+                        {% for c in filter_cohorts %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="small fw-bold text-muted">회사</label>
+                    <select id="qpFilterCompany" class="form-select form-select-sm" onchange="qpFilterTrainees()">
+                        <option value="">전체 회사</option>
+                        {% for com in filter_companies %}<option value="{{ com.name }}">{{ com.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="small fw-bold text-muted">이름 검색</label>
+                    <input type="text" id="qpFilterName" class="form-control form-control-sm" placeholder="성함 입력" onkeyup="qpFilterTrainees()">
+                </div>
+                </div>
+
+            <div class="table-responsive border rounded" style="max-height: 350px;">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light sticky-top">
+                        <tr style="font-size: 0.85rem;">
+                            <th style="width: 50px;" class="text-center">
+                                <input type="checkbox" class="form-check-input border-secondary" id="qpSelectAll" onchange="toggleAllQpTrainees(this)" title="보이는 인원 모두 선택">
+                            </th>
+                            <th>기수</th>
+                            <th>공정</th>
+                            <th>성함(사번)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="qpTraineeListBody">
+                        {% for student in active_trainees %}
+                        <tr class="qp-trainee-row" 
+                            data-id="{{ student.id }}"
+                            data-process="{{ student.process.name|default:'' }}" 
+                            data-cohort="{{ student.cohort.name|default:'' }}" 
+                            data-company="{{ student.company.name|default:'' }}" 
+                            data-name="{{ student.name|default:'' }}"
+                            data-score="{{ student.final_assessment.practice_score|default:'' }}" style="cursor: pointer; font-size: 0.9rem;"
+                            onclick="toggleQpTrainee(this, '{{ student.id }}', '{{ student.name|default:'이름없음' }}', '{{ student.company.name|default:'-' }}', '{{ student.process.name|default:'-' }}', '{{ student.final_assessment.practice_score|default:'' }}')">
+                            
+                            <td class="text-center">
+                                <input type="checkbox" class="form-check-input qp-checkbox" style="pointer-events: none;">
+                            </td>
+                            <td><span class="badge bg-outline-secondary border text-dark">{{ student.cohort.name|default:"-" }}</span></td>
+                            <td>{{ student.process.name|default:"-" }}</td>
+                            <td class="fw-bold">{{ student.name|default:"이름없음" }} <span class="text-muted small">({{ student.employee_id|default:"-" }})</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+          </div>
+
+          <div class="col-lg-5 bg-light p-4">
+            <div class="d-flex align-items-center mb-4">
+                <span class="badge bg-success me-2">STEP 2</span>
+                <h6 class="fw-bold mb-0">교육생별 실습 점수 입력</h6>
+            </div>
+
+            <form id="quickPracticeForm">
+                {% csrf_token %}
+                <div class="card border-0 shadow-sm p-3 mb-4">
+                    <div class="mb-2 d-flex justify-content-between align-items-center">
+                        <label class="small fw-bold text-muted mb-0">선택된 대상자 및 점수 입력 <span class="text-danger">*</span></label>
+                        <span class="badge bg-success rounded-pill" id="qpSelectedCount">0명</span>
+                    </div>
+                    
+                    <div id="qpScoreInputContainer" class="alert alert-info mb-0 py-3 fw-bold text-center border" style="font-size: 0.9rem; max-height: 400px; overflow-y: auto;">
+                        왼쪽 목록에서 대상을 선택하세요.
+                    </div>
+                    
+                    <small class="text-muted mt-3 d-block"><i class="bi bi-info-circle"></i> 100점 만점 기준으로 입력하세요. (최종 환산 시 5% 비율로 자동 적용)</small>
+                </div>
+
+                <button type="submit" class="btn btn-success w-100 py-3 fw-bold shadow" id="qpSubmitBtn" disabled>
+                    <i class="bi bi-check-circle-fill me-2"></i>개별 점수 저장 및 최종 성적 반영
+                </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let selectedQpTrainees = [];
+
+document.getElementById('quickPracticeScoreModal').addEventListener('shown.bs.modal', function () {
+    qpFilterTrainees();
+});
+
+function qpFilterTrainees() {
+    const fCohort = document.getElementById('qpFilterCohort').value;
+    const fCompany = document.getElementById('qpFilterCompany').value;
+    const fName = document.getElementById('qpFilterName').value.toLowerCase();
+
+    document.querySelectorAll('.qp-trainee-row').forEach(row => {
+        const rowCohort = row.getAttribute('data-cohort') || "";
+        const rowCompany = row.getAttribute('data-company') || "";
+        const rowName = (row.getAttribute('data-name') || "").toLowerCase();
+
+        const matchCohort = fCohort === "" || rowCohort === fCohort;
+        const matchCompany = fCompany === "" || rowCompany === fCompany;
+        const matchName = fName === "" || rowName.includes(fName);
+
+        row.style.display = (matchCohort && matchCompany && matchName) ? "" : "none";
+    });
+
+    // ★ 필터를 바꿀 때마다 '모두 선택' 체크박스도 초기화되도록 추가됨!
+    const selectAllCheckbox = document.getElementById('qpSelectAll');
+    if (selectAllCheckbox) selectAllCheckbox.checked = false;
+}
+
+// ★ [신규 추가] 보이는 인원 모두 선택/해제 함수
+function toggleAllQpTrainees(source) {
+    const isChecked = source.checked;
+    const rows = document.querySelectorAll('.qp-trainee-row');
+
+    rows.forEach(row => {
+        if (row.style.display !== "none") {
+            const id = row.getAttribute('data-id');
+            const name = row.getAttribute('data-name') || '이름없음';
+            const company = row.getAttribute('data-company') || '-';
+            const process = row.getAttribute('data-process') || '-';
+            const score = row.getAttribute('data-score') || ''; // ★ 추가: 기존 점수 가져오기
+            
+            const checkbox = row.querySelector('.qp-checkbox');
+            const index = selectedQpTrainees.findIndex(t => t.id === id);
+
+            if (isChecked) {
+                if (index === -1) {
+                    // ★ score 추가
+                    selectedQpTrainees.push({id: id, name: name, company: company, process: process, score: score});
+                    checkbox.checked = true;
+                    row.classList.add('table-success');
+                }
+            } else {
+                if (index > -1) {
+                    selectedQpTrainees.splice(index, 1);
+                    checkbox.checked = false;
+                    row.classList.remove('table-success');
+                }
+            }
+        }
+    });
+    updateQpDisplay();
+}
+
+// 2. 개별 클릭 함수 수정 (파라미터에 score 추가)
+function toggleQpTrainee(row, id, name, company, process, score) {
+    const checkbox = row.querySelector('.qp-checkbox');
+    const index = selectedQpTrainees.findIndex(t => t.id === id);
+
+    if (index > -1) {
+        selectedQpTrainees.splice(index, 1);
+        checkbox.checked = false;
+        row.classList.remove('table-success');
+    } else {
+        // ★ score 추가
+        selectedQpTrainees.push({id: id, name: name, company: company, process: process, score: score});
+        checkbox.checked = true;
+        row.classList.add('table-success');
+    }
+    updateQpDisplay();
+}
+
+// 우측 화면을 예쁘게 그려주는 함수 (회사명, 공정명, 점수칸)
+function updateQpDisplay() {
+    const container = document.getElementById('qpScoreInputContainer');
+    const countBadge = document.getElementById('qpSelectedCount');
+    const submitBtn = document.getElementById('qpSubmitBtn');
+
+    countBadge.innerText = `${selectedQpTrainees.length}명`;
+
+    if (selectedQpTrainees.length === 0) {
+        container.innerHTML = "왼쪽 목록에서 대상을 선택하세요.";
+        container.className = "alert alert-info mb-0 py-3 fw-bold text-center border";
+        submitBtn.disabled = true;
+    } else {
+        container.className = "mb-0"; 
+        
+        let html = '<ul class="list-group shadow-sm">';
+        selectedQpTrainees.forEach(t => {
+            const existingInput = document.getElementById(`score_input_${t.id}`);
+            
+            // ★ 핵심 변경: 기존에 켜둔 상태에서 입력한 값이 없으면, DB에서 가져온 과거 점수(t.score)를 띄워줌!
+            const currentVal = existingInput ? existingInput.value : t.score;
+
+            html += `
+                <li class="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
+                    <div class="d-flex align-items-center text-start" style="gap: 10px;">
+                        <span class="badge bg-light text-dark border text-truncate" style="width: 80px;" title="${t.company}">${t.company}</span>
+                        <span class="badge bg-secondary text-truncate" style="width: 60px;" title="${t.process}">${t.process}</span>
+                        <span class="fw-bold text-dark" style="width: 70px;">${t.name}</span>
+                    </div>
+                    <div class="input-group input-group-sm" style="width: 100px;">
+                        <input type="number" class="form-control text-end fw-bold text-success qp-score-input" 
+                               id="score_input_${t.id}" data-id="${t.id}" value="${currentVal}" min="0" max="100" step="1" placeholder="점수" required>
+                        <span class="input-group-text bg-light">점</span>
+                    </div>
+                </li>
+            `;
+        });
+        html += '</ul>';
+        container.innerHTML = html;
+        submitBtn.disabled = false;
+    }
+}
+
+// 폼 서버 전송
+document.getElementById('quickPracticeForm').addEventListener('submit', function(e) {
+    e.preventDefault(); 
+    
+    if (selectedQpTrainees.length === 0) {
+        alert("점수를 부여할 교육생을 1명 이상 선택해주세요.");
+        return;
+    }
+
+    const scoreInputs = document.querySelectorAll('.qp-score-input');
+    let scoresData = [];
+    let isValid = true;
+
+    scoreInputs.forEach(input => {
+        const val = input.value;
+        if(val === "" || val < 0 || val > 100) {
+            isValid = false;
+        }
+        scoresData.push({
+            id: input.getAttribute('data-id'),
+            score: val
+        });
+    });
+
+    if (!isValid) {
+        alert("모든 학생의 점수를 0~100점 사이로 올바르게 입력해주세요.");
+        return;
+    }
+
+    const submitBtn = document.getElementById('qpSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>처리중...';
+
+    const payload = { scores: scoresData };
+
+    fetch('{% url "quiz:quick_update_practice_score" %}', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 
+            'Content-Type': 'application/json',
+            // ★ 화면 전체가 아니라, 'quickPracticeForm' 폼 안에 있는 암호만 딱 집어오도록 수정!
+            'X-CSRFToken': document.querySelector('#quickPracticeForm [name=csrfmiddlewaretoken]').value,
+            'X-Requested-With': 'XMLHttpRequest' 
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+
+        if(data.status === 'success') {
+            Swal.fire({
+                title: '점수 반영 완료',
+                text: data.message,
+                icon: 'success',
+                confirmButtonColor: '#198754' // 성공 초록색
+            }).then(() => location.reload()); 
+        } else {
+            Swal.fire('저장 실패', data.message, 'error');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>개별 점수 저장 및 최종 성적 반영';
+        }
+    })
+    .catch(error => {
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+        Swal.fire('통신 오류', '서버와 연결하는 중 오류가 발생했습니다.', 'error');
+        submitBtn.disabled = false;
+    });
+});
+</script>
+<div class="modal fade" id="quickManualExamModal" tabindex="-1" aria-hidden="true">>
+  <div class="modal-dialog modal-xl"> 
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-primary text-white py-3">
+        <h5 class="modal-title fw-bold"><i class="bi bi-pencil-square me-2"></i>공통 지필평가 빠른 채점 (수기 점수만 입력)</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      
+      <div class="modal-body p-0">
+        <div class="row g-0">
+          <div class="col-lg-5 bg-white p-4 border-end">
+            <div class="d-flex align-items-center mb-3">
+                <span class="badge bg-primary me-2">STEP 1</span>
+                <h6 class="fw-bold mb-0">대상 시험 및 차수 선택</h6>
+            </div>
+            
+            <div class="bg-light p-3 rounded border mb-4">
+                <div class="mb-3">
+                    <label class="small fw-bold text-muted mb-1">기수 (수기입력 허용된 기수만)</label>
+                    <select id="meCohort" class="form-select fw-bold" onchange="fetchManualTargets()">
+                        {% for c in filter_cohorts %}
+                            <option value="{{ c.id }}" {% if forloop.first %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="small fw-bold text-muted mb-1">시험 과목 (공통 시험)</label>
+                    <select id="meQuiz" class="form-select fw-bold" onchange="fetchManualTargets()">
+                        <option value="" disabled>선택하세요</option>
+                        {% for q in common_quizzes %}
+                            <option value="{{ q.id }}" {% if forloop.first %}selected{% endif %}>{{ q.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="small fw-bold text-muted mb-1">응시 차수 <span class="text-danger">*</span></label>
+                    <select id="meAttempt" class="form-select fw-bold border-primary text-primary" onchange="fetchManualTargets()">
+                        <option value="1" selected>1차 본시험 (전원)</option>
+                        <option value="2">2차 재시험 (1차 과락자 전용)</option>
+                        <option value="3">3차 최종 재시험 (2차 과락자 전용)</option>
+                    </select>
+                    <small class="text-muted mt-1 d-block"><i class="bi bi-info-circle"></i> 2/3차 선택 시 과락자 명단만 자동으로 뜨며, 면담 미완료자는 점수를 넣을 수 없습니다.</small>
+                </div>
+            </div>
+          </div>
+
+          <div class="col-lg-7 bg-light p-4">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <div>
+                    <span class="badge bg-primary me-2">STEP 2</span>
+                    <span class="fw-bold mb-0">점수 타건 (과락 시 자동 잠금 및 알림)</span>
+                </div>
+                <span class="badge bg-dark rounded-pill" id="meTargetCount">0명 대기</span>
+            </div>
+
+            <form id="quickManualForm">
+                {% csrf_token %}
+                <div id="meInputContainer" class="alert alert-info mb-4 py-4 fw-bold text-center border" style="font-size: 0.95rem; max-height: 500px; overflow-y: auto;">
+                    왼쪽에서 기수, 시험, 차수를 먼저 선택해주세요.
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 py-3 fw-bold shadow" id="meSubmitBtn" disabled>
+                    <i class="bi bi-check-circle-fill me-2"></i>점수 최종 저장
+                </button>
+            </form>
+          </div>
+          </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ★★★ 여기에 방금 그 코드를 쏙 넣습니다! ★★★
+document.getElementById('quickManualExamModal').addEventListener('shown.bs.modal', function () {
+    const quizSelect = document.getElementById('meQuiz');
+    if (quizSelect.options.length > 1 && !quizSelect.value) {
+        quizSelect.selectedIndex = 1; 
+    }
+    fetchManualTargets();
+});
+function fetchManualTargets() {
+    const cohortId = document.getElementById('meCohort').value;
+    const quizId = document.getElementById('meQuiz').value;
+    const attempt = parseInt(document.getElementById('meAttempt').value);
+    const container = document.getElementById('meInputContainer');
+    const countBadge = document.getElementById('meTargetCount');
+    const submitBtn = document.getElementById('meSubmitBtn');
+
+    if(!cohortId || !quizId) return;
+
+    container.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm text-primary"></span> 명단 필터링 중...</div>';
+    
+    fetch(`/quiz/api/manual-exam-targets/?cohort_id=${cohortId}&quiz_id=${quizId}&attempt=${attempt}`)
+    .then(res => res.json())
+    .then(data => {
+        if(data.data.length === 0) {
+            countBadge.innerText = "0명 대기";
+            container.className = "alert alert-success mb-4 py-4 fw-bold text-center border";
+            container.innerHTML = "해당 차수에 응시할 대상자가 없습니다. 🎉";
+            submitBtn.disabled = true;
+            return;
+        }
+
+        countBadge.innerText = `${data.data.length}명 대기`;
+        container.className = "mb-4";
+        submitBtn.disabled = false;
+        
+        let html = '<ul class="list-group shadow-sm">';
+        data.data.forEach((t, idx) => {
+            let rightSideHtml = '';
+            
+            // 1순위: 이미 점수가 입력된 경우 (수정 불가 Lock)
+            if(t.is_already_entered) {
+                let badgeColor = t.existing_score >= 80 ? 'bg-success' : 'bg-danger';
+                rightSideHtml = `
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge ${badgeColor} text-white px-3 py-2 fs-6"><i class="bi bi-check2-all"></i> ${t.existing_score}점 완료</span>
+                        <small class="text-muted" style="font-size: 0.7rem;">수정 불가</small>
+                    </div>
+                `;
+            } 
+            // 2순위: 면담을 안 써서 잠긴 경우 (면담 Lock)
+            else if(t.is_locked) {
+                rightSideHtml = `
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-danger bg-opacity-10 text-danger border border-danger px-2 py-1"><i class="bi bi-lock-fill"></i> 이전 차수 면담 미완료</span>
+                        <a href="/quiz/manager/trainees/${t.id}/logs/" target="_blank" class="btn btn-sm btn-danger fw-bold shadow-sm" style="font-size: 0.75rem;">기록하러 가기</a>
+                    </div>
+                `;
+            } 
+            // 3순위: 정상 입력 가능한 상태 (빈칸 허용)
+            else {
+                rightSideHtml = `
+                    <div class="input-group input-group-sm shadow-sm" style="width: 110px;">
+                        <input type="number" class="form-control text-end fw-bold me-score-input fs-6" 
+                               data-pid="${t.id}" data-uid="${t.user_id}" data-idx="${idx}" min="0" max="100" step="1" placeholder="점수">
+                        <span class="input-group-text bg-light fw-bold text-muted">점</span>
+                    </div>
+                `;
+            }
+
+            html += `
+                <li class="list-group-item py-2 px-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center text-start" style="gap: 10px;">
+                            <span class="badge bg-light text-dark border">${t.company}</span>
+                            <span class="fw-bold text-dark" style="font-size: 0.95rem;">${t.name}</span>
+                        </div>
+                        ${rightSideHtml}
+                    </div>
+                </li>
+            `;
+        });
+        html += '</ul>';
+        container.innerHTML = html;
+
+        bindEnterKeyEvents();
+    });
+}
+
+function bindEnterKeyEvents() {
+    const scoreInputs = document.querySelectorAll('.me-score-input');
+    
+    scoreInputs.forEach(input => {
+        input.addEventListener('input', function() {
+            const val = parseFloat(this.value);
+            if(isNaN(val)) {
+                this.className = "form-control text-end fw-bold me-score-input fs-6";
+            } else if(val >= 80) {
+                this.className = "form-control text-end fw-bold me-score-input fs-6 text-success bg-success bg-opacity-10";
+            } else {
+                this.className = "form-control text-end fw-bold me-score-input fs-6 text-danger bg-danger bg-opacity-10";
+            }
+        });
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const inputsArray = Array.from(scoreInputs);
+                const currentIndex = inputsArray.indexOf(this);
+                if(currentIndex < inputsArray.length - 1) {
+                    inputsArray[currentIndex + 1].focus();
+                }
+            }
+        });
+    });
+    
+    if(scoreInputs.length > 0) scoreInputs[0].focus();
+}
+
+document.getElementById('quickManualForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const cohortId = document.getElementById('meCohort').value; // 누락자 색출을 위해 기수도 보냄
+    const quizId = document.getElementById('meQuiz').value;
+    const attempt = document.getElementById('meAttempt').value;
+    const scoreInputs = document.querySelectorAll('.me-score-input');
+    
+    let results = [];
+    scoreInputs.forEach(input => {
+        // 값이 비어있지 않은 것만 수집
+        if(input.value.trim() !== "") {
+            results.push({
+                profile_id: input.getAttribute('data-pid'),
+                user_id: input.getAttribute('data-uid'),
+                score: input.value
+            });
+        }
+    });
+
+    // 빈칸으로 냈을 때의 경고
+    if(results.length < scoreInputs.length) {
+        if(!confirm(`총 ${scoreInputs.length}명 중 ${scoreInputs.length - results.length}명의 점수가 비어있습니다.\n빈칸은 '점수 누락'으로 처리되어 알림이 발송됩니다. 계속하시겠습니까?`)) {
+            return;
+        }
+    }
+
+    if(results.length === 0) {
+        alert("저장할 수 있는 점수가 없습니다.");
+        return;
+    }
+
+    const submitBtn = document.getElementById('meSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>저장 및 누락자 스캔 중...';
+
+    fetch('/quiz/api/submit-manual-exam/', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('#quickManualForm [name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            cohort_id: cohortId,
+            quiz_id: quizId,
+            attempt: attempt,
+            results: results
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+
+        if(data.status === 'success') {
+             Swal.fire({
+                title: '채점 완료',
+                text: data.message,
+                icon: 'success',
+                confirmButtonColor: '#0d6efd' // 프라이머리 파란색
+            }).then(() => location.reload());
+        } else {
+            Swal.fire('저장 실패', data.message, 'error');
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>점수 최종 저장';
+        }
+    })
+    .catch(err => {
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'none';
+        Swal.fire('통신 오류', '서버와 연결하는 중 오류가 발생했습니다.', 'error');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>점수 최종 저장';
+    });
+});
+
+document.querySelectorAll('.modal').forEach(function(modal) {
+    modal.addEventListener('hide.bs.modal', function () {
+        if (document.activeElement) {
+            document.activeElement.blur();
+        }
     });
 });
 </script>

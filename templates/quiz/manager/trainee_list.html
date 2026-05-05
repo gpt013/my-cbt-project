@@ -183,12 +183,21 @@
             },
             body: JSON.stringify({ 'user_ids': selected, 'action': 'approve' })
         })
-        .then(res => res.json())
-        .then(data => {
-            alert(data.message);
-            location.reload();
+        .then(res => {
+            // 서버가 500/403 에러를 뱉었을 때 HTML이 아닌 에러로 처리하게 만듦
+            if (!res.ok) throw new Error("서버 통신에 실패했습니다. (HTTP " + res.status + ")");
+            return res.json();
         })
-        .catch(err => alert("오류 발생: " + err));
+        .then(data => {
+            // ★ 백엔드에서 success라고 했을 때만 새로고침!
+            if (data.status === 'success') {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert("처리 실패: " + data.message);
+            }
+        })
+        .catch(err => alert("오류 발생: " + err.message));
     }
 
     function approveSingle(userId) {

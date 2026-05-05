@@ -171,7 +171,7 @@
                     <th rowspan="2" class="col-fix-info">정보</th>
                     
                     <th rowspan="2" style="width: 80px; min-width: 80px;">상태</th>
-                    <th rowspan="2" class="border-l-thick" style="width: 100px; min-width: 100px;">근태<br>(출/연/반)</th>
+                    <th rowspan="2" class="border-l-thick" style="width: 80px; min-width: 80px;">근태<br>(연/반)</th>
                     <th rowspan="2" class="text-danger" style="width: 60px; min-width: 60px;">경고</th>
 
                     {% for q in quizzes %}
@@ -228,10 +228,9 @@
                     </td>
 
                     <td class="border-l-thick">
-                        {{ row.attendance.work }} / 
-                        <span class="{% if row.attendance.leave > 0 %}text-danger fw-bold{% endif %}">{{ row.attendance.leave }}</span> / 
-                        {{ row.attendance.half }}
-                    </td>
+    <span class="{% if row.attendance.leave > 0 %}text-danger fw-bold{% endif %}">{{ row.attendance.leave }}</span> / 
+    <span class="{% if row.attendance.half > 0 %}text-warning fw-bold{% endif %}">{{ row.attendance.half }}</span>
+</td>
 
                     <td class="fw-bold {% if row.profile.warning_count > 0 %}text-danger{% else %}text-muted{% endif %}">
                         {{ row.profile.warning_count }}
@@ -287,112 +286,200 @@
 
 {% for row in table_rows %}
 <div class="modal fade text-start" id="infoModal_{{ row.profile.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow-lg">
             
-            <div class="modal-header bg-light">
+            <div class="modal-header bg-dark text-white border-0">
                 <h5 class="modal-title fw-bold">
-                    <i class="bi bi-person-lines-fill me-2"></i>{{ row.profile.name }} 상세 기록
+                    <i class="bi bi-person-badge me-2"></i>{{ row.profile.name }} 상세 리포트
                 </h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             
-            <div class="modal-body bg-light-subtle">
-                <div class="row g-3 mb-4">
-                    <div class="col-md-6">
-                        <div class="card h-100 shadow-sm border-0">
-                            <div class="card-body">
-                                <h6 class="fw-bold text-primary mb-3">기본 정보</h6>
-                                <ul class="list-unstyled small mb-0">
-                                    <li class="mb-2"><strong>입과일:</strong> {{ row.profile.joined_at|date:"Y-m-d" }}</li>
-                                    <li class="mb-2"><strong>연락처:</strong> {{ row.profile.phone|default:"-" }}</li>
-                                    <li><strong>이메일:</strong> {{ row.profile.user.email }}</li>
-                                </ul>
+            <div class="modal-body bg-light p-4">
+                
+                <div class="card shadow-sm border-0 mb-4 rounded-3">
+                    <div class="card-body p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="bg-primary bg-opacity-10 text-primary rounded-circle d-flex justify-content-center align-items-center" style="width: 50px; height: 50px;">
+                                <i class="bi bi-person-fill fs-3"></i>
+                            </div>
+                            <div>
+                                <h5 class="fw-bold mb-1">
+                                    {{ row.profile.name }} 
+                                    <span class="badge bg-secondary ms-1 fw-normal">{{ row.profile.process.name|default:"미배정" }}</span>
+                                </h5>
+                                <div class="text-muted" style="font-size: 0.8rem;">
+                                    {{ row.profile.user.email }} | {{ row.profile.phone|default:"연락처 없음" }}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="col-md-6">
-                        <div class="card h-100 shadow-sm border-0">
-                            <div class="card-body">
-                                <h6 class="fw-bold text-success mb-3">매니저 코멘트</h6>
-                                <div class="bg-light p-2 rounded text-muted small" style="min-height: 80px;">
-                                    {{ row.manager_comment|default:"작성된 의견이 없습니다."|linebreaksbr }}
+                        <div class="d-flex gap-2 text-center">
+                            <div class="px-3 border-end">
+                                <div class="text-muted fw-bold mb-1" style="font-size: 0.7rem;">1차 시험 현황</div>
+                                <div class="fw-bold text-primary">
+                                    <span class="small text-dark">과목 </span>{{ row.first_cnt }} | 
+                                    <span class="small text-dark">평균 </span>{{ row.first_avg }}점
+                                </div>
+                            </div>
+                            <div class="px-3 border-end">
+                                <div class="text-muted fw-bold mb-1" style="font-size: 0.7rem;">2차 시험 현황</div>
+                                <div class="fw-bold text-secondary">
+                                    <span class="small text-dark">과목 </span>{{ row.second_cnt }} | 
+                                    <span class="small text-dark">평균 </span>{{ row.second_avg }}점
+                                </div>
+                            </div>
+                            <div class="px-3">
+                                <div class="text-muted fw-bold mb-1" style="font-size: 0.7rem;">3차 시험 현황</div>
+                                <div class="fw-bold text-danger">
+                                    <span class="small text-dark">과목 </span>{{ row.third_cnt }} | 
+                                    <span class="small text-dark">평균 </span>{{ row.third_avg }}점
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="row g-3">
-                    
-                    <div class="col-md-6">
-                        <div class="card h-100 shadow-sm border-0">
-                            <div class="card-header bg-white fw-bold text-danger border-bottom-0">
-                                <i class="bi bi-flag-fill me-1"></i> 특이사항 히스토리
+                <div class="row g-4">
+                    <div class="col-lg-5">
+                        <div class="card shadow-sm border-0 h-100 rounded-3">
+                            <div class="card-header bg-white fw-bold text-dark border-bottom-0 pt-3 pb-2">
+                                <i class="bi bi-journal-check text-primary me-1"></i> 응시한 시험 목록
                             </div>
-                            <div class="card-body p-2 bg-white" style="max-height: 300px; overflow-y: auto;">
+                            <div class="card-body p-0">
+                                <div class="table-responsive" style="max-height: 480px; overflow-y: auto;">
+                                    {% if row.exam_details %}
+                                    <table class="table table-hover text-center align-middle mb-0" style="font-size: 0.85rem;">
+                                        <thead class="table-light sticky-top">
+                                            <tr>
+                                                <th class="text-start ps-3">과목명</th>
+                                                <th>1차</th>
+                                                <th>2차</th>
+                                                <th>3차</th>
+                                                <th>결과</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for ex in row.exam_details %}
+                                            <tr>
+                                                <td class="text-start ps-3 fw-bold">{{ ex.title }}</td>
+                                                <td>{{ ex.s1|default:"-" }}</td>
+                                                <td>{{ ex.s2|default:"-" }}</td>
+                                                <td>{{ ex.s3|default:"-" }}</td>
+                                                <td>
+                                                    {% if ex.is_pass %}<span class="badge bg-success-subtle text-success border border-success">합격</span>
+                                                    {% else %}<span class="badge bg-danger-subtle text-danger border border-danger">불합격</span>{% endif %}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                    {% else %}
+                                    <div class="text-center py-5 text-muted small">응시한 시험이 없습니다.</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-7 d-flex flex-column gap-4">
+                        
+                        <div class="card shadow-sm border-0 rounded-3">
+                            <div class="card-header bg-white fw-bold text-success border-bottom-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-check2-square me-1"></i> 태도 및 역량 체크 & 코멘트</span>
+                            </div>
+                            <div class="card-body p-3">
+                                
+                                <div style="max-height: 200px; overflow-y: auto; margin-bottom: 15px;">
+                                {% if row.checklist %}
+                                    <div class="row g-2">
+                                        <div class="col-6 border-end pe-2">
+                                            <ul class="list-unstyled small mb-0">
+                                                {% for item in row.checklist %}
+                                                    {% if item.is_positive %}
+                                                    <li class="d-flex align-items-start mb-2">
+                                                        <i class="bi bi-plus-circle-fill text-success me-2 mt-1"></i>
+                                                        <span class="text-dark">{{ item.description }}</span>
+                                                    </li>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                        
+                                        <div class="col-6 ps-2">
+                                            <ul class="list-unstyled small mb-0">
+                                                {% for item in row.checklist %}
+                                                    {% if not item.is_positive %}
+                                                    <li class="d-flex align-items-start mb-2">
+                                                        <i class="bi bi-dash-circle-fill text-danger me-2 mt-1"></i>
+                                                        <span class="text-danger fw-bold">{{ item.description }}</span>
+                                                    </li>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                {% else %}
+                                    <div class="text-center text-muted py-3 small">체크 내역이 없습니다.</div>
+                                {% endif %}
+                            </div>
+
+                                <div>
+                                    <h6 class="fw-bold text-secondary mb-2" style="font-size: 0.8rem;"><i class="bi bi-chat-quote-fill"></i> 매니저 코멘트</h6>
+                                    <div class="bg-light p-3 rounded text-dark small" style="min-height: 70px;">
+                                        {{ row.manager_comment|default:"작성된 의견이 없습니다."|linebreaksbr }}
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <div class="card shadow-sm border-0 flex-grow-1 rounded-3">
+                            <div class="card-header bg-white fw-bold border-bottom-0 pt-3 pb-2 d-flex justify-content-between align-items-center">
+                                <span class="text-danger"><i class="bi bi-flag-fill me-1"></i> 특이사항 이력</span>
+                                <div class="d-flex gap-2">
+                                    <span class="badge bg-warning text-dark border px-2 py-1 fs-6 shadow-sm">경고 {{ row.warning_cnt }}</span>
+                                    <span class="badge bg-danger border px-2 py-1 fs-6 shadow-sm">경고장 {{ row.letter_cnt }}</span>
+                                </div>
+                            </div>
+                            <div class="card-body p-2" style="max-height: 250px; overflow-y: auto;">
                                 {% if row.logs %}
                                     <div class="list-group list-group-flush">
                                         {% for log in row.logs %}
-                                            <div class="list-group-item px-2 py-2 border-0 border-bottom">
-                                                <div class="d-flex w-100 justify-content-between align-items-center mb-1">
-                                                    <span class="badge {% if log.log_type == 'warning' %}bg-danger{% else %}bg-secondary{% endif %}">
+                                            <div class="list-group-item px-3 py-3 border-0 border-bottom {% if log.log_type == 'warning_letter' %}bg-danger bg-opacity-10 rounded mb-1{% endif %}">
+                                                <div class="d-flex w-100 justify-content-between align-items-center mb-2">
+                                                    <span class="badge {% if log.log_type == 'warning_letter' %}bg-danger px-2 py-1{% elif log.log_type == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
                                                         {{ log.get_log_type_display }}
                                                     </span>
-                                                    <small class="text-muted" style="font-size: 0.75rem;">{{ log.created_at|date:"y.m.d" }}</small>
+                                                    <small class="text-muted" style="font-size: 0.75rem;"><i class="bi bi-clock"></i> {{ log.created_at|date:"Y-m-d H:i" }}</small>
                                                 </div>
-                                                <p class="mb-1 small text-dark">{{ log.reason }}</p>
+                                                <p class="mb-2 small text-dark" style="line-height: 1.4;">{{ log.reason|linebreaksbr }}</p>
+
+                                                {% if log.attached_file %}
+                                                <div class="mt-2 text-end">
+                                                    <a href="{{ log.attached_file.url }}" target="_blank" class="btn btn-sm btn-outline-dark" style="font-size: 0.75rem; padding: 2px 8px;">
+                                                        <i class="bi bi-paperclip"></i> 사본 열기
+                                                    </a>
+                                                </div>
+                                                {% endif %}
                                             </div>
                                         {% endfor %}
                                     </div>
                                 {% else %}
-                                    <div class="text-center py-5 text-muted small">
-                                        기록이 없습니다.
-                                    </div>
+                                    <div class="text-center py-5 text-muted small">기록이 없습니다.</div>
                                 {% endif %}
                             </div>
                         </div>
-                    </div>
 
-                    <div class="col-md-6">
-                        <div class="card h-100 shadow-sm border-0">
-                            <div class="card-header bg-white fw-bold text-success border-bottom-0">
-                                <i class="bi bi-check2-square me-1"></i> 태도 및 역량 체크
-                            </div>
-                            <div class="card-body p-2 bg-white" style="max-height: 300px; overflow-y: auto;">
-                                {% if row.checklist %}
-                                    <ul class="list-group list-group-flush small">
-                                        {% for item in row.checklist %}
-                                            <li class="list-group-item px-2 py-2 border-0 border-bottom d-flex align-items-start">
-                                                {% if item.is_positive %}
-                                                    <i class="bi bi-check-circle-fill text-success me-2 mt-1"></i>
-                                                    <span class="text-dark">{{ item.description }}</span>
-                                                {% else %}
-                                                    <i class="bi bi-exclamation-circle-fill text-danger me-2 mt-1"></i>
-                                                    <span class="text-danger fw-bold">{{ item.description }}</span>
-                                                {% endif %}
-                                            </li>
-                                        {% endfor %}
-                                    </ul>
-                                {% else %}
-                                    <div class="text-center py-5 text-muted small">
-                                        평가 내역이 없습니다.
-                                    </div>
-                                {% endif %}
-                            </div>
-                        </div>
                     </div>
-
-                </div> 
-            </div>
+                </div>
+            </div> 
             
-            <div class="modal-footer bg-light">
-                <button type="button" class="btn btn-secondary btn-sm px-4" data-bs-dismiss="modal">닫기</button>
-            </div>
         </div>
     </div>
 </div>
 {% endfor %}
+
 
 <script>
     function downloadCurrentFilter() {

@@ -14,7 +14,7 @@
 
         {% if incorrect_answers %}
             {% for user_answer in incorrect_answers %}
-                <div>
+                <div style="margin-bottom: 20px;">
                     <h4>{{ forloop.counter }}. {{ user_answer.question.question_text }}</h4>
                     {% if user_answer.question.image %}
                         <img src="{{ user_answer.question.image.url }}" alt="문제 이미지" style="max-width: 300px; height: auto;">
@@ -36,6 +36,15 @@
                         </li>
                     {% endfor %}
                     </ul>
+
+                    {# ★★★ 새로 추가된 부분: 주관식 / 다중선택 텍스트 오답 표시 ★★★ #}
+                    {% if user_answer.short_answer_text %}
+                        <div style="margin-top: 10px; padding: 10px; background-color: #ffe6e6; border-radius: 5px; border-left: 4px solid red; display: inline-block;">
+                            <span style="color: red; font-weight: bold;">▶ 교육생 입력 내용 (오답) :</span> 
+                            <span style="font-weight: bold; color: #333;">{{ user_answer.short_answer_text }}</span>
+                        </div>
+                    {% endif %}
+
                 </div>
                 <hr>
             {% endfor %}
@@ -43,7 +52,7 @@
             <p>틀린 문제가 없습니다! (만점)</p>
         {% endif %}
 
-    {# ▼▼▼ [수정] 관리자가 아닐 경우(일반 교육생) 보여줄 화면 ▼▼▼ #}
+    {# ▼▼▼ 관리자가 아닐 경우(일반 교육생) 보여줄 화면 ▼▼▼ #}
     {% else %}
         <div class="alert alert-info" role="alert">
             <h4 class="alert-heading">수고하셨습니다!</h4>
@@ -54,5 +63,5 @@
     {% endif %}
 
     <a href="{% url 'quiz:my_results_index' %}" class="btn btn-primary mt-3">결과 목록으로 돌아가기</a>
-       
+        
 {% endblock %}

@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views
 from . import views_facility
+from django.conf import settings
+from django.conf.urls.static import static
 
 app_name = 'quiz'
 
@@ -173,4 +175,28 @@ urlpatterns = [
     
     # 수료증 인쇄 API
     path('status/certificate/', views.print_certificate, name='print_certificate'),
+    path('chat/upload/', views.chat_file_upload, name='chat_file_upload'),
+    path('chat/', views.chat_home, name='chat_home'), # 메신저 홈 (연락처)
+    path('chat/start/<int:target_user_id>/', views.chat_start_1on1, name='chat_start_1on1'), # 1:1 대화 걸기
+    path('chat/room/<int:room_id>/', views.chat_room_detail, name='chat_room_detail'), # 실제 채팅방
+    path('chat/room/<int:room_id>/leave/', views.chat_leave_room, name='chat_leave_room'),
+    path('chat/api/unread/', views.chat_unread_count, name='chat_unread_count'),
+    path('chat/api/message/<int:msg_id>/read_status/', views.chat_read_status, name='chat_read_status'),
+    path('chat/api/room/<int:room_id>/pin/', views.chat_pin_message, name='chat_pin_message'),
+    path('chat/api/room/<int:room_id>/search/', views.chat_search_messages, name='chat_search_messages'),
+    path('chat/room/<int:room_id>/invite/', views.chat_invite_users, name='chat_invite_users'),
+    path('chat/api/room/<int:room_id>/invite-targets/', views.chat_invite_targets, name='chat_invite_targets'),
+    path('chat/api/room/<int:room_id>/messages/', views.chat_load_more_messages, name='chat_load_more_messages'),
+    path('chat/api/room/<int:room_id>/pin-toggle/', views.chat_toggle_pin, name='chat_toggle_pin'),
+    path('manager/action/quick-practice-score/', views.quick_update_practice_score, name='quick_update_practice_score'),
+    path('manager/facility/export-excel/', views_facility.export_facility_schedule_excel, name='export_facility_excel'),
+    path('api/manual-exam-targets/', views_facility.get_manual_exam_targets, name='manual_exam_targets'),
+    path('api/submit-manual-exam/', views_facility.submit_manual_exam_scores, name='submit_manual_exam'),
+    path('manager/global-analytics/full/<str:analysis_type>/', views.global_analytics_full, name='global_analytics_full'),
+    path('evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
+    path('logs/warning-letter/<int:log_id>/print/', views.print_warning_letter, name='print_warning_letter'),
+    
+    
 ]
+
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

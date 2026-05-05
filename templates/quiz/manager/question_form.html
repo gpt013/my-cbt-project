@@ -139,13 +139,22 @@
                 </div>
 
                 <div id="ui_short" class="type-ui" style="display: none;">
-                    <label class="form-label fw-bold text-success">정답 단어</label>
-                    <input type="text" id="ui_short_input" class="form-control form-control-lg mb-3" placeholder="예: 사과">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-bold text-success mb-0">정답 단어 (유의어/복수정답)</label>
+                        <button type="button" class="btn btn-sm btn-outline-success fw-bold" onclick="addShortAnswerField()">
+                            <i class="bi bi-plus-lg"></i> 정답 추가
+                        </button>
+                    </div>
                     
-                    <div class="alert alert-warning border-warning text-dark">
-                        <i class="bi bi-lightbulb-fill text-warning"></i> <strong>입력 팁:</strong><br>
-                        <small>1. 대소문자(Apple/apple)는 자동으로 정답 처리됩니다.<br>
-                        2. 완전히 다른 단어(동의어)를 정답으로 추가할 때만 콤마(,)를 사용하세요. (예: 사과, apple)</small>
+                    <div id="short_answer_container"></div>
+                    
+                    <div class="alert alert-warning border-warning text-dark mt-3 shadow-sm">
+                        <i class="bi bi-lightbulb-fill text-warning"></i> <strong>채점 및 입력 팁:</strong><br>
+                        <small>
+                        1. 대소문자(Apple/apple)는 자동으로 동일하게 정답 처리됩니다.<br>
+                        2. 띄어쓰기, 콤마(,), 마침표(.) 등은 채점 시 모두 무시됩니다.<br>
+                        3. 완전히 다른 단어(동의어)를 정답으로 인정하려면 우측 상단의 <b>'+ 정답 추가'</b> 버튼을 눌러 칸을 늘려주세요.
+                        </small>
                     </div>
                 </div>
 
@@ -265,9 +274,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const currentType = typeSelect.value;
         
         if (currentType === 'short_answer') {
-            // ★ [버그 픽스] 첫 번째 값만 가져오는게 아니라, 배열에 있는 모든 정답을 콤마(,)로 이어 붙입니다!
-            const allShortAnswers = savedChoices.map(choice => choice.text);
-            document.getElementById('ui_short_input').value = allShortAnswers.join(', ');
+            // ★ 기존 정답 개수만큼 인풋 칸을 생성해서 채워줍니다!
+            const container = document.getElementById('short_answer_container');
+            container.innerHTML = ''; // 초기화
+            savedChoices.forEach(choice => {
+                addShortAnswerField(choice.text);
+            });
         
         } else if (currentType === 'true_false') {
             const correctChoice = savedChoices.find(c => c.is_correct);
@@ -304,12 +316,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (type === 'short_answer') {
-            // [주관식 수정됨] UI 입력값 -> correct_answer_text 로 저장
-            const val = document.getElementById('ui_short_input').value.trim();
-            if(!val) { alert('정답 단어를 입력하세요!'); e.preventDefault(); return; }
+            // 빈 칸 체크
+            const inputs = document.querySelectorAll('input[name="short_answers[]"]');
+            let hasValue = false;
+            inputs.forEach(inp => { if (inp.value.trim() !== '') hasValue = true; });
             
-            // ★ 여기가 핵심 변경점! 백엔드가 찾는 이름에 값을 넣어줍니다.
-            document.getElementById('real_short_answer').value = val;
+            if (!hasValue) { 
+                alert('최소 1개 이상의 정답 단어를 입력하세요!'); 
+                e.preventDefault(); 
+                return; 
+            }
+            // (숨김 필드 동기화는 필요 없습니다. 폼이 통째로 날아갑니다!)
 
         } else if (type === 'true_false') {
             // [OX 수정됨] O/X 선택 -> ox_answer 로 저장
@@ -344,6 +361,29 @@ document.addEventListener('DOMContentLoaded', function() {
     // 이벤트 리스너 시작
     typeSelect.addEventListener('change', updateUI);
     updateUI(); // 초기 실행
+
+    if (document.getElementById('short_answer_container').children.length === 0) {
+        addShortAnswerField();
+    }
 });
+
+function addShortAnswerField(val = '') {
+    const container = document.getElementById('short_answer_container');
+    const div = document.createElement('div');
+    div.className = 'input-group mb-2';
+    div.innerHTML = `
+        <input type="text" name="short_answers[]" class="form-control form-control-lg" placeholder="정답을 입력하세요" value="${val}">
+        <button class="btn btn-outline-danger" type="button" onclick="this.parentElement.remove()" title="삭제">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    `;
+    container.appendChild(div);
+}
+
+// 최초 화면 로딩 시 주관식이 선택되어 있고, 아무 칸도 없다면 빈 칸 1개 띄우기
+document.addEventListener('DOMContentLoaded', function() {
+    
+});
+
 </script>
 {% endblock %}

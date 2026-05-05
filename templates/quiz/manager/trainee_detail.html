@@ -85,11 +85,12 @@
                         </div>
                     </div>
 
-                    <div class="d-grid gap-2">
+                    <div class="d-grid gap-2 mb-4">
+                        {% if is_my_student %}
                         <a href="{% url 'quiz:evaluate_trainee' profile.id %}" class="btn btn-outline-primary fw-bold">
                             <i class="bi bi-clipboard-check"></i> 최종 평가서 작성
                         </a>
-                        <a href="{% url 'quiz:manage_student_logs' profile.id %}" class="btn btn-outline-danger fw-bold">
+                        {% endif %} <a href="{% url 'quiz:manage_student_logs' profile.id %}" class="btn btn-outline-danger fw-bold">
                             <i class="bi bi-exclamation-triangle"></i> 특이사항/경고 등록
                         </a>
                     </div>
@@ -117,6 +118,8 @@
                     <div class="tab-content">
                         
                         <div class="tab-pane fade show active" id="tab-results">
+                            
+                            {% if can_view_detail %}
                             
                             <div class="card shadow-sm mb-4 border-0">
                                 <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold">
@@ -199,7 +202,7 @@
                                                                     <span class="small">{{ item.try_1.score }}점</span>
                                                                 {% endif %}
                                                             </button>
-                                                            
+
                                                             <i class="bi bi-chevron-right text-muted"></i>
 
                                                             <button type="button" 
@@ -242,148 +245,92 @@
                                                 {% endfor %}
                                             </tbody>
                                         </table>
+                                        
                                         {% if etc_process_list %}
-<div class="accordion mb-4 shadow-sm border-0" id="etcAccordion">
-    <div class="accordion-item border-0">
-        <h2 class="accordion-header" id="headingEtc">
-            <button class="accordion-button collapsed bg-secondary bg-opacity-10 text-secondary fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseEtc" aria-expanded="false" aria-controls="collapseEtc">
-                <i class="bi bi-folder-plus me-2"></i> 기타 및 안전 교육 (클릭하여 펼치기)
-            </button>
-        </h2>
-        <div id="collapseEtc" class="accordion-collapse collapse" aria-labelledby="headingEtc" data-bs-parent="#etcAccordion">
-            <div class="accordion-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle mb-0 text-center">
-                        <thead class="bg-light">
-                            <tr>
-                                <th width="20%">시험명</th>
-                                <th width="10%">최근 점수</th>
-                                <th width="10%">상태</th>
-                                <th width="40%">진행 단계 (클릭하여 상세 보기)</th>
-                                <th width="20%">최종 응시일</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-    {% for item in etc_process_list %}
-    <tr>
-        <td class="text-start ps-4 fw-bold">
-            {% if item.quiz.category == 'safety' %}
-                <span class="badge bg-success me-1">안전</span>
-            {% else %}
-                <span class="badge bg-secondary me-1">기타</span>
-            {% endif %}
-            {{ item.quiz.title }}
-        </td>
+                                        <div class="accordion shadow-sm border-0" id="etcAccordion">
+                                            <div class="accordion-item border-0">
+                                                <h2 class="accordion-header" id="headingEtc">
+                                                    <button class="accordion-button collapsed bg-secondary bg-opacity-10 text-secondary fw-bold" type="button" data-bs-toggle="collapse" data-bs-target="#collapseEtc">
+                                                        <i class="bi bi-folder-plus me-2"></i> 기타 및 안전 교육 (클릭하여 펼치기)
+                                                    </button>
+                                                </h2>
+                                                <div id="collapseEtc" class="accordion-collapse collapse" data-bs-parent="#etcAccordion">
+                                                    <div class="accordion-body p-0">
+                                                        <div class="table-responsive">
+                                                            <table class="table table-hover align-middle mb-0 text-center">
+                                                                <thead class="bg-light">
+                                                                    <tr>
+                                                                        <th width="20%">시험명</th>
+                                                                        <th width="10%">최근 점수</th>
+                                                                        <th width="10%">상태</th>
+                                                                        <th width="40%">진행 단계 (클릭하여 상세 보기)</th>
+                                                                        <th width="20%">최종 응시일</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {% for item in etc_process_list %}
+                                                                    <tr>
+                                                                        <td class="text-start ps-4 fw-bold">
+                                                                            {% if item.quiz.category == 'safety' %}
+                                                                                <span class="badge bg-success me-1">안전</span>
+                                                                            {% else %}
+                                                                                <span class="badge bg-secondary me-1">기타</span>
+                                                                            {% endif %}
+                                                                            {{ item.quiz.title }}
+                                                                        </td>
 
-        <td class="fw-bold {% if item.status == 'fail' %}text-danger{% elif item.status == 'pass' %}text-primary{% endif %}">
-            {{ item.score }}
-        </td>
+                                                                        <td class="fw-bold {% if item.status == 'fail' %}text-danger{% elif item.status == 'pass' %}text-primary{% endif %}">
+                                                                            {{ item.score }}
+                                                                        </td>
 
-        <td>
-            {% if item.status == 'pass' %}
-                <span class="badge bg-primary">합격</span>
-            {% elif item.status == 'fail' %}
-                <span class="badge bg-danger">불합격</span>
-                {% if item.is_locked %}
-                    <div class="mt-1"><span class="badge bg-warning text-dark"><i class="bi bi-lock-fill"></i> 잠김</span></div>
-                {% endif %}
-            {% else %}
-                <span class="badge bg-secondary bg-opacity-50">미응시</span>
-            {% endif %}
-        </td>
+                                                                        <td>
+                                                                            {% if item.status == 'pass' %}
+                                                                                <span class="badge bg-primary">합격</span>
+                                                                            {% elif item.status == 'fail' %}
+                                                                                <span class="badge bg-danger">불합격</span>
+                                                                            {% else %}
+                                                                                <span class="badge bg-secondary bg-opacity-50">미응시</span>
+                                                                            {% endif %}
+                                                                        </td>
 
-        <td>
-            <div class="d-flex justify-content-center align-items-center gap-2">
-                
-                <button type="button" 
-                    class="btn btn-sm btn-process position-relative 
-                    {% if item.try_1 %}
-                        {% if item.try_1.is_pass %}btn-outline-primary active{% else %}btn-danger text-white{% endif %}
-                    {% else %}btn-outline-secondary disabled opacity-25{% endif %}"
-                    
-                    {% if item.try_1 %}
-                        data-bs-toggle="popover" 
-                        data-bs-trigger="focus"
-                        title="[1차] {{ item.try_1.completed_at|date:'Y-m-d H:i' }}"
-                        data-bs-html="true"
-                        data-bs-content="
-                            <strong>점수:</strong> {{ item.try_1.score }}점<br>
-                            <strong>결과:</strong> {% if item.try_1.is_pass %}합격{% else %}불합격{% endif %}<br>
-                            <hr class='my-1'>
-                            {% for log in item.logs %}
-                                <div class='mb-2 p-2 bg-light rounded border'>
-                                    <span class='badge bg-warning text-dark'>{{ log.get_log_type_display }}</span>
-                                    <div class='mt-1 small'>{{ log.reason }}</div>
-                                    {% if log.action_taken %}<div class='mt-1 text-primary small'>⚡ {{ log.action_taken }}</div>{% endif %}
-                                    <div class='text-end text-muted x-small'>- {{ log.recorder.profile.name }} ({{ log.created_at|date:'m/d' }})</div>
-                                </div>
-                            {% empty %}
-                                <span class='text-muted'>등록된 특이사항 없음</span>
-                            {% endfor %}
-                        "
-                    {% endif %}>
-                    
-                    <span class="fw-bold">1차</span>
-                    {% if item.try_1 %}
-                        <span class="small">{{ item.try_1.score }}점</span>
-                    {% endif %}
-                </button>
+                                                                        <td>
+                                                                            <div class="d-flex justify-content-center align-items-center gap-2">
+                                                                                <button type="button" class="btn btn-sm btn-process {% if item.try_1 %}{% if item.try_1.is_pass %}btn-outline-primary active{% else %}btn-danger text-white{% endif %}{% else %}btn-outline-secondary disabled opacity-25{% endif %}">
+                                                                                    <span class="fw-bold">1차</span>
+                                                                                    {% if item.try_1 %}<span class="small">{{ item.try_1.score }}점</span>{% endif %}
+                                                                                </button>
+                                                                                <i class="bi bi-chevron-right text-muted"></i>
+                                                                                <button type="button" class="btn btn-sm btn-process {% if item.try_2 %}{% if item.try_2.is_pass %}btn-outline-primary active{% else %}btn-danger text-white{% endif %}{% else %}btn-outline-secondary disabled opacity-25{% endif %}">
+                                                                                    <span class="fw-bold">2차</span>
+                                                                                    {% if item.try_2 %}<span class="small">{{ item.try_2.score }}점</span>{% endif %}
+                                                                                </button>
+                                                                                <i class="bi bi-chevron-right text-muted"></i>
+                                                                                <button type="button" class="btn btn-sm btn-process btn-outline-secondary disabled opacity-25">
+                                                                                    <span class="fw-bold">3차+</span>
+                                                                                </button>
+                                                                            </div>
+                                                                        </td>
 
-                <i class="bi bi-chevron-right text-muted"></i>
-
-                <button type="button" 
-                    class="btn btn-sm btn-process position-relative
-                    {% if item.try_2 %}
-                        {% if item.try_2.is_pass %}btn-outline-primary active{% else %}btn-danger text-white{% endif %}
-                    {% else %}btn-outline-secondary disabled opacity-25{% endif %}"
-                    
-                    {% if item.try_2 %}
-                        data-bs-toggle="popover" 
-                        data-bs-trigger="focus"
-                        title="[2차] {{ item.try_2.completed_at|date:'Y-m-d H:i' }}"
-                        data-bs-html="true"
-                        data-bs-content="
-                            <strong>점수:</strong> {{ item.try_2.score }}점<br>
-                            <strong>결과:</strong> {% if item.try_2.is_pass %}합격{% else %}불합격{% endif %}
-                        "
-                    {% endif %}>
-                    
-                    <span class="fw-bold">2차</span>
-                    {% if item.try_2 %}
-                        <span class="small">{{ item.try_2.score }}점</span>
-                    {% endif %}
-                </button>
-
-                <i class="bi bi-chevron-right text-muted"></i>
-
-                <button type="button" class="btn btn-sm btn-process btn-outline-secondary disabled opacity-25">
-                    <span class="fw-bold">3차+</span>
-                </button>
-            </div>
-        </td>
-
-        <td class="text-muted small">
-            {{ item.date|date:"Y-m-d" }}<br>
-            {% if item.date %}{{ item.date|date:"H:i" }}{% else %}-{% endif %}
-        </td>
-    </tr>
-    {% endfor %}
-</tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
+                                                                        <td class="text-muted small">
+                                                                            {{ item.date|date:"Y-m-d" }}<br>
+                                                                            {% if item.date %}{{ item.date|date:"H:i" }}{% else %}-{% endif %}
+                                                                        </td>
+                                                                    </tr>
+                                                                    {% endfor %}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {% endif %}
                                     </div>
                                 </div>
                             </div>
 
-
                             <div class="bg-white rounded border p-3">
                                 <h5 class="fw-bold mb-3">상세 응시 이력 (History)</h5>
-                                
                                 <div class="table-responsive">
                                     <table class="table table-hover align-middle">
                                         <thead class="table-light text-center">
@@ -399,15 +346,8 @@
                                             {% for r in results %}
                                             <tr>
                                                 <td class="text-start fw-bold">{{ r.quiz.title }}</td>
-                                                
-                                                <td>
-                                                    <span class="badge bg-secondary">{{ r.attempt_number }}회차</span>
-                                                </td>
-                                                
-                                                <td class="fw-bold {% if r.score >= 80 %}text-success{% else %}text-danger{% endif %}">
-                                                    {{ r.score }}점
-                                                </td>
-                                                
+                                                <td><span class="badge bg-secondary">{{ r.attempt_number }}회차</span></td>
+                                                <td class="fw-bold {% if r.score >= 80 %}text-success{% else %}text-danger{% endif %}">{{ r.score }}점</td>
                                                 <td>
                                                     {% if r.is_pass %}
                                                         <span class="badge bg-success">합격</span>
@@ -415,7 +355,6 @@
                                                         <span class="badge bg-danger">불합격</span>
                                                     {% endif %}
                                                 </td>
-                                                
                                                 <td class="small text-muted">{{ r.completed_at|date:"Y-m-d H:i" }}</td>
                                             </tr>
                                             {% empty %}
@@ -425,8 +364,29 @@
                                     </table>
                                 </div>
                             </div>
-                        </div>
 
+                            {% else %}
+                            
+                            <div class="card shadow-sm mb-4 border-0 bg-white">
+                                <div class="card-body text-center py-5">
+                                    <i class="bi bi-shield-lock-fill text-secondary mb-3" style="font-size: 4rem;"></i>
+                                    <h4 class="fw-bold text-dark">접근 권한이 없습니다</h4>
+                                    <p class="text-muted mb-4">타 공정 교육생의 시험 성적 및 상세 기록은 블라인드 처리됩니다.<br>조회가 필요하신 경우 아래 버튼을 통해 권한을 요청해 주세요.</p>
+                                    
+                                    <form method="POST" action="{% url 'quiz:request_process_access' %}" class="d-inline-block">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="target_process_id" value="{{ profile.process.id|default:'' }}">
+                                        <button type="submit" class="btn btn-primary fw-bold px-4 py-2 shadow-sm">
+                                            <i class="bi bi-key-fill"></i> 조회 권한 요청하기
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                            
+                            {% endif %}
+                            
+                        </div>
+                        
                         <div class="tab-pane fade" id="tab-logs">
                             <h5 class="fw-bold mb-3">히스토리</h5>
                             <div class="vstack gap-3">

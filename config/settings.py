@@ -23,14 +23,10 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
-# [추가] Codespaces 및 Render 환경에서 CSRF 에러 방지
-CSRF_TRUSTED_ORIGINS = [
-    'https://*.github.dev',
-    'https://*.onrender.com',
-]
 
 # Application definition
 INSTALLED_APPS = [
+    'daphne',
     'admin_interface',
     'colorfield',
     'channels',
@@ -49,6 +45,7 @@ INSTALLED_APPS = [
 
     'storages', 
     'whitenoise.runserver_nostatic', # 개발 모드에서도 정적 파일 처리
+
 ]
 
 MIDDLEWARE = [
@@ -87,7 +84,16 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'config.wsgi.application'
+# WSGI_APPLICATION = 'config.wsgi.application'
+
+ASGI_APPLICATION = 'config.asgi.application'  # 주의: 'config' 부분은 상혁님의 프로젝트 폴더명(settings.py가 있는 폴더명)으로 맞춰주세요!
+
+# ★ Redis(우체국) 연결 설정
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
+}
 
 
 # Database
@@ -161,13 +167,6 @@ LOGIN_REDIRECT_URL = 'quiz:index'
 
 LOGOUT_REDIRECT_URL = 'accounts:login' # '/accounts/login/'과 동일 (이름 사용 추천)
 
-# ASGI & Channels
-ASGI_APPLICATION = 'config.asgi.application'
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
-    }
-}
 
 # Session
 SESSION_COOKIE_AGE = 10800 # 3시간
@@ -249,8 +248,25 @@ SITE_ID = 1
 # DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 CSRF_TRUSTED_ORIGINS = [
+    'https://vigilant-space-funicular-6949p6wj7x4gfr94p-8000.app.github.dev',
+    'https://*.github.dev',
     'https://*.app.github.dev',
-    'https://localhost:8000',
-    'http://localhost:8000',
     'http://127.0.0.1:8000',
+    'https://127.0.0.1:8000',
+    'http://localhost:8000',
+    'https://localhost:8000', # ★ 403 에러 로그에 뜬 HTTPS 출처를 명시적으로 신뢰 추가
 ]
+
+# ★ 깃허브 코드스페이스 프록시 환경에서 HTTPS를 정확히 인식하기 위한 필수 설정
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+
+# ★ 중요: 'Lax'에서 'None'으로 변경 (프록시/iframe 환경에서 쿠키 누락 방지)
+CSRF_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SAMESITE = 'None'
+
+DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 * 1024 * 1024

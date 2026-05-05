@@ -352,54 +352,136 @@ def update_schedule(request):
                 is_manager_of_target = True
 
         if not (is_owner or is_superuser or is_manager_of_target):
-             return JsonResponse({'status': 'error', 'message': '수정 권한이 없습니다.'}, status=403)
+             return JsonResponse({'status': 'error', 'message': '수정 권한이 없습니다.'})
         
         today = timezone.now().date()
         if today.month == 12: next_month_start = date(today.year + 1, 1, 1)
         else: next_month_start = date(today.year, today.month + 1, 1)
 
+        # [추가] 팝업 컨펌 후 넘겨받는 강제 진행 플래그
+        force_warning = data.get('force_warning', False)
+        is_direct_save = False
+        msg = ""
+
         # 1. 과거 수정
         if target_date < today:
             if is_superuser:
-                DailySchedule.objects.update_or_create(
-                    profile=target_profile, date=target_date, defaults={'work_type': work_type}
-                )
-                return JsonResponse({'status': 'success', 'message': '관리자 권한으로 과거 수정됨'})
+                is_direct_save = True
+                msg = '관리자 권한으로 과거 수정됨'
             else:
                  return JsonResponse({'status': 'error', 'message': '지난 날짜는 관리자만 수정 가능합니다.'})
 
         # 2. 미래 수정
         elif target_date >= next_month_start:
-            DailySchedule.objects.update_or_create(
-                profile=target_profile, date=target_date, defaults={'work_type': work_type}
-            )
-            return JsonResponse({'status': 'success', 'message': '미래 근무 수정됨'})
+            is_direct_save = True
+            msg = '미래 근무 수정됨'
 
         # 3. 당월 수정
         else:
             if is_superuser:
-                DailySchedule.objects.update_or_create(
-                    profile=target_profile, date=target_date, defaults={'work_type': work_type}
-                )
-                return JsonResponse({'status': 'success', 'message': '관리자 권한 수정'})
+                is_direct_save = True
+                msg = '관리자 권한 수정'
+            elif is_manager_of_target and not is_owner:
+                is_direct_save = True
+                msg = '매니저 권한 수정'
 
-            if is_manager_of_target and not is_owner:
-                DailySchedule.objects.update_or_create(
-                    profile=target_profile, date=target_date, defaults={'work_type': work_type}
-                )
-                return JsonResponse({'status': 'success', 'message': '매니저 권한 수정'})
+        # ★ 관리자/매니저가 즉시 저장하는 경우 (지각 자동 징계 실행)
+        if is_direct_save:
+            if ('지각' in work_type.name or '지각' in work_type.short_name) and not is_owner:
+                from quiz.models import StudentLog, Notification
+                
+                # 1. 자동/수동 상관없이 '오늘' 발부된 경고장이 있거나,
+                # 2. '해당 날짜(target_date)'에 대한 자동 지각 경고장이 이미 있는지 확인
+                has_warning = StudentLog.objects.filter(
+                    Q(profile=target_profile, log_type='warning_letter') &
+                    (Q(created_at__date=today) | Q(reason__contains=f"[{target_date}] 지각"))
+                ).exists()
 
+                # 중복이 아닐 때만 경고장 발부 로직 실행
+                if not has_warning:
+                    if target_profile.warning_count < 2:
+                        target_profile.warning_count = 2
+                    else:
+                        target_profile.warning_count += 1
+                        
+                    if target_profile.warning_count == 2:
+                        target_profile.status = 'counseling'
+                    elif target_profile.warning_count == 3:
+                        target_profile.status = 'counseling'
+                        Notification.objects.create(
+                            recipient=request.user,
+                            notification_type='general',
+                            message=f"🚨 [{target_profile.name}] 지각으로 인해 누적 3회 도달! PL 면담이 필요합니다.",
+                            related_url=f"/quiz/manager/trainees/{target_profile.id}/logs/"
+                        )
+                    elif target_profile.warning_count >= 4:
+                        target_profile.status = 'dropout'
+                        target_profile.user.is_active = False
+                        target_profile.user.save()
+                        
+                    target_profile.save()
+
+                    StudentLog.objects.create(
+                        profile=target_profile,
+                        recorder=request.user,
+                        log_type='warning_letter',
+                        reason=f"[시스템 자동] {target_date} 지각으로 인한 경고 누적 -> {target_profile.warning_count - 1}차 경고장",
+                        action_taken="자동 처리됨 (매니저 면담 필요)",
+                        is_resolved=False
+                    )
+                    
+                    Notification.objects.create(
+                        recipient=target_profile.user,
+                        notification_type='general',
+                        message=f"⚠️ {target_date} 지각으로 인해 경고장이 자동 발부되었습니다. 마이페이지 특이사항을 확인하세요.",
+                    )
+            
+            # [핵심] 경고장이 중복이라 스킵되든 말든, 달력에 '지각' 도장은 무조건 찍습니다!
+            DailySchedule.objects.update_or_create(
+                profile=target_profile, date=target_date, defaults={'work_type': work_type}
+            )
+            return JsonResponse({'status': 'success', 'message': msg})
+
+        # === 일반 교육생의 당월 수정 (결재 대기) ===
+        if not is_direct_save:
             if not reason:
                 return JsonResponse({'status': 'reason_required'})
             
-            ScheduleRequest.objects.create(
+            req_obj = ScheduleRequest.objects.create(
                 requester=target_profile, date=target_date,
                 target_work_type=work_type, reason=reason, status='pending'
             )
+
+            # 2. [추가] 매니저에게 종 알림 발송 로직
+            from quiz.models import Notification
+            from django.urls import reverse
+            from django.contrib.auth.models import User
+            
+            # 해당 학생의 공정 매니저 찾기
+            target_managers = User.objects.filter(
+                profile__is_manager=True, 
+                profile__process=target_profile.process
+            )
+            
+            # 매니저가 없으면 최고관리자에게 알림
+            if not target_managers.exists():
+                target_managers = User.objects.filter(is_superuser=True)
+                
+            for manager in target_managers:
+                Notification.objects.create(
+                    recipient=manager,
+                    sender=request.user,
+                    message=f"📅 [근무 변경] {target_profile.name}님이 {target_date.strftime('%m/%d')} 근무 변경을 요청했습니다.",
+                    # 클릭 시 해당 월의 달력 화면으로 바로 이동!
+                    related_url=reverse('attendance:schedule_index') + f"?year={target_date.year}&month={target_date.month}",
+                    icon='bi-calendar-event',
+                    notification_type='general'
+                )
+            
             return JsonResponse({'status': 'request_sent', 'message': '승인 요청이 전송되었습니다.'})
 
     except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+        return JsonResponse({'status': 'error', 'message': str(e)})
 
 
 @login_required
@@ -430,7 +512,7 @@ def process_request(request, request_id, action):
         return JsonResponse({'status': 'error', 'message': '잘못된 접근입니다.'}, status=405)
 
     if not request.user.is_staff:
-        return JsonResponse({'status': 'error', 'message': '관리자 권한이 없습니다.'}, status=403)
+        return JsonResponse({'status': 'error', 'message': '관리자 권한이 없습니다.'})
 
     try:
         with transaction.atomic():
@@ -498,7 +580,7 @@ def apply_all_normal(request):
         profile_ids = data.get('profile_ids', [])
         
         if not (request.user.is_superuser or (hasattr(request.user, 'profile') and request.user.profile.is_manager)):
-             return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
+             return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'})
 
         normal_type = WorkType.objects.filter(name__contains="정상", deduction=0).first()
         if not normal_type: 

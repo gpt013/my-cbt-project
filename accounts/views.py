@@ -16,6 +16,9 @@ from .forms import CustomUserCreationForm, ProfileForm, ProfileUpdateForm
 from .models import PartLeader, Profile
 
 from quiz.models import TestResult        # 결과는 quiz 앱에서
+from django.urls import reverse
+from quiz.models import Notification
+
 
 # ---------------------------------------------------
 # 1. 회원가입 (이메일 인증 제거 -> 관리자 승인 대기)
@@ -65,8 +68,29 @@ def signup(request):
                 msg = "회원가입이 완료되었습니다. 관리자 승인 후 이용 가능합니다."
 
             profile.save() # 변경사항 저장
-            messages.success(request, msg)
 
+            # PL(파트장) 가입이 아니라 일반 교육생 가입일 경우에만 매니저에게 알림!
+            if not profile.is_pl:
+                from quiz.models import Notification
+                from django.urls import reverse
+                from django.db.models import Q # (맨 위에 Q 임포트가 없다면 추가)
+                
+                # 매니저와 최고관리자 찾기
+                managers = User.objects.filter(Q(profile__is_manager=True) | Q(is_superuser=True)).distinct()
+                
+                for manager in managers:
+                    Notification.objects.create(
+                        recipient=manager,
+                        message=f"🔔 [신규 가입] {user.username}님의 승인 대기 중입니다.",
+                        related_url=reverse('quiz:manager_trainee_list'), # 클릭 시 교육생 관리 창으로 이동
+                        icon='bi-person-plus-fill',
+                        notification_type='signup'
+                    )
+            # =========================================================
+            
+            # 👆 여기까지! 👆
+
+            messages.success(request, msg)
             return redirect('accounts:login')
     else:
         form = CustomUserCreationForm()
@@ -194,9 +218,15 @@ def custom_login(request):
                     auth_login(request, user)
                     
                     # 관리자 등급별 대시보드 이동
-                    if profile.is_manager: return redirect('quiz:manager_dashboard')
-                    if profile.is_pl: return redirect('quiz:pl_dashboard')
-                    return redirect('quiz:my_page')
+                    if user.is_superuser:
+                        return redirect('quiz:manager_dashboard')  # 최종관리자 → /quiz/manager/
+                    if profile.is_manager:
+                        return redirect('quiz:manager_dashboard')  # 매니저 → /quiz/manager/
+                    if profile.is_pl:
+                        return redirect('quiz:pl_dashboard')  
+                    if user.is_staff:
+                        return redirect('quiz:manager_dashboard')  # staff도 매니저 페이지로
+                    return redirect('quiz:my_page')                # 일반 교육생 → /quiz/student/
 
                 # =====================================================
                 # 2. 일반 교육생 체크 (여기서부터 깐깐하게 검사)
@@ -254,6 +284,30 @@ def custom_login(request):
         form = AuthenticationForm()
 
     return render(request, 'accounts/login.html', {'form': form})
+
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
+
+@login_required
+def custom_password_change(request):
+    if request.method == 'POST':
+        form = PasswordChangeForm(request.user, request.POST)
+        if form.is_valid():
+            user = form.save()
+            # 세션 유지 (비밀번호 바꾸고 튕기는 것 방지)
+            update_session_auth_hash(request, user)
+            
+            # ★★★ [핵심] 족쇄 풀기! ★★★
+            if hasattr(user, 'profile'):
+                user.profile.must_change_password = False
+                user.profile.save()
+            
+            messages.success(request, '비밀번호가 성공적으로 변경되었습니다.')
+            return redirect('accounts:password_change_done') 
+    else:
+        form = PasswordChangeForm(request.user)
+    
+    return render(request, 'accounts/password_change_form.html', {'form': form})
 
 # ---------------------------------------------------
 # 4. 안내 페이지들

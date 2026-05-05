@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<style>
+    /* 슬랙 스타일 모던 채팅방 CSS */
+    .chat-container { max-width: 800px; margin: 0 auto; height: 75vh; display: flex; flex-direction: column; }
+    .chat-log { flex: 1; overflow-y: auto; padding: 20px; background-color: #f8f9fa; border-radius: 8px; border: 1px solid #dee2e6; }
+    .chat-message { margin-bottom: 15px; display: flex; flex-direction: column; }
+    
+    /* 내가 보낸 메시지 (오른쪽, 파란색) */
+    .chat-message.me { align-items: flex-end; }
+    .chat-message.me .bubble { background-color: #0d6efd; color: white; border-bottom-right-radius: 0; }
+    
+    /* 남이 보낸 메시지 (왼쪽, 회색) */
+    .chat-message.other { align-items: flex-start; }
+    .chat-message.other .bubble { background-color: #e9ecef; color: #212529; border-bottom-left-radius: 0; }
+    
+    .bubble { max-width: 70%; padding: 10px 15px; border-radius: 15px; display: inline-block; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+    .sender-name { font-size: 0.8em; color: #6c757d; margin-bottom: 3px; font-weight: bold; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="chat-container">
+        <div class="bg-dark text-white p-3 rounded-top d-flex justify-content-between align-items-center shadow-sm">
+            <h5 class="m-0 fw-bold"><i class="bi bi-chat-dots-fill text-warning"></i> PMTC 실시간 소통방</h5>
+            <span class="badge bg-success">🟢 접속중</span>
+        </div>
+
+        <div id="chat-log" class="chat-log shadow-inner">
+            <div class="text-center text-muted small my-3">--- 채팅방에 입장하셨습니다 ---</div>
+        </div>
+
+        <div class="mt-3 d-flex gap-2 align-items-center">
+            <input type="file" id="chat-file-input" style="display: none;">
+            
+            <button id="chat-file-btn" class="btn btn-outline-secondary btn-lg shadow-sm" title="파일 첨부">
+                <i class="bi bi-paperclip"></i>
+            </button>
+            
+            <input id="chat-message-input" type="text" class="form-control form-control-lg shadow-sm" placeholder="메시지를 입력하세요... (엔터로 전송)" autocomplete="off">
+            <button id="chat-message-submit" class="btn btn-primary px-4 fw-bold shadow-sm"><i class="bi bi-send-fill"></i> 전송</button>
+        </div>
+    </div>
+</div>
+
+{{ request.user.profile.name|default:request.user.username|json_script:"user-name" }}
+
+<script>
+    const myName = JSON.parse(document.getElementById('user-name').textContent);
+    const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+    
+    // 웹소켓 연결
+    const chatSocket = new WebSocket(wsScheme + '://' + window.location.host + '/ws/chat/');
+
+    // [수신] 서버에서 메시지나 파일이 날아왔을 때
+    chatSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        const chatLog = document.querySelector('#chat-log');
+        
+        const isMe = (data.username === myName);
+        const msgClass = isMe ? 'me' : 'other';
+        const senderHtml = isMe ? '' : `<div class="sender-name">${data.username}</div>`;
+
+        let contentHtml = '';
+        
+        // 파일이 있다면 예쁜 다운로드/이미지 카드 만들기
+        if (data.file_url) {
+            const ext = data.file_name.split('.').pop().toLowerCase();
+            if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+                contentHtml = `<img src="${data.file_url}" style="max-width: 200px; border-radius: 8px; margin-bottom: 5px; cursor: pointer;" onclick="window.open(this.src)"><br>`;
+            } else {
+                contentHtml = `<a href="${data.file_url}" target="_blank" class="text-decoration-none" style="color: inherit;">
+                                <i class="bi bi-file-earmark-arrow-down-fill fs-4 align-middle"></i> 
+                                <span class="text-decoration-underline fw-bold">${data.file_name}</span>
+                               </a><br>`;
+            }
+        }
+        
+        // 텍스트 메시지가 있으면 추가
+        if (data.message) {
+            contentHtml += `<span>${data.message}</span>`;
+        }
+
+        const messageHtml = `
+            <div class="chat-message ${msgClass}">
+                ${senderHtml}
+                <div class="bubble">${contentHtml}</div>
+            </div>
+        `;
+        
+        chatLog.innerHTML += messageHtml;
+        chatLog.scrollTop = chatLog.scrollHeight; 
+    };
+
+    chatSocket.onclose = function(e) {
+        console.error('채팅 서버와 연결이 끊어졌습니다.');
+    };
+
+    // [송신] 텍스트 엔터 & 전송
+    document.querySelector('#chat-message-input').focus();
+    document.querySelector('#chat-message-input').onkeyup = function(e) {
+        if (e.keyCode === 13) document.querySelector('#chat-message-submit').click();
+    };
+
+    document.querySelector('#chat-message-submit').onclick = function(e) {
+        const messageInputDom = document.querySelector('#chat-message-input');
+        const message = messageInputDom.value;
+        if (message.trim() !== "") {
+            chatSocket.send(JSON.stringify({ 'message': message, 'username': myName }));
+            messageInputDom.value = ''; 
+        }
+    };
+
+    // [송신] 클립 버튼 클릭 시 파일 선택창 열기
+    document.querySelector('#chat-file-btn').onclick = function() {
+        document.querySelector('#chat-file-input').click();
+    };
+
+    // [송신] 파일이 선택되면 즉시 서버로 업로드 후, 웹소켓으로 링크 쏘기!
+    document.querySelector('#chat-file-input').onchange = function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // 1. AJAX로 파일 업로드 (비동기)
+        fetch("{% url 'quiz:chat_file_upload' %}", {
+            method: "POST",
+            body: formData,
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // 2. 업로드 성공 시, 다운로드 주소를 웹소켓으로 단톡방에 날림!
+                chatSocket.send(JSON.stringify({
+                    'message': '', // 파일만 보낼 땐 메시지 비움
+                    'username': myName,
+                    'file_url': data.file_url,
+                    'file_name': data.file_name
+                }));
+            } else {
+                alert("파일 업로드 실패: " + data.message);
+            }
+        })
+        .catch(error => console.error("Error:", error));
+        
+        // 보낸 후 입력창 초기화
+        e.target.value = '';
+    };
+</script>
+{% endblock %}

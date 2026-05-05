@@ -305,6 +305,16 @@ class StudentLog(models.Model):
     reason = models.TextField()
     action_taken = models.TextField(blank=True, null=True)
     
+    # =======================================================
+    # ★ [핵심 추가] 경고장/사유서 스캔본을 저장할 파일 필드
+    # =======================================================
+    attached_file = models.FileField(
+        upload_to='student_logs/', 
+        blank=True, 
+        null=True, 
+        verbose_name="경고장/사유서 첨부"
+    )
+    
     # 시험과 연결
     related_quiz = models.ForeignKey('Quiz', on_delete=models.SET_NULL, null=True, blank=True)
     stage = models.IntegerField(default=1) # 몇 차 경고인지
@@ -314,6 +324,7 @@ class StudentLog(models.Model):
 
     def __str__(self):
         return f"[{self.get_log_type_display()}] {self.profile.name}"
+    
 
 
 # ------------------------------------------------------------------
@@ -338,6 +349,8 @@ class Notification(models.Model):
     
     # 알림 내용
     message = models.CharField(max_length=255, verbose_name="알림 내용")
+
+    icon = models.CharField(max_length=50, null=True, blank=True, verbose_name="아이콘")
     
     # 알림 유형
     notification_type = models.CharField(max_length=50, choices=TYPE_CHOICES, default='general', verbose_name="알림 유형") 
@@ -470,7 +483,65 @@ class Reservation(models.Model):
     def check_overlap(self):
         return Reservation.objects.filter(
             room=self.room,
-            status__in=['pending', 'confirmed'],
+            status='confirmed', 
             start_time__lt=self.end_time,
             end_time__gt=self.start_time
         ).exclude(pk=self.pk).exists()
+
+class ChatRoom(models.Model):
+    """채팅방 (1:1 또는 단체방)"""
+    name = models.CharField(max_length=255, blank=True, null=True, help_text="단체방일 경우 방 이름 (1:1은 비워둠)")
+    is_group_chat = models.BooleanField(default=False, help_text="단체방 여부 (False면 1:1)")
+    participants = models.ManyToManyField(User, related_name='chat_rooms', help_text="이 방에 참여 중인 사람들")
+    created_at = models.DateTimeField(auto_now_add=True)
+    hidden_by = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='hidden_chat_rooms', blank=True)
+    pinned_message = models.ForeignKey('ChatMessage', on_delete=models.SET_NULL, null=True, blank=True, related_name='pinned_in_room')
+    pinned_by = models.ManyToManyField(User, related_name='pinned_rooms', blank=True)
+    last_activity = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # 기본 정렬: 고정 여부 먼저, 그다음 최신순 (이건 뷰에서 처리하는 게 더 정확합니다)
+        ordering = ['-last_activity']
+
+    def __str__(self):
+        if self.is_group_chat and self.name:
+            return f"[단체방] {self.name}"
+        return f"[1:1 채팅방] {self.id}번 방"
+
+class ChatMessage(models.Model):
+    """채팅방 안에서 주고받은 개별 메시지"""
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name='sent_messages')
+    
+    # 텍스트 내용 (파일만 보낼 땐 비어있을 수 있음)
+    content = models.TextField(blank=True, null=True)
+    
+    # 파일 전송을 위한 필드
+    file_url = models.URLField(max_length=500, blank=True, null=True)
+    file_name = models.CharField(max_length=255, blank=True, null=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    # 누가 이 메시지를 읽었는지 (카카오톡의 '1' 사라지는 기능용 - 지금은 보류하고 틀만 잡아둠)
+    read_by = models.ManyToManyField(User, related_name='read_messages', blank=True)
+
+    deleted_by = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='deleted_chat_messages', blank=True)
+
+    parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='replies')
+
+    def __str__(self):
+        return f"[{self.room.id}번 방] {self.sender.username}: {self.content[:20]}"
+
+class ReferenceLink(models.Model):
+    title = models.CharField("링크 제목", max_length=100)
+    url = models.URLField("URL 주소")
+    icon = models.CharField("아이콘 클래스", max_length=50, default="bi-box-arrow-up-right", help_text="예: bi-box-arrow-up-right, bi-folder, bi-link 등 (Bootstrap Icon)")
+    order = models.IntegerField("표시 순서", default=0, help_text="숫자가 낮을수록 먼저 표시됩니다.")
+
+    class Meta:
+        ordering = ['order', 'id']
+        verbose_name = "실무 참고 링크"
+        verbose_name_plural = "실무 참고 링크 관리"
+
+    def __str__(self):
+        return self.title

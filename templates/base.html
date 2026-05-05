@@ -26,201 +26,250 @@
             content: ""; position: absolute; top: -10px; right: 20px;
             border-width: 0 10px 10px 10px; border-style: solid; border-color: transparent transparent white transparent;
         }
+
+        .chat-fab { 
+            position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; 
+            border-radius: 50%; background-color: #ffc107; color: #343a40; 
+            display: flex; align-items: center; justify-content: center; font-size: 28px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15); cursor: pointer; z-index: 1050; 
+            transition: transform 0.2s; 
+        }
+        .chat-fab:hover { transform: scale(1.1); }
+        .chat-offcanvas { 
+            width: 400px !important; 
+            border-left: 1px solid #dee2e6; 
+            top: 60px !important; 
+            height: calc(100vh - 60px) !important; 
+        }
+
+        /* ★ [추가] 매니저 메뉴(검은 배경) 전용 하이라이트 색상 (노란색) */
+        .manager-nav .nav-link.active { color: #ffc107 !important; font-weight: bold; border-bottom: 2px solid #ffc107; padding-bottom: 0.3rem; }
+        .manager-nav .dropdown-item.active { background-color: #ffc107; color: #343a40; font-weight: bold; }
+
+        /* ★ [추가] 글로벌 로딩 오버레이 스타일 (화면 전체 덮기 + 블러 처리) */
+        #global-loader {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background-color: rgba(255, 255, 255, 0.7);
+            z-index: 99999; display: none; flex-direction: column; 
+            align-items: center; justify-content: center; backdrop-filter: blur(3px);
+        }
     </style>
 </head>
 <body>
+
+    <!-- ★ [추가] 글로벌 로딩 오버레이 (평소엔 숨어있다가 폼 제출 시 나타남) -->
+    <div id="global-loader">
+        <div class="spinner-border text-primary" role="status" style="width: 4rem; height: 4rem; border-width: 0.35em;">
+            <span class="visually-hidden">로딩 중...</span>
+        </div>
+        <h5 class="mt-4 text-dark fw-bold">데이터를 처리하고 있습니다...</h5>
+    </div>
 
     {# --- 시험 중이거나 프로필 설정 중이 아닐 때만 헤더 표시 --- #}
     {% if not is_in_test_mode and not is_completing_profile %}
     
     {# [A] 스태프(관리자/PL) 권한이 있는 경우 #}
     {% if user.is_staff %}
-    <header>
-        <nav class="navbar navbar-expand-xl manager-nav navbar-dark shadow-sm">
-            <div class="container-fluid">
-                <a class="navbar-brand fw-bold" href="{% if user.profile.is_manager or user.is_superuser %}{% url 'quiz:manager_dashboard' %}{% else %}{% url 'quiz:pl_dashboard' %}{% endif %}">
-                    <i class="bi bi-shield-lock-fill text-warning"></i> PMTC 매니저 센터
-                </a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#managerNav">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                
-                <div class="collapse navbar-collapse" id="managerNav">
-                    <ul class="navbar-nav me-auto mb-2 mb-xl-0">
-                        {% if user.is_superuser or user.profile.is_manager %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'quiz:manager_dashboard' %}"><i class="bi bi-speedometer2"></i> 대시보드</a>
-                            </li>
+        <header>
+            <nav class="navbar navbar-expand-xl manager-nav navbar-dark shadow-sm">
+                <div class="container-fluid">
+                    <a class="navbar-brand fw-bold" href="{% if user.profile.is_manager or user.is_superuser %}{% url 'quiz:manager_dashboard' %}{% else %}{% url 'quiz:pl_dashboard' %}{% endif %}">
+                        <i class="bi bi-shield-lock-fill text-warning"></i> PMTC 매니저 센터
+                    </a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#managerNav">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    
+                    <div class="collapse navbar-collapse" id="managerNav">
+                        <ul class="navbar-nav me-auto mb-2 mb-xl-0">
+                            {% if user.is_superuser or user.profile.is_manager %}
+                                <li class="nav-item">
+                                    <a class="nav-link" href="{% url 'quiz:manager_dashboard' %}"><i class="bi bi-speedometer2"></i> 대시보드</a>
+                                </li>
 
-                           <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-people"></i> 학생 관리</a>
-                                <ul class="dropdown-menu shadow-sm">
-                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_trainee_list' %}"><i class="bi bi-person-lines-fill me-2"></i>교육생 관리</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_exam_requests' %}"><i class="bi bi-check-circle me-2"></i>요청 승인 (시험/권한)</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="#" onclick="openSmartModal('dropoutModal', event)"><i class="bi bi-person-x me-2"></i>중도 퇴사 관리</a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="openSmartModal('quickWarningModal', event)"><i class="bi bi-lightning-charge me-2"></i>빠른 경고/경고장 작성</a></li>
-                                </ul>
-                            </li>
+                               <li class="nav-item dropdown">
+                                    <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-people"></i> 학생 관리</a>
+                                    <ul class="dropdown-menu shadow-sm">
+                                        <li><a class="dropdown-item" href="{% url 'quiz:manager_trainee_list' %}"><i class="bi bi-person-lines-fill me-2"></i>교육생 관리</a></li>
+                                        <li><a class="dropdown-item" href="{% url 'quiz:manager_exam_requests' %}"><i class="bi bi-check-circle me-2"></i>요청 승인 (시험/권한)</a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item" href="#" onclick="openSmartModal('dropoutModal', event)"><i class="bi bi-person-x me-2"></i>중도 퇴사 관리</a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="openSmartModal('quickWarningModal', event)"><i class="bi bi-lightning-charge me-2"></i>빠른 경고/경고장 작성</a></li>
+                                    </ul>
+                                </li>
 
-                            <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-calendar-week"></i> 일정 관리</a>
-                                <ul class="dropdown-menu shadow-sm">
-                                    <li><a class="dropdown-item" href="{% url 'attendance:schedule_index' %}?role=manager"><i class="bi bi-calendar-check me-2"></i>근무표 조회/수정</a></li>
-                                    <li><a class="dropdown-item" href="/quiz/manager/facility/"><i class="bi bi-building me-2"></i>시설/장비 관리</a></li>
-                                </ul>
-                            </li>
-                            
-                            <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-file-earmark-text"></i> 시험/문제</a>
-                                <ul class="dropdown-menu shadow-sm">
-                                    <li><a class="dropdown-item" href="{% url 'quiz:manager_quiz_list' %}"><i class="bi bi-card-list me-2"></i>시험 목록 및 수정</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:upload_quiz' %}"><i class="bi bi-file-earmark-arrow-up me-2"></i>엑셀로 시험 등록</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:bulk_add_sheet_view' %}"><i class="bi bi-file-earmark-plus me-2"></i>엑셀로 문제 추가</a></li>
-                                </ul>
-                            </li>
+                                <li class="nav-item dropdown">
+                                    <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-calendar-week"></i> 일정 관리</a>
+                                    <ul class="dropdown-menu shadow-sm">
+                                        <li><a class="dropdown-item" href="{% url 'attendance:schedule_index' %}?role=manager"><i class="bi bi-calendar-check me-2"></i>근무표 조회/수정</a></li>
+                                        <li><a class="dropdown-item" href="/quiz/manager/facility/"><i class="bi bi-building me-2"></i>시설/장비 관리</a></li>
+                                    </ul>
+                                </li>
+                                
+                                <li class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+        <i class="bi bi-file-earmark-text"></i> 시험/문제
+    </a>
+    <ul class="dropdown-menu shadow-sm">
+        <li><a class="dropdown-item" href="{% url 'quiz:manager_quiz_list' %}"><i class="bi bi-card-list me-2"></i>시험 목록 및 수정</a></li>
+        <li><a class="dropdown-item" href="{% url 'quiz:upload_quiz' %}"><i class="bi bi-file-earmark-arrow-up me-2"></i>엑셀로 시험 등록</a></li>
+        <li><a class="dropdown-item" href="{% url 'quiz:bulk_add_sheet_view' %}"><i class="bi bi-file-earmark-plus me-2"></i>엑셀로 문제 추가</a></li>
+        
+        <li><hr class="dropdown-divider"></li>
+        <li>
+            <a class="dropdown-item" href="#" onclick="openSmartModal('quickPracticeScoreModal', event)">
+                <i class="bi bi-clipboard-check me-2"></i>빠른 실습 점수 입력
+            </a>
+        </li>
+        <li>
+            <a class="dropdown-item" href="#" onclick="openSmartModal('quickManualExamModal', event)">
+                <i class="bi bi-pencil-square me-2"></i>빠른 공통 점수 입력
+            </a>
+        </li>
+    </ul>
+</li>
 
-                            <li class="nav-item dropdown">
-                                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-bar-chart"></i> 통계/분석</a>
-                                <ul class="dropdown-menu shadow-sm">
-                                    <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}"><i class="bi bi-pie-chart me-2"></i>전체 통계</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:latest_cohort_report' %}"><i class="bi bi-file-earmark-bar-graph me-2"></i>기수 마감 종합 리포트</a></li>
-                                    {% if user.is_superuser %}
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:admin_full_data_view' %}"><i class="bi bi-grid-3x3 me-2"></i>교육생 마스터 그리드</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'admin:index' %}" target="_blank"><i class="bi bi-gear me-2"></i>시스템 Admin</a></li>
-                                    {% endif %}
-                                </ul>
-                            </li>
+                                <li class="nav-item dropdown">
+                                    <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown"><i class="bi bi-bar-chart"></i> 통계/분석</a>
+                                    <ul class="dropdown-menu shadow-sm">
+                                        <li><a class="dropdown-item" href="{% url 'quiz:dashboard' %}"><i class="bi bi-pie-chart me-2"></i>전체 통계</a></li>
+                                        <li><a class="dropdown-item" href="{% url 'quiz:latest_cohort_report' %}"><i class="bi bi-file-earmark-bar-graph me-2"></i>기수 마감 종합 리포트</a></li>
+                                        {% if user.is_superuser %}
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item" href="{% url 'quiz:admin_full_data_view' %}"><i class="bi bi-grid-3x3 me-2"></i>교육생 마스터 그리드</a></li>
+                                        <li><a class="dropdown-item" href="{% url 'admin:index' %}" target="_blank"><i class="bi bi-gear me-2"></i>시스템 Admin</a></li>
+                                        {% endif %}
+                                    </ul>
+                                </li>
 
-                            <li class="nav-item dropdown border-start ms-2 ps-2">
-                                <a class="nav-link dropdown-toggle text-info fw-bold" href="#" data-bs-toggle="dropdown">🎓 교육생 센터</a>
-                                <ul class="dropdown-menu shadow">
-                                    <li><h6 class="dropdown-header">학생 모드 기능</h6></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:my_page' %}">마이페이지 (홈)</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:index' %}">시험 응시 목록</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:my_results_index' %}">내 성적 확인</a></li>
-                                    <li><a class="dropdown-item" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a></li>
-                                </ul>
-                            </li>
-                        {% endif %}
+                                <li class="nav-item dropdown border-start ms-2 ps-2">
+                                    <a class="nav-link dropdown-toggle text-info fw-bold" href="#" data-bs-toggle="dropdown">🎓 교육생 센터</a>
+                                    <ul class="dropdown-menu shadow">
+                                        <li><h6 class="dropdown-header">학생 모드 기능</h6></li>
+                                        <li><a class="dropdown-item" href="{% url 'quiz:my_page' %}">마이페이지 (홈)</a></li>
+                                        <li><a class="dropdown-item" href="{% url 'quiz:index' %}">시험 응시 목록</a></li>
+                                        <li><a class="dropdown-item" href="{% url 'quiz:my_results_index' %}">내 성적 확인</a></li>
+                                        <li><a class="dropdown-item" href="{% url 'quiz:personal_dashboard' %}">나의 대시보드</a></li>
+                                    </ul>
+                                </li>
+                            {% endif %}
 
-                        {% if user.is_superuser or user.profile.is_pl %}
-                            <li class="nav-item ms-lg-2">
-                                <a class="nav-link text-warning fw-bold border border-warning rounded px-2" href="{% url 'quiz:pl_dashboard' %}">
-                                    <i class="bi bi-bar-chart-steps"></i> PL 대시보드
-                                </a>
-                            </li>
-                        {% endif %}
-                    </ul>
-
-                    <div class="d-flex align-items-center text-white">
-                        
-                        <ul class="navbar-nav me-3">
-                            <li class="nav-item dropdown">
-                                <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
-                                    <i id="bell-icon" class="bi bi-bell fs-5"></i>
-                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-manager" style="display:none;">0</span>
-                                </a>
-                                <ul class="dropdown-menu dropdown-menu-end shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
-                                    <li class="dropdown-header d-flex justify-content-between align-items-center">
-                                        <span class="small fw-bold">알림 <span id="noti-count-text-manager">0</span>개</span>
-                                        <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
-                                    </li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <div id="noti-list-container-manager">
-                                        <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
-                                    </div>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
-                                </ul>
-                            </li>
+                            {% if user.is_superuser or user.profile.is_pl %}
+                                <li class="nav-item ms-lg-2">
+                                    <a class="nav-link text-warning fw-bold border border-warning rounded px-2" href="{% url 'quiz:pl_dashboard' %}">
+                                        <i class="bi bi-bar-chart-steps"></i> PL 대시보드
+                                    </a>
+                                </li>
+                            {% endif %}
                         </ul>
 
-                        <span class="me-3 d-none d-lg-inline">
-                            {% if user.profile.is_manager %} <span class="badge bg-warning text-dark me-1">Manager</span>
-                            {% elif user.profile.is_pl %} <span class="badge bg-info text-dark me-1">PL</span>
-                            {% else %} <span class="badge bg-secondary me-1">Staff</span>
-                            {% endif %}
-                            <strong>{{ user.profile.name|default:user.username }}</strong>
-                        </span>
-                        <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-outline-light btn-sm">로그아웃</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </nav>
-    </header>
-
-    {# [B] 일반 교육생인 경우 (이하 코드는 기존과 완벽히 동일) #}
-    {% else %}
-    <header>
-        <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
-            <div class="container-fluid">
-                <a class="navbar-brand fw-bold text-primary" href="{% url 'quiz:my_page' %}">
-                    <i class="bi bi-mortarboard-fill"></i> PMTC 교육센터
-                </a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#studentNav">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                
-                <div class="collapse navbar-collapse" id="studentNav">
-                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                        {% if user.is_authenticated %}
-                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:my_page' %}"><i class="bi bi-house-door"></i> 마이페이지</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:index' %}"><i class="bi bi-list-task"></i> 시험 목록</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:my_results_index' %}"><i class="bi bi-check2-square"></i> 성적 확인</a></li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up"></i> 대시보드</a></li>
+                        <div class="d-flex align-items-center text-white">
                             
-                            <li class="nav-item dropdown">
-                                <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
-                                    <i id="bell-icon" class="bi bi-bell"></i> 알림
-                                    <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-student" style="display:none; left: 80% !important;">0</span>
-                                </a>
-                                <ul class="dropdown-menu shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
-                                    <li class="dropdown-header d-flex justify-content-between align-items-center">
-                                        <span class="small fw-bold">알림 <span id="noti-count-text-student">0</span>개</span>
-                                        <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
-                                    </li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <div id="noti-list-container-student">
-                                        <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
-                                    </div>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
-                                </ul>
-                            </li>
-                            
-                            <li class="nav-item border-start ms-lg-2 ps-lg-2">
-                                <a class="nav-link" href="{% url 'attendance:check_in_page' %}"><i class="bi bi-camera"></i> MDM</a>
-                            </li>
-                            <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3"></i> 근무표</a></li>
-                        {% endif %}
-                    </ul>
+                            <ul class="navbar-nav me-3">
+                                <li class="nav-item dropdown">
+                                    <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
+                                        <i id="bell-icon" class="bi bi-bell fs-5"></i>
+                                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-manager" style="display:none;">0</span>
+                                    </a>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
+                                        <li class="dropdown-header d-flex justify-content-between align-items-center">
+                                            <span class="small fw-bold">알림 <span id="noti-count-text-manager">0</span>개</span>
+                                            <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
+                                        </li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <div id="noti-list-container-manager">
+                                            <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
+                                        </div>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
+                                    </ul>
+                                </li>
+                            </ul>
 
-                    <div class="d-flex align-items-center">
-                        {% if user.is_authenticated %}
-                            <div class="me-3 text-end lh-1 d-none d-lg-block">
-                                <span class="d-block fw-bold text-dark">{{ user.profile.name|default:user.username }}</span>
-                                <small class="text-muted" style="font-size: 0.75rem;">
-                                    {{ user.profile.cohort.name|default:"-" }} / {{ user.profile.process.name|default:"-" }}
-                                </small>
-                            </div>
+                            <span class="me-3 d-none d-lg-inline">
+                                {% if user.profile.is_manager %} <span class="badge bg-warning text-dark me-1">Manager</span>
+                                {% elif user.profile.is_pl %} <span class="badge bg-info text-dark me-1">PL</span>
+                                {% else %} <span class="badge bg-secondary me-1">Staff</span>
+                                {% endif %}
+                                <strong>{{ user.profile.name|default:user.username }}</strong>
+                            </span>
                             <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
                                 {% csrf_token %}
-                                <button type="submit" class="btn btn-outline-secondary btn-sm">로그아웃</button>
+                                <button type="submit" class="btn btn-outline-light btn-sm">로그아웃</button>
                             </form>
-                        {% else %}
-                            <a href="{% url 'accounts:login' %}" class="btn btn-primary btn-sm me-2">로그인</a>
-                            <a href="{% url 'accounts:signup' %}" class="btn btn-outline-primary btn-sm">회원가입</a>
-                        {% endif %}
+                        </div>
                     </div>
                 </div>
-            </div>
-        </nav>
-    </header>
+            </nav>
+        </header>
+
+        {# [B] 일반 교육생인 경우 #}
+        {% else %}
+        <header>
+            <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+                <div class="container-fluid">
+                    <a class="navbar-brand fw-bold text-primary" href="{% url 'quiz:my_page' %}">
+                        <i class="bi bi-mortarboard-fill"></i> PMTC 교육센터
+                    </a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#studentNav">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    
+                    <div class="collapse navbar-collapse" id="studentNav">
+                        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                            {% if user.is_authenticated %}
+                                <li class="nav-item"><a class="nav-link" href="{% url 'quiz:my_page' %}"><i class="bi bi-house-door"></i> 마이페이지</a></li>
+                                <li class="nav-item"><a class="nav-link" href="{% url 'quiz:index' %}"><i class="bi bi-list-task"></i> 시험 목록</a></li>
+                                <li class="nav-item"><a class="nav-link" href="{% url 'quiz:my_results_index' %}"><i class="bi bi-check2-square"></i> 성적 확인</a></li>
+                                <li class="nav-item"><a class="nav-link" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up"></i> 대시보드</a></li>
+                                
+                                <li class="nav-item dropdown">
+                                    <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
+                                        <i id="bell-icon" class="bi bi-bell"></i> 알림
+                                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-student" style="display:none; left: 80% !important;">0</span>
+                                    </a>
+                                    <ul class="dropdown-menu shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
+                                        <li class="dropdown-header d-flex justify-content-between align-items-center">
+                                            <span class="small fw-bold">알림 <span id="noti-count-text-student">0</span>개</span>
+                                            <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
+                                        </li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <div id="noti-list-container-student">
+                                            <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
+                                        </div>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
+                                    </ul>
+                                </li>
+                                
+                                <li class="nav-item border-start ms-lg-2 ps-lg-2">
+                                    <a class="nav-link" href="{% url 'attendance:check_in_page' %}"><i class="bi bi-camera"></i> MDM</a>
+                                </li>
+                                <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3"></i> 근무표</a></li>
+                            {% endif %}
+                        </ul>
+
+                        <div class="d-flex align-items-center">
+                            {% if user.is_authenticated %}
+                                <div class="me-3 text-end lh-1 d-none d-lg-block">
+                                    <span class="d-block fw-bold text-dark">{{ user.profile.name|default:user.username }}</span>
+                                    <small class="text-muted" style="font-size: 0.75rem;">
+                                        {{ user.profile.cohort.name|default:"-" }} / {{ user.profile.process.name|default:"-" }}
+                                    </small>
+                                </div>
+                                <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-outline-secondary btn-sm">로그아웃</button>
+                                </form>
+                            {% else %}
+                                <a href="{% url 'accounts:login' %}" class="btn btn-primary btn-sm me-2">로그인</a>
+                                <a href="{% url 'accounts:signup' %}" class="btn btn-outline-primary btn-sm">회원가입</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        </header>
     {% endif %}
     {% endif %}
 
@@ -240,33 +289,119 @@
         {% endblock %}
     </main>
 
+    <!-- ★ 2번 추가됨: Bootstrap Toast 인앱 알림 팝업창 -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999; margin-top: 60px;">
+        <div id="pmtcToast" class="toast shadow-lg border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-light border-bottom-0 pt-3 pb-2">
+                <i id="toastIcon" class="bi bi-bell-fill text-primary fs-5 me-2"></i>
+                <strong class="me-auto fs-6 text-dark" id="toastTitle">PMTC 알림</strong>
+                <small class="text-muted">방금 전</small>
+                <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body fs-6 pb-3 pt-1 text-dark" id="toastMessage" style="background-color: #f8f9fa;">
+                알림 내용이 들어갑니다.
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- ★ 1번 추가됨: SweetAlert2 라이브러리 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     {% if user.is_authenticated and not is_in_test_mode and not is_completing_profile %} 
     <script>
+        let previousNotiCount = -1;
+        let notiInterval;
+
         document.addEventListener('DOMContentLoaded', function() {
             loadNotifications(true); 
+
+            notiInterval = setInterval(() => {
+                loadNotifications(true);
+            }, 30000); 
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const modalToOpen = urlParams.get('open_modal');
+            if (modalToOpen && document.getElementById(modalToOpen)) {
+                var autoModal = new bootstrap.Modal(document.getElementById(modalToOpen));
+                autoModal.show();
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
         });
 
         function loadNotifications(onlyBadge = false) {
             const badgeM = document.getElementById('noti-badge-manager');
             const badgeS = document.getElementById('noti-badge-student');
+            const bellIcon = document.getElementById('bell-icon'); 
             
             fetch('/quiz/api/notifications/') 
-            .then(res => res.json())
+            .then(res => {
+                if (res.status === 401 || res.status === 403 || res.redirected) {
+                    clearInterval(notiInterval); 
+                    throw new Error("로그아웃 상태 감지됨. 알림 갱신 중지.");
+                }
+                return res.json();
+            })
             .then(data => {
-                // 1. 뱃지 업데이트
-                if(data.count > 0) {
-                    if(badgeM) { badgeM.innerText = data.count; badgeM.style.display = 'inline-block'; }
-                    if(badgeS) { badgeS.innerText = data.count; badgeS.style.display = 'inline-block'; }
+                if (data.error) {
+                    clearInterval(notiInterval);
+                    return;
+                }
+                
+                const currentCount = data.count;
+
+                if(currentCount > 0) {
+                    if(badgeM) { badgeM.innerText = currentCount; badgeM.style.display = 'inline-block'; }
+                    if(badgeS) { badgeS.innerText = currentCount; badgeS.style.display = 'inline-block'; }
                 } else {
                     if(badgeM) badgeM.style.display = 'none';
                     if(badgeS) badgeS.style.display = 'none';
                 }
 
+                if (previousNotiCount !== -1 && currentCount > previousNotiCount) {
+                    if (badgeM) badgeM.classList.add('badge-flash-active');
+                    if (badgeS) badgeS.classList.add('badge-flash-active');
+                    if (bellIcon) bellIcon.classList.add('bell-ring-active');
+                    
+                    setTimeout(() => {
+                        if (badgeM) badgeM.classList.remove('badge-flash-active');
+                        if (badgeS) badgeS.classList.remove('badge-flash-active');
+                        if (bellIcon) bellIcon.classList.remove('bell-ring-active');
+                    }, 3000);
+                }
+                
+                previousNotiCount = currentCount;
+
+                // ========================================================
+                // ★ [수정됨] 채팅 배지 로직이 함수 "안"으로 들어왔습니다!
+                // ========================================================
+                const chatFab = document.getElementById('global-chat-fab');
+                const chatBadge = document.getElementById('chat-unread-badge');
+                
+                if (chatFab) {
+                    fetch('/quiz/chat/api/unread/')
+                    .then(r => r.json())
+                    .then(chatData => {
+                        const unreadChatCount = chatData.unread_chat_count;
+                        
+                        if (unreadChatCount > 0) {
+                            chatBadge.innerText = unreadChatCount;
+                            chatBadge.style.display = 'block';
+                            
+                            if (window.lastChatCount !== undefined && unreadChatCount > window.lastChatCount) {
+                                chatFab.classList.add('badge-flash-active');
+                                setTimeout(() => chatFab.classList.remove('badge-flash-active'), 3000);
+                            }
+                        } else {
+                            chatBadge.style.display = 'none';
+                        }
+                        window.lastChatCount = unreadChatCount;
+                    })
+                    .catch(err => console.log('채팅 알림 로딩 대기 중...'));
+                }
+
                 if(onlyBadge) return;
 
-                // 2. 리스트 업데이트
                 const countTextM = document.getElementById('noti-count-text-manager');
                 const listM = document.getElementById('noti-list-container-manager');
                 const countTextS = document.getElementById('noti-count-text-student');
@@ -275,14 +410,13 @@
                 let targetList = listM || listS;
                 let targetCount = countTextM || countTextS;
 
-                if (targetCount) targetCount.innerText = data.count;
+                if (targetCount) targetCount.innerText = currentCount;
                 if (targetList) {
                     targetList.innerHTML = '';
-                    if (data.count === 0) {
+                    if (currentCount === 0) {
                         targetList.innerHTML = '<li class="dropdown-item text-center text-muted small py-3">새로운 알림이 없습니다.</li>';
                     } else {
                         data.notifications.forEach(n => {
-                            // ★ 클릭 시 clickAndMove 함수 실행 (읽음 처리 + 이동)
                             targetList.innerHTML += `
                                 <li class="dropdown-item d-flex align-items-start p-2 border-bottom notification-item" 
                                     onclick="clickAndMove(${n.id}, '${n.link}')">
@@ -303,231 +437,60 @@
 
         // [기능 1] 알림 클릭: 읽음 처리 후 페이지 이동
         function clickAndMove(id, link) {
-    // 1. 화면 이동 없이 몰래(fetch) 백엔드에 읽음 처리 요청을 보냅니다.
-    fetch(`/quiz/notification/read/${id}/`)
-    .then(res => res.json())
-    .then(data => {
-        // 2. 백엔드 처리가 성공하면 넘어온 link 값을 확인합니다.
-        if (link && link !== 'null' && link !== 'None' && link !== '#') {
-            // 링크가 있다면 해당 페이지로 자연스럽게 이동합니다.
-            window.location.href = link;
-        } else {
-            // 이동할 링크가 딱히 없다면, 종 모양 뱃지와 알림 목록만 새로고침 합니다.
-            loadNotifications(); 
-        }
-    })
-    .catch(err => console.error('알림 읽음 처리 중 오류 발생:', err));
-}
-
-        // [기능 2] X 버튼: 영구 삭제
-        function deleteNoti(id, event) {
-            event.stopPropagation(); // 클릭 이벤트 전파 방지
-            event.preventDefault();
-            
-            fetch(`/quiz/notification/delete/${id}/`)
-            .then(res => res.json())
-            .then(d => {
-                loadNotifications(); // 목록 갱신
-            });
-        }
-
-        // [기능 3] 전체 삭제
-        function clearAllNotis() {
-            if(!confirm('모든 알림을 삭제하시겠습니까?')) return;
-            fetch(`/quiz/notification/clear-all/`)
-            .then(res => res.json())
-            .then(d => loadNotifications());
-        }
-
-        function openSmartModal(modalId, event) {
-            event.preventDefault(); // 기본 링크 이동 막기
-            
-            // 1. 현재 페이지에 해당 모달이 있으면 (대시보드인 경우) 바로 엽니다.
-            if (document.getElementById(modalId)) {
-                var myModal = new bootstrap.Modal(document.getElementById(modalId));
-                myModal.show();
-            } 
-            // 2. 현재 페이지에 모달이 없으면 (다른 페이지인 경우) 대시보드로 가면서 신호를 보냅니다.
-            else {
-                window.location.href = "{% url 'quiz:manager_dashboard' %}?open_modal=" + modalId;
-            }
-        }
-        
-        document.addEventListener('DOMContentLoaded', function() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const modalToOpen = urlParams.get('open_modal');
-    
-    if (modalToOpen && document.getElementById(modalToOpen)) {
-        // 지정된 모달을 자동으로 띄움
-        var autoModal = new bootstrap.Modal(document.getElementById(modalToOpen));
-        autoModal.show();
-        
-        // 주소창이 지저분해지지 않게 꼬리표(?open_modal=...)를 몰래 지워줌
-        window.history.replaceState({}, document.title, window.location.pathname);
-    }
-});
-    </script>
-
- <style>
-        /* 1. 종 모양 흔들림 애니메이션 */
-        @keyframes ringBell {
-            0% { transform: rotate(0); }
-            10% { transform: rotate(20deg); }
-            20% { transform: rotate(-20deg); }
-            30% { transform: rotate(15deg); }
-            40% { transform: rotate(-15deg); }
-            50% { transform: rotate(0); }
-            100% { transform: rotate(0); }
-        }
-        /* 2. 주황색 깜빡임 효과 */
-        @keyframes flashOrange {
-            0% { background-color: #dc3545; transform: scale(1); }
-            50% { background-color: #fd7e14; transform: scale(1.3); box-shadow: 0 0 15px #fd7e14; }
-            100% { background-color: #dc3545; transform: scale(1); }
-        }
-        .bell-ring-active { animation: ringBell 0.8s ease-in-out; color: #fd7e14 !important; }
-        .badge-flash-active { animation: flashOrange 1s ease-in-out 3; }
-    </style>
-
-    <script>
-        // 기존 알림 개수 기억용 변수 (전역 변수)
-        let previousNotiCount = -1;
-
-        document.addEventListener('DOMContentLoaded', function() {
-            // 1. 페이지 로드 시 알림 숫자만 우선 가져오기
-            loadNotifications(true); 
-            
-            // 2. 30초마다 사용자 몰래 서버 확인 (실시간 알림)
-            setInterval(() => {
-                loadNotifications(true);
-            }, 30000); 
-
-            // 3. ★ [누락 수정 완료] URL 확인해서 모달창 자동 띄우기 로직을 안전하게 내부로 이동!
-            const urlParams = new URLSearchParams(window.location.search);
-            const modalToOpen = urlParams.get('open_modal');
-            if (modalToOpen && document.getElementById(modalToOpen)) {
-                var autoModal = new bootstrap.Modal(document.getElementById(modalToOpen));
-                autoModal.show();
-                // 주소창 지저분한 꼬리표 정리
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-        });
-
-        // ==========================================
-        // 통합 알림 로드 함수
-        // ==========================================
-        function loadNotifications(onlyBadge = false) {
-            const badgeM = document.getElementById('noti-badge-manager');
-            const badgeS = document.getElementById('noti-badge-student');
-            
-            // HTML 네비바에 id="bell-icon" 이 추가되어 있어야 애니메이션이 작동합니다!
-            const bellIcon = document.getElementById('bell-icon'); 
-            
-            fetch('/quiz/api/notifications/') 
-            .then(res => res.json())
-            .then(data => {
-                const currentCount = data.count;
-
-                // [1] 뱃지 숫자 업데이트
-                if(currentCount > 0) {
-                    if(badgeM) { badgeM.innerText = currentCount; badgeM.style.display = 'inline-block'; }
-                    if(badgeS) { badgeS.innerText = currentCount; badgeS.style.display = 'inline-block'; }
-                } else {
-                    if(badgeM) badgeM.style.display = 'none';
-                    if(badgeS) badgeS.style.display = 'none';
-                }
-
-                // [2] 새 알림 도착 감지 & 깜빡임 효과 발동!
-                if (previousNotiCount !== -1 && currentCount > previousNotiCount) {
-                    if (badgeM) badgeM.classList.add('badge-flash-active');
-                    if (badgeS) badgeS.classList.add('badge-flash-active');
-                    if (bellIcon) bellIcon.classList.add('bell-ring-active');
-                    
-                    // 3초 뒤 애니메이션 초기화
-                    setTimeout(() => {
-                        if (badgeM) badgeM.classList.remove('badge-flash-active');
-                        if (badgeS) badgeS.classList.remove('badge-flash-active');
-                        if (bellIcon) bellIcon.classList.remove('bell-ring-active');
-                    }, 3000);
-                }
-                
-                // 현재 개수를 기억해둠
-                previousNotiCount = currentCount;
-
-                // ★ onlyBadge가 true면(자동 갱신) 숫자만 바꾸고 리스트는 그리지 않음 (서버 부하/화면 멈춤 방지)
-                if(onlyBadge) return;
-
-                // [3] 드롭다운 리스트 업데이트 (사용자가 직접 종 모양을 클릭했을 때만 실행)
-                const countTextM = document.getElementById('noti-count-text-manager');
-                const listM = document.getElementById('noti-list-container-manager');
-                const countTextS = document.getElementById('noti-count-text-student');
-                const listS = document.getElementById('noti-list-container-student');
-
-                let targetList = listM || listS;
-                let targetCount = countTextM || countTextS;
-
-                if (targetCount) targetCount.innerText = currentCount;
-                if (targetList) {
-                    targetList.innerHTML = ''; // 기존 리스트 싹 비우기
-                    if (currentCount === 0) {
-                        targetList.innerHTML = '<li class="dropdown-item text-center text-muted small py-3">새로운 알림이 없습니다.</li>';
-                    } else {
-                        data.notifications.forEach(n => {
-                            // 알림 리스트 다시 그리기
-                            targetList.innerHTML += `
-                                <li class="dropdown-item d-flex align-items-start p-2 border-bottom notification-item" 
-                                    onclick="clickAndMove(${n.id}, '${n.link}')">
-                                    <i class="bi ${n.icon} text-primary fs-4 me-2"></i>
-                                    <div class="flex-grow-1" style="line-height:1.2;">
-                                        <div class="fw-bold small text-truncate" style="max-width: 180px;">${n.message}</div>
-                                        <span class="text-muted" style="font-size:0.7em;">${n.time}</span>
-                                    </div>
-                                    <button onclick="deleteNoti(${n.id}, event)" class="btn btn-link text-secondary p-0 ms-1"><i class="bi bi-x"></i></button>
-                                </li>
-                            `;
-                        });
-                    }
-                }
-            })
-            .catch(err => console.log('알림 로딩 대기 중...'));
-        }
-
-        // ==========================================
-        // 기타 유틸리티 함수들
-        // ==========================================
-        
-        // 알림 클릭: 읽음 처리 후 페이지 이동
-        function clickAndMove(id, link) {
             fetch(`/quiz/notification/read/${id}/`)
             .then(res => res.json())
             .then(data => {
                 if (link && link !== 'null' && link !== 'None' && link !== '#') {
                     window.location.href = link;
                 } else {
-                    loadNotifications(false); // 링크 없으면 리스트 다시 로드
+                    loadNotifications(false); 
                 }
             })
             .catch(err => console.error('알림 읽음 처리 중 오류 발생:', err));
         }
 
-        // X 버튼: 영구 삭제
+        // [기능 2] X 버튼: 영구 삭제
         function deleteNoti(id, event) {
-            event.stopPropagation();
+            event.stopPropagation(); 
             event.preventDefault();
+            
             fetch(`/quiz/notification/delete/${id}/`)
             .then(res => res.json())
-            .then(d => { loadNotifications(false); });
+            .then(d => {
+                loadNotifications(); 
+            });
         }
 
-        // 전체 삭제
+        // [기능 3] 전체 삭제
         function clearAllNotis() {
-            if(!confirm('모든 알림을 삭제하시겠습니까?')) return;
-            fetch(`/quiz/notification/clear-all/`)
-            .then(res => res.json())
-            .then(d => loadNotifications(false));
+            Swal.fire({
+                title: '알림 전체 삭제',
+                text: "모든 알림을 정말 삭제하시겠습니까?",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#dc3545', // PMTC 빨간색
+                cancelButtonColor: '#6c757d', // PMTC 회색
+                confirmButtonText: '<i class="bi bi-trash3-fill me-1"></i> 네, 삭제합니다',
+                cancelButtonText: '취소'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    fetch(`/quiz/notification/clear-all/`)
+                    .then(res => res.json())
+                    .then(d => {
+                        loadNotifications();
+                        // 삭제 완료 시 나오는 체크마크 애니메이션
+                        Swal.fire({
+                            title: '삭제 완료!',
+                            text: '모든 알림이 깔끔하게 지워졌습니다.',
+                            icon: 'success',
+                            timer: 1500, // 1.5초 뒤 자동 닫힘
+                            showConfirmButton: false
+                        });
+                    });
+                }
+            });
         }
 
-        // 스마트 모달 열기
         function openSmartModal(modalId, event) {
             event.preventDefault(); 
             if (document.getElementById(modalId)) {
@@ -537,7 +500,362 @@
                 window.location.href = "{% url 'quiz:manager_dashboard' %}?open_modal=" + modalId;
             }
         }
+
+        const chatOffcanvasEl = document.getElementById('chatOffcanvas');
+        if(chatOffcanvasEl && chatFab) {
+            chatOffcanvasEl.addEventListener('show.bs.offcanvas', () => { chatFab.style.display = 'none'; });
+            chatOffcanvasEl.addEventListener('hidden.bs.offcanvas', () => { chatFab.style.display = 'flex'; });
+        }
     </script>
-    {% endif %}
-</body>
+
+    {% if user.is_superuser or user.profile.is_manager or user.profile.can_use_messenger %}
+    <div class="chat-fab" data-bs-toggle="offcanvas" data-bs-target="#chatOffcanvas" title="사내 메신저" id="global-chat-fab">
+        <i class="bi bi-chat-dots-fill"></i>
+        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="chat-unread-badge" style="display:none; font-size:0.6rem;">0</span>
+    </div>
+
+    <div class="offcanvas offcanvas-end chat-offcanvas shadow" tabindex="-1" id="chatOffcanvas" data-bs-backdrop="false">
+        <div class="offcanvas-header bg-warning text-dark border-bottom py-2 d-flex align-items-center justify-content-between">
+            <h6 class="offcanvas-title fw-bold m-0"><i class="bi bi-chat-dots-fill me-1"></i> PMTC 사내 메신저</h6>
+            <div>
+                <button type="button" class="btn btn-sm btn-link text-dark p-0 me-2" id="chat-pin-btn" title="창 고정">
+                    <i class="bi bi-pin-angle fs-5" id="chat-pin-icon"></i>
+                </button>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas"></button>
+            </div>
+        </div>
+        <div class="offcanvas-body p-0 d-flex flex-column" style="overflow: hidden; background-color: #f8f9fa;">
+            <iframe src="{% url 'quiz:chat_home' %}" class="chat-iframe flex-grow-1" id="chatIframe" style="width: 100%; border: none;"></iframe>
+        </div>
+    </div>
+
+
+
+    
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const chatCanvas = document.getElementById('chatOffcanvas');
+            const chatFabBtn = document.getElementById('global-chat-fab');
+            
+            if(chatCanvas && chatFabBtn) {
+                // 서랍장이 열리기 시작할 때 -> 버튼 숨김
+                chatCanvas.addEventListener('show.bs.offcanvas', function () {
+                    chatFabBtn.style.display = 'none';
+                });
+                // 서랍장이 완전히 닫혔을 때 -> 버튼 보임
+                chatCanvas.addEventListener('hidden.bs.offcanvas', function () {
+                    chatFabBtn.style.display = 'flex';
+                });
+            }
+        });
+
+        window.updateChatBadge = function() {
+            const chatBadge = document.getElementById('chat-unread-badge');
+            const chatFab = document.getElementById('global-chat-fab');
+            
+            if (chatBadge && chatFab) {
+                // 서버에 "나 안 읽은 거 몇 개 남았어?" 라고 즉시 물어봄
+                fetch('/quiz/chat/api/unread/')
+                .then(r => r.json())
+                .then(chatData => {
+                    const unreadChatCount = chatData.unread_chat_count;
+                    
+                    if (unreadChatCount > 0) {
+                        chatBadge.innerText = unreadChatCount;
+                        chatBadge.style.display = 'block';
+                    } else {
+                        // 0개면 빨간색 배지 즉시 숨김!
+                        chatBadge.style.display = 'none';
+                    }
+                    window.lastChatCount = unreadChatCount;
+                })
+                .catch(err => console.error("배지 동기화 오류:", err));
+            }
+        };
+
+        if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+            Notification.requestPermission();
+        }
+
+        // 2. 탭 제목(Title) 점멸 로직
+        let titleBlinkInterval = null;
+        const originalTitle = document.title;
+
+        function startTitleBlink(senderName) {
+            if (titleBlinkInterval) clearInterval(titleBlinkInterval);
+            let isBlinked = false;
+            titleBlinkInterval = setInterval(() => {
+                document.title = isBlinked ? originalTitle : `💬 [새 메시지] ${senderName}님`;
+                isBlinked = !isBlinked;
+            }, 1000); // 1초마다 깜빡임
+        }
+
+        function stopTitleBlink() {
+            if (titleBlinkInterval) {
+                clearInterval(titleBlinkInterval);
+                titleBlinkInterval = null;
+                document.title = originalTitle;
+            }
+        }
+
+        // 마우스를 클릭하거나 화면을 다시 보면 점멸 끄기!
+        window.addEventListener('focus', stopTitleBlink);
+        window.addEventListener('click', stopTitleBlink);
+
+        // 3. 서버의 '알림 교환원'과 실시간 고속도로(웹소켓) 뚫기!
+        const notiWsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+        const notiSocket = new WebSocket(notiWsScheme + '://' + window.location.host + '/ws/notifications/');
+
+        // ★ [추가됨] 인앱 Toast 팝업 실행 함수
+        function showInAppToast(title, message, isChat = false) {
+            const toastEl = document.getElementById('pmtcToast');
+            document.getElementById('toastTitle').innerText = title;
+            document.getElementById('toastMessage').innerText = message;
+            
+            const icon = document.getElementById('toastIcon');
+            if (isChat) {
+                icon.className = "bi bi-chat-dots-fill text-warning fs-5 me-2"; // 채팅은 노란색 아이콘
+            } else {
+                icon.className = "bi bi-bell-fill text-primary fs-5 me-2"; // 시스템은 파란색 아이콘
+            }
+
+            // 4.5초 동안 떠 있다가 스르륵 사라짐
+            const bsToast = bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 4500 });
+            bsToast.show();
+        }
+
+        notiSocket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+
+            // ========================================================
+            // ★ 1. 시스템 알림 (경고, 면담, 시험 승인 등) 처리
+            // ========================================================
+            if (data.type === 'system_alert' || data.room_id === 'system') {
+                
+                if (typeof loadNotifications === "function") {
+                    loadNotifications(true); 
+                }
+                
+                // ★ 인앱 Toast 팝업 띄우기!
+                showInAppToast("🔔 시스템 알림", data.message, false);
+
+                if (Notification.permission === "granted") {
+                    const sysNoti = new Notification("🔔 PMTC 시스템 알림", {
+                        body: data.message, 
+                        icon: '/static/favicon.ico'
+                    });
+                    sysNoti.onclick = function() { window.focus(); };
+                }
+                return; 
+            }
+
+            // ========================================================
+            // ★ 2. 사내 메신저 채팅 알림 처리
+            // ========================================================
+            if (data.type === 'chat_alert') {
+                
+                if (window.updateChatBadge) window.updateChatBadge();
+
+                const msgContent = data.message ? data.message : "사진/파일을 보냈습니다.";
+
+                // ★ 인앱 Toast 팝업 띄우기!
+                showInAppToast("💬 " + data.sender_name + "님의 메시지", msgContent, true);
+
+                if (Notification.permission === "granted") {
+                    const notification = new Notification(`💬 새 메시지 - ${data.sender_name}`, {
+                        body: msgContent,
+                        icon: '/static/favicon.ico' 
+                    });
+
+                    notification.onclick = function() {
+                        window.focus(); 
+                        const chatCanvas = document.getElementById('chatOffcanvas');
+                        if (chatCanvas) {
+                            const bsOffcanvas = bootstrap.Offcanvas.getOrCreateInstance(chatCanvas);
+                            bsOffcanvas.show();
+                        }
+                    };
+                }
+                
+                if (typeof startTitleBlink === "function") {
+                    startTitleBlink(data.sender_name);
+                }
+            }
+        };
+
+    let isChatPinned = false;
+        const pinBtn = document.getElementById('chat-pin-btn');
+        const pinIcon = document.getElementById('chat-pin-icon');
+
+        if (pinBtn) {
+            pinBtn.addEventListener('click', function() {
+                isChatPinned = !isChatPinned; // 상태 반전
+                if (isChatPinned) {
+                    pinIcon.classList.remove('bi-pin-angle');
+                    pinIcon.classList.add('bi-pin-fill');
+                    pinBtn.classList.add('text-danger'); // 핀 꽂히면 빨간색으로!
+                } else {
+                    pinIcon.classList.remove('bi-pin-fill');
+                    pinIcon.classList.add('bi-pin-angle');
+                    pinBtn.classList.remove('text-danger');
+                }
+            });
+        }
+
+        document.addEventListener('click', function(event) {
+            if (isChatPinned) return; // ★ 핀이 꽂혀있으면 닫지 않고 무시함!
+
+            const chatCanvas = document.getElementById('chatOffcanvas');
+            const chatFab = document.getElementById('global-chat-fab');
+            
+            if (chatCanvas && chatCanvas.classList.contains('show')) {
+                if (!chatCanvas.contains(event.target) && (!chatFab || !chatFab.contains(event.target))) {
+                    const bsOffcanvas = bootstrap.Offcanvas.getInstance(chatCanvas);
+                    if (bsOffcanvas) bsOffcanvas.hide();
+                }
+            }
+        });
+
+        // ★ 채팅방 링크 전역 인터셉터 (어디서 누르든 팝업으로 강제 실행)
+    document.addEventListener('click', function(e) {
+            const link = e.target.closest('a');
+            let targetUrl = null;
+
+            // 1. <a> 태그에 주소가 있는 경우
+            if (link && link.href && link.href.includes('/chat/room/')) {
+                targetUrl = link.href;
+            } 
+            // 2. 알림창의 onclick 등에 주소가 숨어있는 경우
+            else {
+                const item = e.target.closest('[onclick]');
+                if (item && item.getAttribute('onclick').includes('/chat/room/')) {
+                    const match = item.getAttribute('onclick').match(/'([^']+)'|"([^"]+)"/);
+                    if (match) targetUrl = match[1] || match[2];
+                }
+            }
+
+            // 채팅방 주소를 발견했다면!?
+            if (targetUrl && targetUrl.includes('/chat/room/')) {
+                e.preventDefault(); 
+                e.stopPropagation(); 
+                
+                const width = 420;
+                const height = 700;
+                const left = (window.screen.width / 2) - (width / 2);
+                const top = (window.screen.height / 2) - (height / 2);
+                
+                window.open(targetUrl, 'chat_popup_' + new Date().getTime(), `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`);
+
+                if (link && link.getAttribute('onclick')) {
+                    const matchId = link.getAttribute('onclick').match(/\d+/);
+                    if (matchId) {
+                        fetch(`/quiz/notification/read/${matchId[0]}/`).catch(()=>console.log("읽음 처리 무시됨"));
+                    }
+                }
+            }
+        }, true); 
+
+        // =================================================================
+        // ★ 1. 현재 메뉴 자동 하이라이트 (Active Nav)
+        // =================================================================
+        // =================================================================
+        // ★ 1. 현재 메뉴 자동 하이라이트 (최종 진화형: 예외처리 포함)
+        // =================================================================
+        document.addEventListener("DOMContentLoaded", function() {
+            const currentPath = window.location.pathname;
+            
+            // 1단계: 찌꺼기 제거
+            document.querySelectorAll('.nav-link, .dropdown-item').forEach(link => {
+                link.classList.remove('active');
+                const parent = link.closest('.dropdown');
+                if(parent) {
+                    const toggle = parent.querySelector('.nav-link.dropdown-toggle');
+                    if(toggle) toggle.classList.remove('active');
+                }
+            });
+
+            let bestMatch = null;
+            let maxScore = -1;
+
+            // ★ [특별 예외처리] 기수 마감 종합 리포트 주소인 경우 강제로 '통계/분석' 타겟팅
+            // 아래 조건의 '/quiz/manager/latest_report/' 부분은 실제 리포트 URL에 맞춰 자동 감지됩니다.
+            if (currentPath.includes('latest_cohort_report') || currentPath.includes('report')) {
+                // '통계/분석' 글자를 포함한 메뉴를 먼저 찾습니다.
+                const statMenu = Array.from(document.querySelectorAll('.nav-link')).find(el => el.textContent.includes('통계/분석'));
+                if (statMenu) {
+                    statMenu.classList.add('active');
+                    // 드롭다운 내부의 '기수 마감 종합 리포트' 항목도 찾아서 불 켬
+                    const subItem = Array.from(document.querySelectorAll('.dropdown-item')).find(el => el.textContent.includes('기수 마감'));
+                    if (subItem) subItem.classList.add('active');
+                    return; // 예외처리 완료 시 로직 종료
+                }
+            }
+
+            // 2단계: 일반적인 폴더 구조 매칭
+            const currentSegs = currentPath.split('/').filter(x => x);
+            document.querySelectorAll('.nav-link, .dropdown-item').forEach(link => {
+                const rawHref = link.getAttribute('href');
+                if (!rawHref || rawHref === '#' || rawHref.startsWith('javascript')) return;
+
+                let linkPath;
+                try { linkPath = new URL(link.href).pathname; } 
+                catch (e) { linkPath = rawHref.split('?')[0]; }
+
+                if ((linkPath === '/' || linkPath === '/quiz/' || linkPath === '/quiz/manager/') && currentPath !== linkPath) return;
+
+                if (currentPath === linkPath) {
+                    bestMatch = link;
+                    maxScore = 9999;
+                    return;
+                }
+
+                if (maxScore !== 9999) {
+                    const linkSegs = linkPath.split('/').filter(x => x);
+                    let matchCount = 0;
+                    for (let i = 0; i < Math.min(currentSegs.length, linkSegs.length); i++) {
+                        if (currentSegs[i] === linkSegs[i]) matchCount++;
+                        else break;
+                    }
+                    if (matchCount > 0 && matchCount >= linkSegs.length - 1) {
+                        if (matchCount > maxScore) {
+                            maxScore = matchCount;
+                            bestMatch = link;
+                        }
+                    }
+                }
+            });
+
+            // 3단계: 최후의 1인 점등
+            if (bestMatch) {
+                bestMatch.classList.add('active');
+                const parentDropdown = bestMatch.closest('.dropdown');
+                if (parentDropdown) {
+                    const parentToggle = parentDropdown.querySelector('.nav-link.dropdown-toggle');
+                    if (parentToggle) parentToggle.classList.add('active');
+                }
+            }
+        });
+
+        // =================================================================
+        // ★ 2. 글로벌 로딩 오버레이 보호막 (폼 중복 제출 방지)
+        // =================================================================
+        document.addEventListener("DOMContentLoaded", function() {
+            const loader = document.getElementById('global-loader');
+            
+            // 화면에 있는 모든 입력폼(form)에 보호막을 씌움
+            document.querySelectorAll('form').forEach(form => {
+                form.addEventListener('submit', function(e) {
+                    // 단, 새 창으로 열기(target="_blank")로 설정된 폼은 로딩창 띄우지 않음
+                    if (form.getAttribute('target') === '_blank') return;
+                    
+                    // 확인 팝업(confirm)이 있는 경우 취소하면 로딩창도 안 띄우기 위해 약간의 지연시간을 줌
+                    setTimeout(() => {
+                        loader.style.display = 'flex';
+                    }, 50);
+                });
+            });
+        });
+    </script>
+    {% endif %} {% endif %} </body>
 </html>

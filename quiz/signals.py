@@ -5,6 +5,7 @@ from django.dispatch import receiver
 from django.db.models import Avg, Q
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from quiz.views import broadcast_realtime_notification
 
 # 모델 임포트 (기존 + 신규 통합)
 from .models import TestResult, Quiz, Reservation, Notification, Room
@@ -121,8 +122,11 @@ def notify_facility_reservation(sender, instance, created, **kwargs):
                 sender=instance.user,
                 message=f"🏢 {instance.user.first_name}님이 [{instance.room.name}] 예약을 신청했습니다.",
                 notification_type='facility', 
-                related_url='/quiz/manager/facility/'  # ★ 클릭 시 이동할 주소
+                related_url='/quiz/manager/facility/',  # ★ 클릭 시 이동할 주소
+                
             )
+
+            broadcast_realtime_notification(admin.id)
 
 # =========================================================
 # [Part 3] 점수 자동 갱신 (★ 핵심 추가)

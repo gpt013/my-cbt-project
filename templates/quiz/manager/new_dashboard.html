@@ -76,6 +76,10 @@
         background: linear-gradient(45deg, #f8f9fa, #ffffff);
         border-left: 5px solid #0d6efd;
     }
+
+    .bg-pastel-safety { background-color: #e8f5e9 !important; }
+    .bg-pastel-etc { background-color: #fff3e0 !important; }
+    
 </style>
 
 <div class="container-fluid mt-4 mb-5">
@@ -168,9 +172,13 @@
                             <th class="sticky-col-1 align-middle" rowspan="2">교육생 정보 (기수)</th>
                             <th class="align-middle bg-primary bg-opacity-10 text-primary" rowspan="2" style="width: 70px;">1차<br>평균</th>
                             {% for quiz in header_quizzes %}
-                            <th class="quiz-col align-middle">
-                                <div class="text-truncate px-1" title="{{ quiz.title }}">{{ quiz.title }}</div>
-                                <div class="sub-header mt-1">
+                            <th class="quiz-col align-middle {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
+                                <div class="text-truncate px-1" title="{{ quiz.title }}">
+                                    {% if quiz.category == 'safety' %}<span class="text-success">[안전]</span>
+                                    {% elif quiz.category == 'etc' %}<span class="text-warning">[기타]</span>{% endif %}
+                                    {{ quiz.title }}
+                                </div>
+                                <div class="sub-header mt-1 {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
                                     <div>1차</div><div>2차</div><div>3차</div>
                                 </div>
                             </th>
@@ -194,7 +202,7 @@
                                 </td>
                                 <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6">{{ s.avg_score }}</td>
                                 {% for quiz_data in s.scores_map %}
-                                <td class="quiz-col p-0">
+                                <td class="quiz-col p-0 {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %}">
                                     <div class="score-grid">
                                         {% for attempt in quiz_data.attempts %}
                                             {% if attempt %}
@@ -202,7 +210,7 @@
                                                     {{ attempt.score }}
                                                 </div>
                                             {% else %}
-                                                <div class="score-cell bg-none">-</div>
+                                                <div class="score-cell bg-none {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %}">-</div>
                                             {% endif %}
                                         {% endfor %}
                                     </div>
@@ -247,9 +255,13 @@
                                         <th class="sticky-col-1 align-middle" rowspan="2">교육생 정보</th>
                                         <th class="align-middle bg-primary bg-opacity-10 text-primary" rowspan="2" style="width: 70px;">1차<br>평균</th>
                                         {% for quiz in header_quizzes %}
-                                        <th class="quiz-col align-middle">
-                                            <div class="text-truncate px-1">{{ quiz.title }}</div>
-                                            <div class="sub-header mt-1">
+                                        <th class="quiz-col align-middle {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
+                                            <div class="text-truncate px-1">
+                                                {% if quiz.category == 'safety' %}<span class="text-success">[안전]</span>
+                                                {% elif quiz.category == 'etc' %}<span class="text-warning">[기타]</span>{% endif %}
+                                                {{ quiz.title }}
+                                            </div>
+                                            <div class="sub-header mt-1 {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
                                                 <div>1차</div><div>2차</div><div>3차</div>
                                             </div>
                                         </th>
@@ -272,7 +284,7 @@
                                         </td>
                                         <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6">{{ s.avg_score }}</td>
                                         {% for quiz_data in s.scores_map %}
-                                        <td class="quiz-col p-0">
+                                        <td class="quiz-col p-0 {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %}">
                                             <div class="score-grid">
                                                 {% for attempt in quiz_data.attempts %}
                                                     {% if attempt %}
@@ -280,7 +292,7 @@
                                                             {{ attempt.score }}
                                                         </div>
                                                     {% else %}
-                                                        <div class="score-cell bg-none">-</div>
+                                                        <div class="score-cell bg-none {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %}">-</div>
                                                     {% endif %}
                                                 {% endfor %}
                                             </div>
