@@ -306,7 +306,14 @@
                     </div>
                 </div>
 
-                {% if is_finalized %}
+                {% if has_pending_exception %}
+                    <div class="alert alert-warning text-center fw-bold mt-5 p-4 shadow-sm border-warning">
+                        <i class="bi bi-hourglass-split text-dark fs-1 d-block mb-2 animate__animated animate__pulse animate__infinite"></i>
+                        <h5 class="fw-bold mb-1 text-dark">최고 관리자의 예외 수료 결재를 대기 중입니다.</h5>
+                        <p class="mb-0 text-muted small">결재가 완료될 때까지 평가서를 수정하거나 최종 상태를 변경할 수 없습니다.</p>
+                    </div>
+
+                {% elif is_finalized %}
                     <div class="alert alert-secondary text-center fw-bold mt-5 p-4 shadow-sm border-secondary">
                         <i class="bi bi-lock-fill text-dark fs-1 d-block mb-2"></i>
                         <h5 class="fw-bold mb-1 text-dark">최종 평가 및 결정이 완료된 문서입니다.</h5>
@@ -317,12 +324,9 @@
                     <div class="card shadow-sm border-0 mb-5 mt-5 border-top border-4 border-danger animate__animated animate__fadeInUp">
                         <div class="card-header bg-white fw-bold py-3 text-dark d-flex justify-content-between align-items-center">
                             <span class="fs-5"><i class="bi bi-person-bounding-box me-2 text-danger"></i> 최종 수료 / 퇴소 결정</span>
-                            
                             <div class="form-check form-switch fs-6">
                                 <input class="form-check-input border-danger" type="checkbox" id="unlockDecisionToggle" style="cursor:pointer;">
-                                <label class="form-check-label text-danger fw-bold" for="unlockDecisionToggle" style="cursor:pointer;">
-                                    평가 작성 완료 (결정 잠금 해제)
-                                </label>
+                                <label class="form-check-label text-danger fw-bold" for="unlockDecisionToggle" style="cursor:pointer;">평가 작성 완료 (잠금 해제)</label>
                             </div>
                         </div>
 
@@ -337,16 +341,15 @@
                                 
                                 <select id="final_status" class="form-select form-select-lg fw-bold shadow-sm">
                                     <option value="completed" class="text-success">🎓 수료 (Completed)</option>
+                                    <option value="exception_request" class="text-warning" style="display:none;">⚠️ 예외 수료 요청 (최고 관리자 승인 필요)</option>
                                     <option value="dropout" class="text-danger">⚫ 퇴소 (Dropout)</option>
                                 </select>
-                                <div class="form-text mt-2 text-danger fw-bold" id="status_warning" style="display:none;">
-                                    <i class="bi bi-exclamation-triangle-fill"></i> 최종 점수가 80점 미만이거나 이미 사전 퇴소된 인원이라 '퇴소'로 강제 처리됩니다.
-                                </div>
+                                <div class="form-text mt-2 text-danger fw-bold" id="status_warning" style="display:none;"></div>
                             </div>
                             
                             <div class="mb-3" id="dropout_reason_div" style="display: none;">
-                                <label class="form-label fw-bold text-danger">퇴소 사유 기입 <span class="text-danger">*</span></label>
-                                <input type="text" name="dropout_reason" id="dropout_reason" class="form-control fw-bold border-danger bg-white" placeholder="예: 평가 점수 미달, 잦은 지각 등 명확히 기재">
+                                <label class="form-label fw-bold text-danger">사유 기입 <span class="text-danger">*</span></label>
+                                <input type="text" name="dropout_reason" id="dropout_reason" class="form-control fw-bold border-danger bg-white" placeholder="평가 점수 미달, 잦은 지각 등 명확히 기재">
                             </div>
                             
                             <div class="d-grid gap-2 mt-4 pt-3 border-top border-2 border-danger border-opacity-25">
@@ -360,15 +363,14 @@
                 {% else %}
                     <div class="d-grid gap-2 mb-4 mt-5">
                         <button type="submit" formnovalidate name="action" value="save" class="btn btn-primary btn-lg fw-bold py-3 shadow hover-scale">
-            <i class="bi bi-save me-2"></i> 현재 평가 내용 임시 저장
-        </button>
+                            <i class="bi bi-save me-2"></i> 현재 평가 내용 임시 저장
+                        </button>
                     </div>
                     <div class="text-center text-muted small fw-bold mb-5">
-                        <i class="bi bi-info-circle text-primary"></i> 최종 수료/퇴소 결정 기능은 <span class="text-danger">기수 종료일({{ trainee.cohort.end_date|date:"Y-m-d" }}) 이후</span> 자동으로 활성화됩니다.
+                        <i class="bi bi-info-circle text-primary"></i> 최종 수료/퇴소 결정 기능은 <span class="text-danger">기수 종료일({{ trainee.cohort.end_date|date:"Y-m-d" }}) 이후</span> 활성화됩니다.
                     </div>
                 {% endif %}
-
-            </div>
+                </div>
         </div>
     </form>
 </div>
@@ -432,70 +434,112 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        // ====================================================
-        // ★ 강제 퇴소 제어 및 관리자 예외 권한 로직
-        // ====================================================
+        // 🌟 [여기서부터 덮어쓰기] 강제 퇴소 제어 및 관리자 예외 권한 로직 🌟
         const statusSel = document.getElementById('final_status');
         const reasonDiv = document.getElementById('dropout_reason_div');
         const reasonInput = document.getElementById('dropout_reason');
         const statusWarning = document.getElementById('status_warning');
         const reasonLabel = document.querySelector('#dropout_reason_div label');
+        const submitBtn = document.getElementById('finalSubmitBtn');
 
         if (statusSel && reasonDiv && reasonInput && statusWarning) {
             let forcedDropout = false;
             if (total < 80) forcedDropout = true;
             if (initialStatus === 'dropout') forcedDropout = true;
 
+            // 로드 시 기본값 자동 스위칭
+            if (window.lastForcedState !== forcedDropout) {
+                statusSel.value = forcedDropout ? 'dropout' : 'completed';
+                window.lastForcedState = forcedDropout;
+            }
+
+            const optCompleted = statusSel.querySelector('option[value="completed"]');
+            const optException = statusSel.querySelector('option[value="exception_request"]');
+            
             if (forcedDropout) {
                 if (isSuperuser) {
-                    // [최고 관리자] 강제 퇴소 대상자여도 수료 선택을 허용함
-                    for(let i=0; i<statusSel.options.length; i++) {
-                        statusSel.options[i].disabled = false;
-                    }
-                    statusWarning.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> 점수 미달 또는 사전 퇴소자입니다. 관리자 권한으로 '예외 수료'가 가능합니다.`;
+                    // [최고 관리자] 강제 퇴소 대상자여도 수료 선택 허용
+                    if(optCompleted) { optCompleted.disabled = false; optCompleted.hidden = false; }
+                    if(optException) { optException.style.display = 'none'; optException.hidden = true; }
+                    
+                    statusWarning.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> 점수 미달 또는 사전 퇴소자입니다. 기본 상태는 <b>'퇴소'</b>이며 관리자 직권으로 '예외 수료' 처리가 가능합니다.`;
+                    statusWarning.className = "form-text mt-2 text-danger fw-bold";
                     statusWarning.style.display = 'block';
                     
                     if (statusSel.value === 'completed') {
-                        // 수료를 선택했다면 '예외 수료 사유'를 강제로 받음
                         reasonDiv.style.display = 'block';
                         if(reasonLabel) reasonLabel.innerHTML = `예외 수료 사유 (관리자 필수 기입) <span class="text-danger">*</span>`;
+                        // ★ 플레이스홀더(안내문) 변경
+                        reasonInput.placeholder = "예: 시스템 오류 보상, 직권 예외 수료 인정 등 타당한 사유 기입";
                         if(reasonInput.value.includes("[시스템 자동]")) reasonInput.value = "";
+                        
+                        submitBtn.innerHTML = `<i class="bi bi-shield-check me-2"></i> 관리자 직권으로 예외 수료 확정`;
+                        submitBtn.className = "btn btn-success btn-lg fw-bold py-3 shadow text-white";
                     } else {
-                        // 퇴소를 선택하면 일반 퇴소 사유
                         reasonDiv.style.display = 'block';
                         if(reasonLabel) reasonLabel.innerHTML = `퇴소 사유 기입 <span class="text-danger">*</span>`;
+                        // ★ 플레이스홀더(안내문) 원상복구
+                        reasonInput.placeholder = "예: 평가 점수 미달, 잦은 지각 등 명확히 기재";
+                        
                         if(!reasonInput.value || reasonInput.value.includes("최종 평가 점수 미달") || reasonInput.value.includes("사전 퇴소 인원")) {
-                            if(initialStatus === 'dropout') reasonInput.value = "[시스템 자동] 사전 퇴소 인원 최종 평가 마감";
-                            else reasonInput.value = `[시스템 자동] 최종 평가 점수 미달 (${total.toFixed(1)}점)`;
+                            reasonInput.value = (initialStatus === 'dropout') ? "[시스템 자동] 사전 퇴소 인원 최종 평가 마감" : `[시스템 자동] 최종 평가 점수 미달 (${total.toFixed(1)}점)`;
                         }
+                        submitBtn.innerHTML = `<i class="bi bi-exclamation-octagon-fill me-2"></i> 평가 저장 및 최종 퇴소 확정`;
+                        submitBtn.className = "btn btn-danger btn-lg fw-bold py-3 shadow text-white";
                     }
                 } else {
-                    // [일반 매니저] 얄짤없이 수료 잠금, 퇴소 강제
-                    statusSel.value = 'dropout';
-                    for(let i=0; i<statusSel.options.length; i++) {
-                        if(statusSel.options[i].value === 'completed') statusSel.options[i].disabled = true;
-                    }
-                    statusWarning.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> 최종 점수가 80점 미만이거나 이미 사전 퇴소된 인원이라 '퇴소'로 강제 처리됩니다.`;
-                    statusWarning.style.display = 'block';
-                    reasonDiv.style.display = 'block';
-                    if(reasonLabel) reasonLabel.innerHTML = `퇴소 사유 기입 <span class="text-danger">*</span>`;
+                    // [일반 매니저] 수료 옵션은 아예 감추고(hidden), 예외 승인 요청만 가능하게 함
+                    if(optCompleted) { optCompleted.disabled = true; optCompleted.hidden = true; }
+                    if(optException) { optException.style.display = 'block'; optException.hidden = false; }
                     
-                    if(!reasonInput.value || reasonInput.value.includes("최종 평가 점수 미달") || reasonInput.value.includes("사전 퇴소 인원")) {
-                        if(initialStatus === 'dropout') reasonInput.value = "[시스템 자동] 사전 퇴소 인원 최종 평가 마감";
-                        else reasonInput.value = `[시스템 자동] 최종 평가 점수 미달 (${total.toFixed(1)}점)`;
+                    if(statusSel.value === 'completed') statusSel.value = 'dropout';
+                    
+                    if (statusSel.value === 'exception_request') {
+                        statusWarning.innerHTML = `<i class="bi bi-info-circle-fill"></i> 최고 관리자에게 예외 수료 승인을 요청합니다.`;
+                        statusWarning.className = "form-text mt-2 text-warning fw-bold";
+                        statusWarning.style.display = 'block';
+                        reasonDiv.style.display = 'block';
+                        if(reasonLabel) reasonLabel.innerHTML = `예외 수료 요청 사유 기입 <span class="text-danger">*</span>`;
+                        
+                        // ★ 플레이스홀더(안내문) 변경
+                        reasonInput.placeholder = "예: 개인 사정으로 인한 미응시 참작, 면담 후 태도 대폭 개선 등 예외 수료 요청 사유 기입";
+                        if(reasonInput.value.includes("[시스템 자동]")) reasonInput.value = "";
+                        
+                        submitBtn.innerHTML = `<i class="bi bi-send-fill me-2"></i> 예외 수료 승인 결재 요청하기`;
+                        submitBtn.className = "btn btn-warning btn-lg fw-bold py-3 shadow text-dark";
+                    } else {
+                        statusWarning.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> 점수 미달로 기본 <b>'퇴소'</b> 처리됩니다. (예외 수료 요청 가능)`;
+                        statusWarning.className = "form-text mt-2 text-danger fw-bold";
+                        statusWarning.style.display = 'block';
+                        reasonDiv.style.display = 'block';
+                        if(reasonLabel) reasonLabel.innerHTML = `퇴소 사유 기입 <span class="text-danger">*</span>`;
+                        
+                        // ★ 플레이스홀더(안내문) 원상복구
+                        reasonInput.placeholder = "예: 평가 점수 미달, 잦은 지각 등 명확히 기재";
+                        
+                        if(!reasonInput.value || reasonInput.value.includes("최종 평가 점수 미달") || reasonInput.value.includes("사전 퇴소 인원")) {
+                            reasonInput.value = (initialStatus === 'dropout') ? "[시스템 자동] 사전 퇴소 인원 최종 평가 마감" : `[시스템 자동] 최종 평가 점수 미달 (${total.toFixed(1)}점)`;
+                        }
+                        submitBtn.innerHTML = `<i class="bi bi-exclamation-octagon-fill me-2"></i> 평가 저장 및 최종 퇴소 확정`;
+                        submitBtn.className = "btn btn-danger btn-lg fw-bold py-3 shadow text-white";
                     }
                 }
             } else {
-                // 정상 PASS 대상자 (누구나 수료 가능)
-                for(let i=0; i<statusSel.options.length; i++) {
-                    statusSel.options[i].disabled = false;
-                }
+                // 정상 PASS 대상자
+                if(optCompleted) { optCompleted.disabled = false; optCompleted.hidden = false; }
+                if(optException) { optException.style.display = 'none'; optException.hidden = true; }
+                if(statusSel.value === 'exception_request') statusSel.value = 'completed';
+                
                 statusWarning.style.display = 'none';
+                reasonInput.placeholder = "예: 평가 점수 미달, 잦은 지각 등 명확히 기재";
+                
+                submitBtn.innerHTML = `<i class="bi bi-check-circle-fill me-2"></i> 평가 저장 및 최종 수료 확정 (이후 번복 불가)`;
+                submitBtn.className = "btn btn-primary btn-lg fw-bold py-3 shadow text-white";
 
                 if (statusSel.value === 'dropout') {
-                    // 멀쩡한 사람을 수동으로 퇴소시킬 때
                     reasonDiv.style.display = 'block';
                     if(reasonLabel) reasonLabel.innerHTML = `수동 퇴소 사유 기입 <span class="text-danger">*</span>`;
+                    submitBtn.className = "btn btn-danger btn-lg fw-bold py-3 shadow text-white";
                 } else {
                     reasonDiv.style.display = 'none';
                 }
@@ -538,42 +582,76 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
+        // 🌟 [여기서부터 통째로 교체] 윈도우 기본 confirm을 SweetAlert2로 변경 🌟
         if(submitBtn) {
             submitBtn.addEventListener('click', function(e) {
-                // 1. 점수 입력 확인 (추가된 부분)
+                e.preventDefault(); // 일단 폼 전송을 막습니다.
+
                 const practiceScore = document.getElementById('score_practice');
                 const attitudeScore = document.getElementById('score_attitude');
+                const statusSel = document.getElementById('final_status');
+                const reasonDiv = document.getElementById('dropout_reason_div');
+                const reasonInput = document.getElementById('dropout_reason');
+                const hiddenStatus = document.getElementById('hidden_final_status');
+                const theForm = document.getElementById('evalForm');
 
+                // 1. 점수 입력 확인
                 if (practiceScore.value === "" || attitudeScore.value === "") {
-                    alert("⚠️ 실습 점수와 수학태도 점수를 확인해주세요.\n입력할 점수가 없다면 '0'이라도 입력해야 확정이 가능합니다.");
-                    if(practiceScore.value === "") practiceScore.focus();
-                    else attitudeScore.focus();
-                    
-                    e.preventDefault(); // 전송 중단
+                    Swal.fire({
+                        title: '점수 미입력',
+                        text: "실습 및 태도 점수를 모두 입력해야 확정이 가능합니다.",
+                        icon: 'warning',
+                        confirmButtonColor: '#0d6efd'
+                    });
                     return;
                 }
 
-                // 2. 최종 상태 복사 (기존 로직)
-                const statusSel = document.getElementById('final_status');
-                const hiddenStatus = document.getElementById('hidden_final_status');
+                // 2. 최종 상태 값 동기화
                 if(statusSel && hiddenStatus) {
                     hiddenStatus.value = statusSel.value;
                 }
 
-                // 3. 퇴소 사유 검증 (기존 로직)
-                const reasonDiv = document.getElementById('dropout_reason_div');
-                const reasonInput = document.getElementById('dropout_reason');
+                // 3. 사유 입력 검증
                 if (reasonDiv && reasonDiv.style.display === 'block' && reasonInput.value.trim() === '') {
-                    alert("사유를 반드시 입력해주세요.");
-                    reasonInput.focus();
-                    e.preventDefault();
+                    Swal.fire({
+                        title: '사유 미입력',
+                        text: "퇴소 또는 예외 수료 사유를 반드시 입력해주세요.",
+                        icon: 'warning',
+                        confirmButtonColor: '#dc3545'
+                    }).then(() => reasonInput.focus());
                     return;
                 }
 
-                // 4. 최종 컨펌
-                if(!confirm("🚨 주의: 최종 확정 처리 시 더 이상 평가서를 수정하거나 결정(수료/퇴소)을 번복할 수 없습니다.\n\n정말로 이대로 확정하시겠습니까?")) {
-                    e.preventDefault();
-                }
+                // 4. 세련된 최종 컨펌 팝업 (SweetAlert2)
+                const statusText = statusSel.options[statusSel.selectedIndex].text;
+                
+                Swal.fire({
+                    title: '최종 평가 확정',
+                    html: `<div class="text-start">
+                             <p class="mb-2">선택된 상태: <b>${statusText}</b></p>
+                             <p class="text-danger small mb-0"><i class="bi bi-exclamation-triangle"></i> 주의: 확정 처리 시 더 이상 평가서를 수정하거나 결정을 번복할 수 없습니다.</p>
+                             <p class="fw-bold mt-2">정말로 이대로 확정하시겠습니까?</p>
+                           </div>`,
+                    icon: 'question',
+                    showCancelButton: true,
+                    confirmButtonColor: '#dc3545',
+                    cancelButtonColor: '#6c757d',
+                    confirmButtonText: '네, 확정합니다',
+                    cancelButtonText: '취소',
+                    reverseButtons: true
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        // 🌟 [여기서부터 덮어쓰기] JS 전송 시 'finalize' 신호 강제 주입! 🌟
+                        const hiddenAction = document.createElement('input');
+                        hiddenAction.type = 'hidden';
+                        hiddenAction.name = 'action';
+                        hiddenAction.value = 'finalize';
+                        theForm.appendChild(hiddenAction);
+                        
+                        theForm.submit();
+                        // 🌟 [여기까지 덮어쓰기] 🌟
+                    }
+                });
             });
         }
     } else {

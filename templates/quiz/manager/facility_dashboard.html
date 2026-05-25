@@ -19,8 +19,9 @@
     .matrix-time-slot:hover { background-color: #e9ecef; }
 
     /* 예약 상태 색상 */
-    .booked-am { background-color: #a5d8ff !important; color: #004085; font-weight: bold; }
-    .booked-pm { background-color: #ffc9c9 !important; color: #850000; font-weight: bold; }
+    .booked-am { background-color: #E3F2FD !important; color: #0D47A1 !important; font-weight: bold; } /* 아주 연한 파랑 */
+    .booked-pm { background-color: #FFF3E0 !important; color: #E65100 !important; font-weight: bold; } /* 아주 연한 주황/피치 */
+    .booked-allday { background-color: #E8F5E9 !important; color: #1B5E20 !important; font-weight: bold; } /* 아주 연한 초록 */
 
     /* 탭 스타일 */
     .nav-tabs .nav-link.active { font-weight: bold; color: #495057; background-color: #fff; border-color: #dee2e6 #dee2e6 #fff; }
@@ -229,22 +230,22 @@
             <div class="card shadow border-0" style="min-height: 850px;">
                 <div class="card-header bg-white">
                     <ul class="nav nav-tabs card-header-tabs" id="viewTabs" role="tablist">
-                        <li class="nav-item">
-                            <button class="nav-link active" id="month-tab" data-bs-toggle="tab" data-bs-target="#month-view" type="button">
-                                <i class="bi bi-calendar-month"></i> 📅 월간 달력
-                            </button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link" id="week-tab" data-bs-toggle="tab" data-bs-target="#week-view" type="button" onclick="loadWeeklyMatrix()">
-                                <i class="bi bi-table"></i> 📋 주간 강의실 현황
-                            </button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link" id="daily-tab" data-bs-toggle="tab" data-bs-target="#daily-view" type="button" onclick="changeDailyDate(0, true)">
-                                <i class="bi bi-calendar-day text-success"></i> 🌞 일간 타임라인
-                            </button>
-                        </li>
-                    </ul>
+    <li class="nav-item">
+        <button class="nav-link active" id="month-tab" data-bs-toggle="tab" data-bs-target="#month-view" type="button">
+            <i class="bi bi-calendar-month"></i> 📅 월간 달력
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="week-tab" data-bs-toggle="tab" data-bs-target="#week-view" type="button">
+            <i class="bi bi-table"></i> 📋 주간 강의실 현황
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" id="daily-tab" data-bs-toggle="tab" data-bs-target="#daily-view" type="button">
+            <i class="bi bi-calendar-day text-success"></i> 🌞 일간 타임라인
+        </button>
+    </li>
+</ul>
                 </div>
                 
                 <div class="card-body p-3 tab-content">
@@ -468,19 +469,27 @@
 </div>
 
 <div class="modal fade" id="slotListModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content border-0 shadow-lg">
-            <div class="modal-header bg-light">
-                <h5 class="modal-title fw-bold" id="slotListTitle">해당 시간대 예약 목록</h5>
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header bg-light py-3">
+                <h5 class="modal-title fw-bold text-dark" id="slotListTitle">해당 시간대 예약 목록</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body p-0" style="max-height: 500px; overflow-y: auto;">
-                <table class="table table-hover align-middle mb-0 text-center small">
-                    <thead class="table-light">
-                        <tr><th>상태</th><th>소속/신청자</th><th>목적</th><th>시간</th><th>관리</th></tr>
-                    </thead>
-                    <tbody id="slotListBody"></tbody>
-                </table>
+            <div class="modal-body p-0">
+                <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-hover align-middle mb-0 text-center">
+                        <thead class="table-light text-secondary">
+                            <tr>
+                                <th style="width: 10%;">상태</th>
+                                <th style="width: 20%;">소속/신청자</th>
+                                <th style="width: 35%;">목적</th>
+                                <th style="width: 15%;">시간</th>
+                                <th style="width: 20%;">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="slotListBody"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -549,14 +558,26 @@
         const calendarEl = document.getElementById('calendar');
         if (calendarEl) {
             calendar = new FullCalendar.Calendar(calendarEl, {
-                initialView: 'dayGridMonth',
-                locale: 'ko',
-                // ★ 기본 헤더를 숨깁니다 (우리가 만든 HTML 헤더를 쓸 겁니다)
-                headerToolbar: false, 
-                height: 'auto',
-                events: '{% url "quiz:facility_events" %}',
-                selectable: true,
-                editable: true,
+    initialView: 'dayGridMonth',
+    locale: 'ko',
+    headerToolbar: false,
+    height: 'auto',
+    events: '{% url "quiz:facility_events" %}',
+    selectable: true,
+    editable: true,
+    
+    // ★ 여기서부터 추가
+    dayCellDidMount: function(info) {
+        const cellColor = getDateColor(info.date);
+        
+        if (cellColor === '#dc3545') { 
+            let dayNumberEl = info.el.querySelector('.fc-daygrid-day-number');
+            if(dayNumberEl) dayNumberEl.style.color = '#dc3545';
+        } else if (cellColor === '#0d6efd') {
+            let dayNumberEl = info.el.querySelector('.fc-daygrid-day-number');
+            if(dayNumberEl) dayNumberEl.style.color = '#0d6efd';
+        }
+    },
                 eventStartEditable: true, 
                 eventDurationEditable: true, 
 
@@ -620,11 +641,18 @@
         if(form) {
             form.onsubmit = function(e) {
                 e.preventDefault();
-                toggleCompanyInput(); 
+                // ★ [버그 수정 1] 아래 줄을 지워야 직접 입력한 글자가 안 날아갑니다!
+                // toggleCompanyInput();  <-- 이 녀석이 범인이었습니다.
+                
                 const formData = new FormData(this);
                 fetch('{% url "quiz:facility_reserve" %}', { 
-                    method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}, body: formData 
-                }).then(r => r.json()).then(d => {
+                    method: 'POST', 
+                    headers: {'X-CSRFToken': getCsrfToken()}, 
+                    body: formData 
+                }).then(async r => {
+                    if (!r.ok) throw new Error(`서버 통신 실패 (상태: ${r.status})`);
+                    return r.json();
+                }).then(d => {
                     const loader = document.getElementById('global-loader');
                     if(loader) loader.style.display = 'none';
 
@@ -640,7 +668,7 @@
                 }).catch(err => {
                     const loader = document.getElementById('global-loader');
                     if(loader) loader.style.display = 'none';
-                    Swal.fire({ title: '통신 오류', text: String(err), icon: 'error' });
+                    Swal.fire({ title: '통신 오류', text: "세션이 만료되었거나 권한이 없습니다. 새로고침 후 다시 시도해주세요.", icon: 'error' });
                 });
             };
         }
@@ -680,17 +708,40 @@
 
         // ★ 탭 전환 이벤트 (중복 방지를 위해 여기에 통합)
         document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(tab => {
-            tab.addEventListener('shown.bs.tab', function (event) {
-                sessionStorage.setItem('activeFacilityTab', event.target.id);
-                if (event.target.id === 'month-tab' && calendar) {
+            tab.addEventListener('click', function (e) {
+                e.preventDefault(); // 부트스트랩의 기본 꼬임 애니메이션을 정지시킵니다.
+                
+                // 1. 모든 탭 버튼 색상 초기화 후, 방금 누른 버튼만 파란 불 켜기
+                document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(btn => btn.classList.remove('active'));
+                this.classList.add('active');
+
+                // 2. 모든 탭 화면(달력, 주간, 일간)을 강제로 싹 다 숨기기 (겹침 원인 100% 제거!)
+                document.querySelectorAll('.tab-pane').forEach(pane => {
+                    pane.classList.remove('show', 'active');
+                });
+
+                // 3. 내가 누른 버튼의 짝꿍 화면만 정확하게 딱 띄우기
+                const targetPane = document.querySelector(this.getAttribute('data-bs-target'));
+                if (targetPane) {
+                    targetPane.classList.add('show', 'active');
+                }
+
+                // 4. 어떤 탭을 눌렀는지 기억
+                sessionStorage.setItem('activeFacilityTab', this.id);
+
+                // 5. 화면이 깨끗하게 정리된 후 데이터를 안전하게 불러오기
+                if (this.id === 'month-tab' && calendar) {
                     calendar.render();
-                } else if (event.target.id === 'week-tab') {
+                } else if (this.id === 'week-tab') {
                     loadWeeklyMatrix();
-                } else if (event.target.id === 'daily-tab') {
+                } else if (this.id === 'daily-tab') {
                     changeDailyDate(0, true);
                 }
             });
         });
+        
+        // 캘린더가 처음에 찌그러지는 현상 방지
+        if (calendar) setTimeout(() => calendar.render(), 100);
 
         // ★ 현재 시간선 주기 갱신
         setInterval(updateCurrentTimeLine, 60000);
@@ -984,14 +1035,30 @@
                 // 공통 셀 생성 함수
                 function createSlotDiv(events, timeSlotName) {
                     let div = document.createElement('div');
-                    div.className = 'matrix-time-slot fw-bold'; // ★ 충돌 방지를 위해 클래스 이름 변경!
+                    div.className = 'matrix-time-slot fw-bold'; 
+                    
+                    // ★ 종일 블록은 중간 점선을 없애고 위아래를 꽉 채웁니다.
+                    if (timeSlotName === 'allday') {
+                        div.style.height = '60px'; 
+                        div.style.borderBottom = 'none';
+                    }
+
                     if (events.length > 0) {
                         let hasConfirmed = events.some(e => e.extendedProps.status_code === 'confirmed');
                         let hasPending = events.some(e => e.extendedProps.status_code === 'pending');
 
                         if (hasConfirmed) {
-                            div.innerText = events.length > 1 ? `확정 외 ${events.length-1}건` : '확정';
-                            div.classList.add(timeSlotName === 'am' ? 'booked-am' : 'booked-pm');
+                            // 시간대에 따라 글씨와 색상을 다르게 적용!
+                            if (timeSlotName === 'allday') {
+                                div.innerText = events.length > 1 ? `종일 확정 외 ${events.length-1}건` : '종일 확정';
+                                div.classList.add('booked-allday');
+                            } else if (timeSlotName === 'am') {
+                                div.innerText = events.length > 1 ? `오전 확정 외 ${events.length-1}건` : '오전 확정';
+                                div.classList.add('booked-am');
+                            } else {
+                                div.innerText = events.length > 1 ? `오후 확정 외 ${events.length-1}건` : '오후 확정';
+                                div.classList.add('booked-pm');
+                            }
                         } else if (hasPending) {
                             div.innerText = events.length > 1 ? `대기 (${events.length}건)` : '대기';
                             div.classList.add('status-pending');
@@ -999,8 +1066,9 @@
                             div.innerText = events.length > 1 ? `반려 (${events.length}건)` : '반려';
                             div.classList.add('status-rejected');
                         }
-                        // ★ 다중 리스트 창 띄우기 함수 호출
-                        div.onclick = () => openSlotList(events, date, timeSlotName, room.name);
+                        
+                        let passSlotName = timeSlotName === 'allday' ? 'all' : timeSlotName;
+                        div.onclick = () => openSlotList(events, date, passSlotName, room.name);
                     } else {
                         div.innerText = timeSlotName === 'am' ? '오전' : '오후';
                         div.onclick = () => openReserveWithDate(date, timeSlotName, room.id);
@@ -1010,8 +1078,19 @@
 
                 const slotWrap = document.createElement('div');
                 slotWrap.className = 'time-slot-container';
-                slotWrap.appendChild(createSlotDiv(amEvents, 'am'));
-                slotWrap.appendChild(createSlotDiv(pmEvents, 'pm'));
+                
+                let hasAmConfirmed = amEvents.some(e => e.extendedProps.status_code === 'confirmed');
+                let hasPmConfirmed = pmEvents.some(e => e.extendedProps.status_code === 'confirmed');
+                
+                // ★ 오전과 오후 모두 확정된 일정이 있다면 '종일' 블록 하나로 합체!
+                if (hasAmConfirmed && hasPmConfirmed) {
+                    let allEvents = [...new Set([...amEvents, ...pmEvents])];
+                    slotWrap.appendChild(createSlotDiv(allEvents, 'allday'));
+                } else {
+                    slotWrap.appendChild(createSlotDiv(amEvents, 'am'));
+                    slotWrap.appendChild(createSlotDiv(pmEvents, 'pm'));
+                }
+                
                 td.appendChild(slotWrap);
                 tr.appendChild(td);
             });
@@ -1031,9 +1110,9 @@
             const eId = evt.id;
 
             document.getElementById('d_id').value = eId;
-            let purpose = evt.title;
-            const match = purpose.match(/^\[.*?\]\s*(.*?)\s*-\s*(.*)$/);
-            if (match) { purpose = match[2].trim(); }
+            
+            // ★ [버그 수정 2] 꼬리표 떼고 순수 목적(full_desc)만 가져옵니다!
+            let purpose = p.full_desc || evt.title;
             
             const dPurpose = document.getElementById('d_purpose');
             if(dPurpose) dPurpose.innerText = purpose; 
@@ -1047,7 +1126,6 @@
             const sDate = new Date(evt.start);
             const eDate = new Date(evt.end);
             
-            // ★ [수정] 시간 표시 형식 옵션 설정 (초 단위 제거, 연/월/일 오전/오후 시:분 까지만 표시)
             const timeOptions = { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true };
             document.getElementById('d_time').innerText = sDate.toLocaleString('ko-KR', timeOptions) + ' ~ ' + eDate.toLocaleString('ko-KR', timeOptions);
             
@@ -1070,6 +1148,47 @@
         } catch (error) {
             console.error(error); alert("상세 정보를 여는 중 오류가 발생했습니다.");
         }
+    }
+
+    function editEvent() {
+        bootstrap.Modal.getInstance(document.getElementById('detailModal')).hide();
+        document.getElementById('reserveForm').reset();
+        
+        const id = document.getElementById('d_id').value;
+        const event = calendar.getEventById(id);
+        if (event) {
+            document.getElementById('reserve_id').value = id; 
+            document.getElementById('reserveModalTitle').innerHTML = '<i class="bi bi-pencil-square"></i> 예약 정보 수정';
+            
+            const titleInput = document.querySelector('input[name="title"]');
+            if (titleInput) {
+                // ★ [버그 수정 2] 수정 창에도 순수 목적(full_desc)만 쏙 넣습니다.
+                titleInput.value = event.extendedProps.full_desc || event.title;
+            }
+
+            const company = event.extendedProps.company || '';
+            const sel = document.getElementById('company_select');
+            const inp = document.getElementById('reserve_company');
+            
+            let optionExists = Array.from(sel.options).some(opt => opt.value === company);
+            if (optionExists && company !== '') {
+                sel.value = company; inp.style.display = 'none'; inp.value = company;
+            } else if (company !== '') {
+                sel.value = 'direct'; inp.style.display = 'block'; inp.value = company;
+            }
+
+            document.getElementById('reserve_attendees').value = event.extendedProps.attendees || '';
+            document.querySelectorAll('.room-checkbox').forEach(cb => cb.checked = false);
+            const roomCb = document.getElementById('room_' + event.extendedProps.room_id);
+            if(roomCb) roomCb.checked = true;
+
+            const s = new Date(event.start); const e = new Date(event.end);
+            s.setMinutes(s.getMinutes() - s.getTimezoneOffset());
+            e.setMinutes(e.getMinutes() - e.getTimezoneOffset());
+            document.getElementById('start_time').value = s.toISOString().slice(0, 16);
+            document.getElementById('end_time').value = e.toISOString().slice(0, 16);
+        }
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('reserveModal')).show();
     }
 
     function editEvent() {
@@ -1267,7 +1386,9 @@
                 company: el.getAttribute('data-company'), username: el.getAttribute('data-username'),
                 attendees: el.getAttribute('data-attendees'), status_label: el.getAttribute('data-status-label'),
                 status_code: el.getAttribute('data-status-code'), can_approve: el.getAttribute('data-can-approve') === 'true',
-                can_edit: el.getAttribute('data-can-edit') === 'true'
+                can_edit: el.getAttribute('data-can-edit') === 'true',
+                // ★ [버그 수정 2] 사이드바 클릭 시에도 순수 목적 데이터를 넘겨줍니다.
+                full_desc: el.getAttribute('data-title') 
             }
         };
         openDetail(mockEvt);
@@ -1277,7 +1398,9 @@
 
     function openSlotList(events, dateStr, timeSlot, roomName) {
         currentSlotEvents = events;
-        let timeStr = timeSlot === 'am' ? '오전' : '오후';
+        // ★ 기존 코드를 지우고 아래 줄로 변경 (종일 인식 추가)
+        let timeStr = timeSlot === 'am' ? '오전' : (timeSlot === 'pm' ? '오후' : '종일');
+        
         document.getElementById('slotListTitle').innerText = `${dateStr} (${timeStr}) - ${roomName} 예약 목록`;
 
         let tbody = document.getElementById('slotListBody');
@@ -1293,30 +1416,34 @@
             let sDate = new Date(e.start); let eDate = new Date(e.end);
             let timeRange = `${String(sDate.getHours()).padStart(2,'0')}:${String(sDate.getMinutes()).padStart(2,'0')} ~ ${String(eDate.getHours()).padStart(2,'0')}:${String(eDate.getMinutes()).padStart(2,'0')}`;
 
-            // 관리 권한에 따른 버튼 생성
-            let actionBtns = '';
+            // ★ 버튼들을 d-flex와 gap-1으로 묶어서 무조건 가로 1줄로 나열되게 만듭니다.
+            let actionBtns = `<div class="d-flex justify-content-center gap-1">`;
             if(p.can_approve) {
                 actionBtns += `
-                    <button onclick="slotDoAction('${e.id}', 'approve')" class="btn btn-success btn-sm p-1 me-1 mb-1" title="승인">승인</button>
-                    <button onclick="slotDoAction('${e.id}', 'reject')" class="btn btn-warning btn-sm text-white p-1 me-1 mb-1" title="반려">반려</button>
+                    <button onclick="slotDoAction('${e.id}', 'approve')" class="btn btn-success btn-sm p-1" title="승인">승인</button>
+                    <button onclick="slotDoAction('${e.id}', 'reject')" class="btn btn-warning btn-sm text-white p-1" title="반려">반려</button>
                 `;
             }
             if(p.can_edit) {
-                actionBtns += `<button onclick="slotDoAction('${e.id}', 'delete')" class="btn btn-danger btn-sm p-1 mb-1" title="삭제">삭제</button>`;
+                actionBtns += `<button onclick="slotDoAction('${e.id}', 'delete')" class="btn btn-danger btn-sm p-1" title="삭제">삭제</button>`;
             }
-            // 상세창 열기 버튼 (기존 detailModal 연동)
-            actionBtns += `<button onclick="openDetailFromSlotId('${e.id}')" class="btn btn-primary btn-sm p-1 ms-1 mb-1" title="상세보기">상세정보</button>`;
+            actionBtns += `<button onclick="openDetailFromSlotId('${e.id}')" class="btn btn-primary btn-sm p-1" title="상세보기">상세정보</button></div>`;
 
+            let company = p.company || '미상';
+            let username = p.username || '알수없음';
+            let full_desc = p.full_desc || e.title;
+
+            // ★ text-nowrap과 align-middle을 적용하여 모든 칸을 예쁜 1줄로 통일합니다.
             tbody.innerHTML += `
                 <tr>
-                    <td>${statBadge}</td>
-                    <td class="text-start">
-                        <span class="text-primary fw-bold">[${p.company || '미상'}]</span><br>
-                        ${p.username}
+                    <td class="align-middle px-2">${statBadge}</td>
+                    <td class="align-middle text-start px-2 text-nowrap">
+                        <span class="text-primary fw-bold me-1">[${company}]</span>
+                        <span class="text-dark fw-bold">${username}</span>
                     </td>
-                    <td class="text-start text-truncate" style="max-width:150px;" title="${e.title}">${e.title}</td>
-                    <td class="small fw-bold text-muted">${timeRange}</td>
-                    <td style="min-width: 140px;">${actionBtns}</td>
+                    <td class="align-middle text-start text-truncate px-2" style="max-width:150px;" title="${full_desc}">${full_desc}</td>
+                    <td class="align-middle small fw-bold text-muted px-2 text-nowrap">${timeRange}</td>
+                    <td class="align-middle px-2" style="white-space: nowrap;">${actionBtns}</td>
                 </tr>
             `;
         });
@@ -1549,30 +1676,36 @@
         
         document.getElementById('resListModalTitle').innerText = `${dateStr} - ${roomName} 예약 목록`;
 
-        let statusBadge = `<span class="badge bg-success py-2 px-3">확정</span>`;
-        if (props.status_code === 'pending') statusBadge = `<span class="badge bg-secondary py-2 px-3">대기</span>`;
-        if (props.status_code === 'rejected') statusBadge = `<span class="badge bg-danger py-2 px-3">반려</span>`;
+        let statusBadge = `<span class="badge bg-success">확정</span>`;
+        if (props.status_code === 'pending') statusBadge = `<span class="badge bg-secondary">대기</span>`;
+        if (props.status_code === 'rejected') statusBadge = `<span class="badge bg-danger text-white">반려</span>`;
 
-        let btns = '';
+        // ★ 버튼들을 가로 1줄로 묶기
+        let btns = `<div class="d-flex justify-content-center gap-1">`;
         if (props.can_approve) {
-            btns += `<button class="btn btn-sm btn-success me-1 fw-bold" onclick="handleDailyAction('${e.id}', 'approve')">승인</button>`;
-            btns += `<button class="btn btn-sm btn-warning me-1 fw-bold text-white" onclick="handleDailyAction('${e.id}', 'reject')">반려</button>`;
+            btns += `<button class="btn btn-sm btn-success p-1" onclick="handleDailyAction('${e.id}', 'approve')">승인</button>`;
+            btns += `<button class="btn btn-sm btn-warning text-white p-1" onclick="handleDailyAction('${e.id}', 'reject')">반려</button>`;
         }
         if (props.can_manage) {
-            btns += `<button class="btn btn-sm btn-danger me-1 fw-bold" onclick="handleDailyAction('${e.id}', 'delete')">삭제</button>`;
+            btns += `<button class="btn btn-sm btn-danger p-1" onclick="handleDailyAction('${e.id}', 'delete')">삭제</button>`;
         }
-        btns += `<button class="btn btn-sm btn-primary fw-bold" onclick="openDetailFromDaily('${e.id}')">상세정보</button>`;
+        btns += `<button class="btn btn-sm btn-primary p-1" onclick="openDetailFromDaily('${e.id}')">상세정보</button></div>`;
 
+        let company = props.company || '미상';
+        let username = props.username || '알수없음';
+        let full_desc = props.full_desc || e.title;
+
+        // ★ 주간 팝업과 100% 동일한 디자인 구조 적용
         document.getElementById('resListModalBody').innerHTML = `
             <tr>
-                <td>${statusBadge}</td>
-                <td class="text-start px-4">
-                    <div class="text-primary fw-bold mb-1">[${props.company || '미상'}/${props.process || '미상'}]</div>
-                    <div>${props.username}</div>
+                <td class="align-middle px-2">${statusBadge}</td>
+                <td class="align-middle text-start px-2 text-nowrap">
+                    <span class="text-primary fw-bold me-1">[${company}]</span>
+                    <span class="text-dark fw-bold">${username}</span>
                 </td>
-                <td class="text-start text-wrap px-4">${props.full_desc}</td>
-                <td class="fw-bold text-secondary">${sTime} ~ ${eTime}</td>
-                <td>${btns}</td>
+                <td class="align-middle text-start text-truncate px-2" style="max-width:150px;" title="${full_desc}">${full_desc}</td>
+                <td class="align-middle small fw-bold text-muted px-2 text-nowrap">${sTime} ~ ${eTime}</td>
+                <td class="align-middle px-2" style="white-space: nowrap;">${btns}</td>
             </tr>
         `;
 
@@ -1669,12 +1802,27 @@
 </script>
 <div class="modal fade" id="excelDownloadModal" tabindex="-1">
   <div class="modal-dialog">
-    <form action="{% url 'quiz:export_facility_excel' %}" method="GET" class="modal-content border-0 shadow">
+    <form id="excelDownloadForm" action="{% url 'quiz:export_facility_excel' %}" method="GET" class="modal-content border-0 shadow">
       <div class="modal-header bg-success text-white py-3">
         <h5 class="modal-title fw-bold"><i class="bi bi-calendar3 me-2"></i>배포용 일정표 생성</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
+      
       <div class="modal-body p-4 bg-light">
+        <div class="mb-3 p-3 bg-white rounded border">
+            <label class="form-label fw-bold"><i class="bi bi-file-earmark-excel"></i> 엑셀 출력 형식</label>
+            <div class="d-flex gap-4 mt-1">
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="export_format" id="formatCal" value="calendar" checked>
+                    <label class="form-check-label fw-bold text-primary" for="formatCal">🗓 달력형 (권장)</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="export_format" id="formatList" value="list">
+                    <label class="form-check-label" for="formatList">📄 목록형 (리스트)</label>
+                </div>
+            </div>
+        </div>
+
         <p class="small text-muted mb-4">타 부서 배포를 위한 달력을 생성합니다.<br><b class="text-danger">(해당 기간 내의 PMTC 일정은 시스템이 자동으로 찾아내어 차단 표시합니다!)</b></p>
         
         <div class="row g-2">
@@ -1692,15 +1840,14 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setExcelDate('year')">1년 전체 뽑기</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setExcelDate('month')">이번 달 뽑기</button>
         </div>
-        
-      </div>
+      </div> 
+      
       <div class="modal-footer bg-white">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-        <button type="submit" class="btn btn-success fw-bold px-4"><i class="bi bi-download me-1"></i> 달력 자동 생성 및 다운로드</button>
-      </div>
-    </form>
-  </div>
-</div>
+        <button type="button" class="btn btn-success fw-bold px-4" onclick="downloadExcelBypass()">
+            <i class="bi bi-download me-1"></i> 달력 자동 생성 및 다운로드
+        </button>
+    </div>
 
 <script>
 // 날짜 빠른 세팅 스크립트
@@ -1722,5 +1869,71 @@ function setExcelDate(type) {
 document.getElementById('excelDownloadModal').addEventListener('show.bs.modal', function () {
     setExcelDate('year');
 });
+function getCsrfToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.startsWith('csrftoken=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue || '{{ csrf_token }}';
+    }
+
+function getDateColor(d) {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const date = String(d.getDate()).padStart(2, '0');
+        const md = `${month}-${date}`;
+        const day = d.getDay();
+        
+        // 매년 고정 휴일
+        const fixedHolidays = ['01-01', '03-01', '05-05', '06-06', '08-15', '10-03', '10-09', '12-25'];
+        
+        // 2024~2035년 변동 휴일 (설, 추석, 부처님, 대체, 선거 등)
+        const varHolidays = {
+            2024: ['02-09', '02-10', '02-11', '02-12', '04-10', '05-06', '05-15', '09-16', '09-17', '09-18'],
+            2025: ['01-28', '01-29', '01-30', '03-03', '05-05', '05-06', '10-05', '10-06', '10-07', '10-08'],
+            2026: ['02-16', '02-17', '02-18', '03-02', '05-24', '05-25', '06-03', '08-16', '09-24', '09-25', '09-26', '10-05'],
+            2027: ['02-06', '02-07', '02-08', '02-09', '03-03', '05-13', '08-16', '09-14', '09-15', '09-16'],
+            2028: ['01-26', '01-27', '01-28', '05-02', '10-02', '10-03', '10-04', '10-05'],
+            2029: ['02-12', '02-13', '02-14', '05-07', '05-20', '09-21', '09-22', '09-23', '09-24'],
+            2030: ['02-02', '02-03', '02-04', '02-05', '05-06', '05-09', '06-12', '09-11', '09-12', '09-13'],
+            2031: ['01-22', '01-23', '01-24', '05-28', '09-30', '10-01', '10-02'],
+            2032: ['02-10', '02-11', '02-12', '03-03', '05-14', '09-18', '09-19', '09-20'],
+            2033: ['01-30', '01-31', '02-01', '05-06', '10-07', '10-08', '10-09'],
+            2034: ['02-18', '02-19', '02-20', '05-25', '09-26', '09-27', '09-28'],
+            2035: ['02-07', '02-08', '02-09', '05-15', '09-15', '09-16', '09-17'],
+        };
+
+        // 빨간날 판별 (일요일이거나 휴일 목록에 있으면)
+        if (day === 0 || fixedHolidays.includes(md) || (varHolidays[year] && varHolidays[year].includes(md))) {
+            return '#dc3545'; 
+        } 
+        if (day === 6) return '#0d6efd'; // 토요일 파란색
+        return '#212529'; // 평일 까만색
+    }
+const excelForm = document.getElementById('excelDownloadForm');
+if (excelForm) {
+    excelForm.addEventListener('submit', function() {
+        // 폼이 제출되면 1초 뒤에 모달과 로딩창을 강제로 닫습니다.
+        setTimeout(() => {
+            // 1. 모달 닫기
+            const modalEl = document.getElementById('excelDownloadModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) {
+                modal.hide();
+            }
+            // 2. 빙글빙글 도는 무한 로딩창 강제 제거
+            const loader = document.getElementById('global-loader');
+            if (loader) loader.style.display = 'none';
+        }, 1000); // 파일 생성될 시간을 감안해 1초(1000ms) 여유를 줍니다.
+    });
+}
+
 </script>
 {% endblock %}

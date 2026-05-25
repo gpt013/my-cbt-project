@@ -545,3 +545,26 @@ class ReferenceLink(models.Model):
 
     def __str__(self):
         return self.title
+
+# ------------------------------------------------------------------
+# 12. 예외 수료 승인 요청 (ExceptionCompletionRequest)
+# ------------------------------------------------------------------
+class ExceptionCompletionRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending', '승인 대기'),
+        ('approved', '승인됨'),
+        ('rejected', '반려됨'),
+    ]
+    trainee = models.ForeignKey('accounts.Profile', on_delete=models.CASCADE, related_name='exception_requests', verbose_name="교육생")
+    requester = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, verbose_name="요청자(매니저)")
+    reason = models.TextField(verbose_name="예외 수료 요청 사유")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = '예외 수료 요청'
+        verbose_name_plural = '예외 수료 요청 목록'
+
+    def __str__(self):
+        return f"[{self.get_status_display()}] {self.trainee.name} 예외 수료 요청"

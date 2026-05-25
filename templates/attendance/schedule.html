@@ -2,6 +2,7 @@
 {% load static custom_tags %}
 
 {% block content %}
+{% csrf_token %} 
 <style>
     /* 1. 테이블 컨테이너 */
     .schedule-table-container { 
@@ -145,6 +146,12 @@
                     {% for p in processes %}
                         <option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>
                     {% endfor %}
+                </select>
+                <div class="vr"></div>
+                <!-- ★ 매니저 혼자보기 추가 -->
+                <select name="view" class="form-select form-select-sm border-0" style="width:auto;" onchange="this.form.submit()">
+                    <option value="team" {% if view_scope == 'team' %}selected{% endif %}>팀 전체</option>
+                    <option value="self" {% if view_scope == 'self' %}selected{% endif %}>내 것만</option>
                 </select>
             </form>
             {% else %}
@@ -295,34 +302,58 @@
 
 <div class="modal fade" id="approvalModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-warning text-dark">
-                <h5 class="modal-title fw-bold">결재 대기 목록</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <div class="modal-content" style="border-radius: 12px; overflow: hidden; border: none;">
+            <div class="modal-header" style="background: #f59e0b; border-bottom: none; padding: 1rem 1.25rem;">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-clipboard-check-fill" style="font-size: 18px; color: #1c1917;"></i>
+                    <h5 class="modal-title fw-bold mb-0" style="color: #1c1917;">결재 대기 목록</h5>
+                    <span class="badge rounded-pill bg-danger ms-1" id="modal-badge" style="display:none;"></span>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" id="approvalModalCloseBtn"></button>
             </div>
-            <div class="modal-body p-0">
-                <table class="table table-hover mb-0">
-                    <tbody id="approvalListBody"></tbody>
-                </table>
-                <div id="noRequestMsg" class="text-center py-4 text-muted" style="display:none;">대기 중인 요청이 없습니다.</div>
+            <div class="modal-body p-3" style="max-height: 60vh; overflow-y: auto;">
+                <div id="approvalListBody" class="d-flex flex-column gap-2"></div>
+                <div id="noRequestMsg" class="text-center py-4 text-muted" style="display:none;">
+                    <i class="bi bi-check-circle text-success" style="font-size: 2rem;"></i>
+                    <p class="mt-2 mb-0">대기 중인 요청이 없습니다.</p>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top: 1px solid #e5e7eb; padding: 0.75rem 1.25rem;">
+                <small class="text-muted me-auto" id="modal-status-msg"></small>
+                <button class="btn btn-sm btn-secondary" id="approvalModalCloseBtn2">
+                    <i class="bi bi-arrow-clockwise me-1"></i>닫기 (새로고침)
+                </button>
             </div>
         </div>
     </div>
 </div>
 
-<script>
+<script> 
 
-    const getCsrfToken = () => {
-        // 1. HTML 내 {% csrf_token %}이 만든 input 태그에서 직접 값을 가져옵니다. (가장 확실함)
-        const tokenInput = document.querySelector('[name=csrfmiddlewaretoken]');
-        if (tokenInput) {
-            return tokenInput.value;
+    function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.startsWith(name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
         }
-        
-        // 2. 만약 위 방법이 실패할 경우에만 쿠키에서 시도합니다.
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    };
+    }
+    return cookieValue;
+}
+
+    // ★ 추가: Django가 렌더링한 토큰을 function으로 선언 (hoisting 보장)
+    function getCsrfToken() {
+        // 쿠키 우선 (항상 최신값) → 없으면 렌더링된 토큰 fallback
+        const fromCookie = getCookie('csrftoken');
+        return fromCookie || '{{ csrf_token }}';
+    }
+
+    const IS_MANAGER = {{ is_manager|yesno:"true,false" }};
+    const MY_PROFILE_ID = "{{ my_profile_id }}";               
 
     let selectedTypeId = null;
     let selectedColor = null;
@@ -427,34 +458,52 @@
                 
                 // ★ 사유 입력 로직만 남김
                 if (data.status === 'reason_required') {
-                    if (loader) loader.style.display = 'none'; 
-                    
+                    if (loader) loader.style.display = 'none';
+
                     const { value: userReason } = await Swal.fire({
                         title: '근무 변경 사유 입력',
-                        html: `<span class="badge bg-primary mb-2">${change.date}</span><br>매니저 승인을 위해 구체적인 사유를 적어주세요.`,
+                        html: `<span class="badge bg-primary mb-2">${change.date}</span><br>승인권자에게 전달될 구체적인 사유를 입력하세요.`,
                         input: 'textarea',
                         inputPlaceholder: '사유를 입력하세요...',
                         showCancelButton: true,
-                        confirmButtonText: '입력 완료',
+                        confirmButtonText: '요청 전송',
                         cancelButtonText: '취소'
                     });
-                    
-                    if (userReason) {
-                        if (loader) loader.style.display = 'flex'; 
-                        change.reason = userReason;
-                        
-                        let res2 = await fetch("{% url 'attendance:update_schedule' %}", {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()}, // ★ 토큰 교체!
-                            body: JSON.stringify(change)
-                        });
-                        if (!res2.ok) throw new Error("사유 제출 실패"); // ★ 에러 방어막 추가!
-                        
-                    } else {
-                        await Swal.fire('저장 중단', '사유 입력이 취소되어 저장이 중단되었습니다.', 'info');
-                        return; 
+
+                    if (!userReason) {
+                        await Swal.fire('요청 취소', '사유 입력이 취소되었습니다.', 'info');
+                        return;
                     }
-                } 
+
+                    if (loader) loader.style.display = 'flex';
+                    change.reason = userReason;
+
+                    let res2 = await fetch("{% url 'attendance:update_schedule' %}", {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken()},
+                        body: JSON.stringify(change)
+                    });
+                    if (!res2.ok) throw new Error("사유 제출 중 서버 오류");
+
+                    const data2 = await res2.json();
+                    if (loader) loader.style.display = 'none';
+
+                    if (data2.status === 'request_sent') {
+                        // ★ 직접 저장이 아닌 "승인 요청" 명확히 안내
+                        await Swal.fire({
+                            icon: 'info',
+                            title: '승인 요청 완료',
+                            text: data2.message,
+                            confirmButtonText: '확인'
+                        });
+                        location.reload();
+                        return;
+                    } else if (data2.status === 'error') {
+                        await Swal.fire('요청 실패', data2.message, 'error');
+                        return;
+                    }
+                }
+                
                 else if (data.status === 'error') {
                     if (loader) loader.style.display = 'none';
                     await Swal.fire('저장 실패', data.message, 'error');
@@ -484,8 +533,19 @@
     function applyCell(cell) {
         if (!isEditMode) return;
         if (!selectedTypeId) { alert('근무 유형을 먼저 선택하세요!'); return; }
-        
+
         const profileId = cell.parentElement.getAttribute('data-profile-id');
+
+        // ★ 교육생은 본인 행만 수정 가능
+        if (!IS_MANAGER && profileId !== MY_PROFILE_ID) {
+            Swal.fire({
+                toast: true, position: 'top-end', icon: 'warning',
+                title: '본인의 근무표만 수정할 수 있습니다.',
+                showConfirmButton: false, timer: 2500
+            });
+            return;
+        }
+
         const date = cell.getAttribute('data-date');
 
         cell.style.backgroundColor = selectedColor;
@@ -528,65 +588,211 @@
         });
     }
 
-    function openApprovalModal() {
-        const modal = new bootstrap.Modal(document.getElementById('approvalModal'));
-        document.getElementById('approvalListBody').innerHTML = '<tr><td class="text-center">로딩 중...</td></tr>';
-        modal.show();
-        fetch("{% url 'attendance:get_pending_requests' %}").then(res => res.json()).then(data => {
-            const tbody = document.getElementById('approvalListBody');
-            tbody.innerHTML = '';
-            if(data.requests.length === 0) {
-                document.getElementById('noRequestMsg').style.display = 'block';
-            } else {
-                document.getElementById('noRequestMsg').style.display = 'none';
-                data.requests.forEach(req => {
-                    tbody.innerHTML += `
-                        <tr id="req-${req.id}">
-                            <td class="fw-bold">${req.name}</td>
-                            <td>${req.date}</td>
-                            <td><span class="badge bg-primary">${req.type}</span></td>
-                            <td class="small text-muted">${req.reason}</td>
-                            <td class="text-end">
-                                <button class="btn btn-sm btn-success me-1" onclick="processReq(${req.id}, 'approve')">승인</button>
-                                <button class="btn btn-sm btn-danger" onclick="processReq(${req.id}, 'reject')">거절</button>
-                            </td>
-                        </tr>`;
-                });
-            }
+   let needsReload = false;  // ★ 모달 닫을 때만 새로고침 여부 판단
+
+    function getInitials(name) {
+        if (!name) return '?';
+        return name.length >= 2 ? name.slice(0, 2) : name;
+    }
+
+    const avatarColors = [
+        {bg:'#dbeafe', text:'#1e40af'},
+        {bg:'#fce7f3', text:'#9d174d'},
+        {bg:'#fef9c3', text:'#854d0e'},
+        {bg:'#dcfce7', text:'#166534'},
+        {bg:'#ede9fe', text:'#5b21b6'},
+        {bg:'#ffedd5', text:'#9a3412'},
+    ];
+
+    function getAvatarColor(name) {
+        let sum = 0;
+        for (let c of (name || '')) sum += c.charCodeAt(0);
+        return avatarColors[sum % avatarColors.length];
+    }
+
+    function renderApprovalList(requests) {
+        const body = document.getElementById('approvalListBody');
+        const noMsg = document.getElementById('noRequestMsg');
+        const badge = document.getElementById('modal-badge');
+        body.innerHTML = '';
+
+        const pending = requests.filter(r => !r.done);
+        if (badge) {
+            if (pending.length > 0) { badge.textContent = pending.length + '건'; badge.style.display = ''; }
+            else { badge.style.display = 'none'; }
+        }
+
+        if (requests.length === 0) {
+            noMsg.style.display = 'block';
+            return;
+        }
+        noMsg.style.display = 'none';
+
+        requests.forEach(req => {
+            const col = getAvatarColor(req.name);
+            const card = document.createElement('div');
+            card.id = `req-card-${req.id}`;
+            card.style.cssText = `
+                border: 1px solid #e5e7eb; border-radius: 10px;
+                padding: 0.875rem 1rem; display: flex;
+                align-items: center; gap: 12px;
+                background: var(--color-background-primary);
+                transition: opacity 0.3s;
+            `;
+           // ★ 역할별 뱃지 색상
+            const isManager = req.role === '교수';
+            const roleBg    = isManager ? '#fef9c3' : '#f3f4f6';
+            const roleColor = isManager ? '#854d0e' : '#6b7280';
+            const roleBorder= isManager ? '#fde68a' : '#e5e7eb';
+
+            // ★ 사유 포맷: "{사유}으로 인한 {근무유형} 요청입니다"
+            const formattedReason = `${req.reason}으로 인한 ${req.type} 요청입니다`;
+
+            card.innerHTML = `
+                <div style="width:40px; height:40px; border-radius:50%; background:${col.bg}; 
+                     display:flex; align-items:center; justify-content:center;
+                     font-weight:500; font-size:13px; color:${col.text}; flex-shrink:0;">
+                    ${getInitials(req.name)}
+                </div>
+                <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:5px;">
+                        <span style="font-weight:500; font-size:14px; color:var(--color-text-primary);">${req.name}</span>
+                        <span style="font-size:11px; font-weight:500;
+                              background:${roleBg}; color:${roleColor};
+                              padding:1px 7px; border-radius:4px; border:1px solid ${roleBorder};">
+                            ${req.role}
+                        </span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                        <span style="font-size:12px; color:#6b7280;">
+                            <i class="bi bi-calendar3"></i> ${req.date}
+                        </span>
+                        <span style="background:#dbeafe; color:#1e40af; font-size:12px;
+                              font-weight:500; padding:1px 8px; border-radius:4px;">${req.type}</span>
+                        <span style="font-size:12px; color:#6b7280; word-break:keep-all; 
+                              line-height:1.5;">${formattedReason}</span>
+                    </div>
+                </div>
+                <div id="req-actions-${req.id}" style="display:flex; gap:6px; flex-shrink:0;">
+                    <button onclick="processReq(${req.id}, 'approve')"
+                        style="background:#16a34a; color:#fff; border:none; border-radius:6px;
+                               padding:5px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+                        <i class="bi bi-check-lg"></i> 승인
+                    </button>
+                    <button onclick="processReq(${req.id}, 'reject')"
+                        style="background:#fff; color:#dc2626; border:1px solid #dc2626;
+                               border-radius:6px; padding:5px 12px; font-size:13px; cursor:pointer; 
+                               display:flex; align-items:center; gap:4px;">
+                        <i class="bi bi-x-lg"></i> 거절
+                    </button>
+                </div>
+            `;
+            body.appendChild(card);
         });
     }
 
+    let approvalRequests = [];
+
+    function openApprovalModal() {
+        needsReload = false;
+        const modalEl = document.getElementById('approvalModal');
+        const modal = new bootstrap.Modal(modalEl);
+
+        // 닫기 버튼들에 새로고침 연결
+        document.getElementById('approvalModalCloseBtn').onclick = () => { if(needsReload) location.reload(); };
+        document.getElementById('approvalModalCloseBtn2').onclick = () => { 
+            modal.hide(); 
+            if(needsReload) location.reload(); 
+        };
+
+        document.getElementById('approvalListBody').innerHTML = 
+            '<div class="text-center py-3 text-muted"><div class="spinner-border spinner-border-sm me-2"></div>로딩 중...</div>';
+        modal.show();
+
+        fetch("{% url 'attendance:get_pending_requests' %}")
+            .then(res => res.json())
+            .then(data => {
+                // ★ [핵심 추가] 번호(id)가 큰 것(가장 최근에 만들어진 것)이 위로 오도록 최신순 정렬!
+                approvalRequests = data.requests.sort((a, b) => b.id - a.id);
+                renderApprovalList(approvalRequests);
+            });
+    }
+
     function processReq(reqId, action) {
-        let url = "{% url 'attendance:process_request' 0 'action' %}".replace('0', reqId).replace('action', action);
-        
-        let actionText = action === 'approve' ? '승인' : '반려';
-        let actionColor = action === 'approve' ? '#198754' : '#dc3545';
+        const url = "{% url 'attendance:process_request' 0 'action' %}"
+            .replace('0', reqId).replace('action', action);
+        const actionText = action === 'approve' ? '승인' : '거절';
+        const actionColor = action === 'approve' ? '#16a34a' : '#dc2626';
 
         Swal.fire({
-            title: `요청 ${actionText}`,
-            text: `해당 근무 변경 요청을 ${actionText} 하시겠습니까?`,
+            title: `${actionText} 하시겠습니까?`,
             icon: 'question',
             showCancelButton: true,
             confirmButtonColor: actionColor,
-            confirmButtonText: actionText
-        }).then((result) => {
-            if (result.isConfirmed) {
-                fetch(url, { 
-                    method: 'POST', 
-                    headers: {'X-CSRFToken': getCsrfToken()} // ★ 토큰 교체!
-                })
-                .then(res => {
-                    if(!res.ok) throw new Error("서버 에러"); // ★ 에러 방어막 추가!
-                    return res.json();
-                })
+            confirmButtonText: actionText,
+            cancelButtonText: '취소',
+        }).then(result => {
+            if (!result.isConfirmed) return;
+
+            // ★ 버튼 로딩 표시 (페이지 리로드 없이)
+            const actionsDiv = document.getElementById(`req-actions-${reqId}`);
+            if (actionsDiv) actionsDiv.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary"></span>';
+
+            fetch(url, { method: 'POST', headers: {'X-CSRFToken': getCsrfToken()} })
+                .then(res => { if (!res.ok) throw new Error('서버 오류'); return res.json(); })
                 .then(data => {
-                    if(data.status === 'success') {
-                        Swal.fire('처리 완료', data.message, 'success').then(() => location.reload());
+                    if (data.status === 'success') {
+                        needsReload = true;  // ★ 모달 닫을 때 새로고침
+
+                        // ★ 해당 카드만 "처리 완료" 상태로 변경 (페이지 리로드 없음)
+                        const card = document.getElementById(`req-card-${reqId}`);
+                        if (card) {
+                            const isApprove = action === 'approve';
+                            card.style.background = isApprove ? '#f0fdf4' : '#fff5f5';
+                            card.style.borderColor = isApprove ? '#bbf7d0' : '#fecaca';
+                            card.innerHTML = `
+                                <div style="width:40px; height:40px; border-radius:50%; 
+                                     background:${isApprove ? '#bbf7d0' : '#fecaca'};
+                                     display:flex; align-items:center; justify-content:center;
+                                     font-size:20px; flex-shrink:0;">
+                                    ${isApprove ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-x-circle-fill text-danger"></i>'}
+                                </div>
+                                <div style="flex:1;">
+                                    <p style="margin:0; font-size:14px; font-weight:500; color:var(--color-text-primary);">
+                                        ${data.message}
+                                    </p>
+                                    <p style="margin:0; font-size:12px; color:#6b7280;">
+                                        ${isApprove ? '✅ 승인 완료' : '❌ 거절 완료'} · 닫기 버튼 클릭 시 달력에 반영됩니다.
+                                    </p>
+                                </div>
+                            `;
+                        }
+
+                        // 남은 대기건 배지 업데이트
+                        const badge = document.getElementById('modal-badge');
+                        const remaining = document.querySelectorAll('[id^="req-actions-"]').length;
+                        const pageNavBadge = document.getElementById('badge-count');
+                        if (pageNavBadge) {
+                            const cur = parseInt(pageNavBadge.innerText || '0') - 1;
+                            if (cur > 0) { pageNavBadge.innerText = cur; }
+                            else { pageNavBadge.style.display = 'none'; }
+                        }
+
+                        document.getElementById('modal-status-msg').textContent = 
+                            `처리 완료 · 닫기 버튼을 누르면 달력이 새로고침됩니다.`;
+
                     } else {
+                        if (actionsDiv) {
+                            // 버튼 복구
+                            actionsDiv.innerHTML = `
+                                <button onclick="processReq(${reqId}, 'approve')" style="background:#16a34a; color:#fff; border:none; border-radius:6px; padding:5px 12px; font-size:13px; cursor:pointer;">승인</button>
+                                <button onclick="processReq(${reqId}, 'reject')" style="background:#fff; color:#dc2626; border:1px solid #dc2626; border-radius:6px; padding:5px 12px; font-size:13px; cursor:pointer;">거절</button>
+                            `;
+                        }
                         Swal.fire('처리 실패', data.message, 'error');
                     }
-                }).catch(err => Swal.fire('오류', '서버 통신 오류가 발생했습니다.', 'error'));
-            }
+                })
+                .catch(() => Swal.fire('오류', '서버 통신 오류가 발생했습니다.', 'error'));
         });
     }
 
@@ -601,5 +807,17 @@
         });
         {% endif %}
     };
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. 주소창에 우리가 파이썬에서 보낸 'show_pending=true' 신호가 있는지 확인!
+        const urlParams = new URLSearchParams(window.location.search);
+        
+        if (urlParams.get('show_pending') === 'true') {
+            // 2. 버튼 ID 찾을 필요 없이, 그냥 모달 여는 함수를 다이렉트로 실행시켜 버립니다!
+            setTimeout(() => {
+                openApprovalModal();
+            }, 300); // 달력 렌더링 후 0.3초 뒤에 스르륵 띄움
+        }
+    });
 </script>
 {% endblock %}

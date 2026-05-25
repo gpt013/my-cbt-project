@@ -12,6 +12,12 @@
     .contact-item { padding: 12px 20px; background: white; border-bottom: 1px solid #e9ecef; transition: background 0.2s; cursor: pointer; text-decoration: none; display: flex; align-items: center; color: inherit; }
     .contact-item:hover { background-color: #f1f3f5; }
     .profile-img { width: 45px; height: 45px; border-radius: 50%; background-color: #e9ecef; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; margin-right: 15px; color: #adb5bd; flex-shrink: 0; }
+
+    @keyframes pulse-dot {
+    0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+    70%  { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+    100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
 </style>
 
 
@@ -83,7 +89,7 @@
                 </div>
 
                 {% for data in room_data %}
-                    <a href="#" onclick="openChatPopup('{% url 'quiz:chat_room_detail' data.room.id %}', 'chatRoom_{{ data.room.id }}'); return false;" class="contact-item" style="position: relative;">
+                    <a href="#" onclick="openChatPopup('{% url 'quiz:chat_room_detail' data.room.id %}', 'chatRoom_{{ data.room.id }}'); return false;" class="contact-item" data-room-id="{{ data.room.id }}" style="position: relative;">
                         <div class="profile-img bg-warning text-dark"><i class="bi bi-chat-quote-fill"></i></div>
                         
                         <div class="w-100 overflow-hidden d-flex">
@@ -206,6 +212,45 @@
         if(companySelect) companySelect.addEventListener('change', filterContacts);
         if(processSelect) processSelect.addEventListener('change', filterContacts);
     });
+
+    function highlightOpenRooms() {
+        let open = JSON.parse(localStorage.getItem('openChatRooms') || '[]');
+        document.querySelectorAll('.contact-item[data-room-id]').forEach(el => {
+            const id = parseInt(el.getAttribute('data-room-id'));
+            const existing = el.querySelector('.room-open-dot');
+            if (open.includes(id)) {
+                el.style.borderLeft = '3px solid #fae100';
+                el.style.background = 'rgba(250,225,0,0.1)';
+                if (!existing) {
+                    const nameEl = el.querySelector('.fw-bold');
+                    if (nameEl) nameEl.insertAdjacentHTML('beforeend', 
+                        '<span class="room-open-dot" title="지금 열려있어요" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;margin-left:5px;vertical-align:middle;animation:pulse-dot 1.5s infinite;"></span>');
+                }
+            } else {
+                el.style.borderLeft = '';
+                el.style.background = '';
+                if (existing) existing.remove();
+            }
+        });
+    }
+
+    // 팝업 열 때 localStorage 등록
+    const _orig = openChatPopup;
+    window.openChatPopup = function(url, windowName) {
+        const match = windowName.match(/chatRoom_(\d+)/);
+        if (match) {
+            let open = JSON.parse(localStorage.getItem('openChatRooms') || '[]');
+            const id = parseInt(match[1]);
+            if (!open.includes(id)) open.push(id);
+            localStorage.setItem('openChatRooms', JSON.stringify(open));
+            highlightOpenRooms();
+        }
+        _orig(url, windowName);
+    };
+
+    highlightOpenRooms();
+    setInterval(highlightOpenRooms, 2000);
+    window.addEventListener('storage', e => { if (e.key === 'openChatRooms') highlightOpenRooms(); });
 
     function toggleRoomPin(event, roomId) {
         event.preventDefault();

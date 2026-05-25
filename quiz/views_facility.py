@@ -4,7 +4,8 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.utils.dateparse import parse_datetime
-from datetime import timedelta
+import datetime
+from datetime import date, timedelta
 from django.utils import timezone
 from django.db.models import Count
 from .models import Room, Reservation, Notification # 모델 임포트 필수!
@@ -18,7 +19,9 @@ except ImportError:
     Profile = None
     Process = None
     Cohort = None
-
+    
+from django.views.decorators.http import require_POST, require_GET 
+from django.utils.dateparse import parse_datetime
 # [헬퍼] 알림 발송
 def send_notification(user, message, notification_type='facility', related_url=None):
     if user:
@@ -528,7 +531,9 @@ def facility_action(request, event_id):
 
 @login_required
 def notification_read(request, noti_id):
-    if int(noti_id) == 0: return JsonResponse({'status': 'success'}) # 시스템 가짜 알림은 무시
+    """단일 알림 읽음 처리 (가짜 알림 무시 조항 유지)"""
+    if int(noti_id) == 0: 
+        return JsonResponse({'status': 'success'}) 
     noti = get_object_or_404(Notification, id=noti_id, recipient=request.user)
     noti.is_read = True
     noti.save()
@@ -536,31 +541,53 @@ def notification_read(request, noti_id):
 
 @login_required
 def notification_delete(request, noti_id):
-    if int(noti_id) == 0: return JsonResponse({'status': 'success'}) # 시스템 가짜 알림은 무시
+    """단일 알림 영구 삭제"""
+    if int(noti_id) == 0: 
+        return JsonResponse({'status': 'success'}) 
     noti = get_object_or_404(Notification, id=noti_id, recipient=request.user)
     noti.delete()
     return JsonResponse({'status': 'success'})
 
 @login_required
 def notification_clear_all(request):
+    """알림 전체 삭제 (SweetAlert2 연동용)"""
     Notification.objects.filter(recipient=request.user).delete()
     return JsonResponse({'status': 'success'})
 
+# ──────────────────────────────────────────────────────────
+# 🎯 [핵심 추가] 상단 벨 아이콘 드롭다운 오픈 시 호출되는 일괄 읽음 처리 마스터 API
+# ──────────────────────────────────────────────────────────
+@login_required
+@require_POST
+def api_mark_all_notifications_as_read(request):
+    """
+    사용자가 상단 네비게이션 바의 알림 드롭다운을 연 순간 작동하여
+    해당 유저에게 도착한 모든 '미열람 알림(is_read=False)'을 즉시 '읽음'으로 일괄 전환합니다.
+    화면의 '빨간 배지 숫자'가 계속 남아있는 UX 오류를 뿌리뽑는 핵심 기지입니다.
+    """
+    unread_notis = Notification.objects.filter(recipient=request.user, is_read=False)
+    if unread_notis.exists():
+        # update() 쿼리로 한 번에 밀어버려 DB 오버헤드를 제로로 만듭니다.
+        updated_count = unread_notis.update(is_read=True)
+        return JsonResponse({'status': 'success', 'message': f'{updated_count}건의 알림이 정상 확인되었습니다.'})
+    return JsonResponse({'status': 'success', 'message': '확인할 새로운 알림이 없습니다.'})
+
+
 @login_required
 def notification_api_list(request):
-    """상단 벨 아이콘용 알림 목록 API (+ 5일 지난 알림 자동 청소 & 평가 대기 알림 생성)"""
+    """상단 벨 아이콘용 알림 목록 실시간 반환 API (+ 5일 지난 알림 청소 & 중복 방지 락 탑재)"""
     
-    # 1. 5일이 지난 일반 알림은 자동 청소
+    # 1. 5일이 지난 일반 알림 자동 청소
     expiration_date = timezone.now() - timedelta(days=5)
     Notification.objects.filter(recipient=request.user, created_at__lt=expiration_date).delete()
 
     # =========================================================
-    # ★ [핵심] 평가 대기 인원 '진짜 개별 알림' 자동 생성 로직
+    # 🛡️ [2중 방어선] 평가 대기 인원 '독촉 알림' 중복 생성 스패밍 처단 로직
     # =========================================================
     if request.user.is_staff:
         today = timezone.now().date()
         
-        # 평가를 받아야 하는(기수 종료되었으나 재직중인) 대상자 모두 찾기
+        # 평가 대기 대상 프로필 조회
         pending_profiles = Profile.objects.filter(
             cohort__end_date__lt=today,
             status__in=['attending', 'caution', 'counseling']
@@ -570,28 +597,23 @@ def notification_api_list(request):
             if hasattr(request.user, 'profile') and request.user.profile.process:
                 pending_profiles = pending_profiles.filter(process=request.user.profile.process)
             else:
-                # 공정이 할당되지 않은 일반 스태프는 알림을 받지 않음
                 pending_profiles = pending_profiles.none()
-        # =====================================================
 
         from django.urls import reverse
 
         for p in pending_profiles:
-            # (이하 기존 코드 동일)
             cohort_name = p.cohort.name if p.cohort else "미지정"
             process_name = p.process.name if p.process else "미지정"
             days_passed = (today - p.cohort.end_date).days
-
-            # 대상자별 최종 평가서 주소
             target_url = reverse('quiz:evaluate_trainee', args=[p.id])
 
-            # 알림 메시지 세팅 (지연 일수에 따라 독촉 메시지로 변경)
+            # 알림 메시지 정의
             if days_passed <= 1:
                 msg = f"[{cohort_name}/{process_name}] {p.name}님 기수가 종료되었습니다. 상세 페이지에서 최종 평가 및 수료 처리를 진행해주세요."
             else:
                 msg = f"🚨 [D+{days_passed}일 지연] [{cohort_name}/{process_name}] {p.name}님 수료 처리가 안되었습니다! 즉시 작성 부탁드립니다."
 
-            # 이 매니저에게 이 학생에 대한 알림이 이미 있는지 확인
+            # 🛡️ 핵심 방어: 이미 동일 타겟팅 주소로 전송된 알림이 있는지 우선 검색
             existing_noti = Notification.objects.filter(
                 recipient=request.user,
                 notification_type='pending_eval',
@@ -599,32 +621,30 @@ def notification_api_list(request):
             ).first()
 
             if not existing_noti:
-                # 알림이 없으면 새로 생성 (DB에 진짜로 저장됨)
+                # 아예 처음 생성되는 알림일 때만 신규 생성
                 Notification.objects.create(
                     recipient=request.user,
                     message=msg,
                     related_url=target_url,
-                    notification_type='pending_eval'
+                    notification_type='pending_eval',
+                    is_read=False # 새로 왔으니 알림 켜기
                 )
             else:
-                # 이미 알림이 있는데 날짜가 어제 것이라면? -> 오늘 날짜로 갱신하고 다시 띄움! (독촉)
+                # 🛡️ 버그 킬러: 이미 알림이 존재한다면 절대 중복 생성하지 않고, 날짜가 바뀌었을 때만 내용 '갱신(Update)'만 수행!
                 if existing_noti.created_at.date() < today:
                     existing_noti.message = msg
-                    existing_noti.is_read = False # 다시 안 읽음 상태로 (빨간 점 켜짐)
-                    existing_noti.created_at = timezone.now() # 최상단으로 끌어올림
+                    existing_noti.is_read = False  # 새 날짜가 되었으니 다시 빨간 불 켜기
+                    existing_noti.created_at = timezone.now()  # 리스트 맨 위로 상향 조정
                     existing_noti.save()
 
     # =========================================================
     # ★ [추가] 시설/장비 예약 당일 아침 브리핑 (Daily Reminder)
     # =========================================================
-    # 시설 관리자 권한이 있는 사람에게만 작동합니다.
     if request.user.is_superuser or request.user.groups.filter(name='FacilityManager').exists() or hasattr(request.user, 'profile'):
-        
         today = timezone.localtime().date()
         today_start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
         today_end = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.max.time()))
 
-        # 1. 오늘 이 유저에게 이미 '당일 브리핑(facility_daily)' 알림을 보냈는지 확인 (중복 알림 방지)
         already_sent_today = Notification.objects.filter(
             recipient=request.user,
             notification_type='facility_daily',
@@ -632,19 +652,16 @@ def notification_api_list(request):
         ).exists()
 
         if not already_sent_today:
-            # 2. 오늘 날짜와 1초라도 겹치는 '확정(confirmed)'된 모든 예약 가져오기
             today_res = Reservation.objects.filter(
                 status='confirmed',
                 start_time__lte=today_end,
                 end_time__gte=today_start
             ).select_related('room', 'user__profile')
 
-            # 3. 방(Room)별로 예약 묶기
             from collections import defaultdict
             room_map = defaultdict(list)
             
             for res in today_res:
-                # 내가 관리자인 방인지 확인 (슈퍼유저거나, 담당공정이거나, 지정관리자거나)
                 is_my_room = False
                 if request.user.is_superuser:
                     is_my_room = True
@@ -656,15 +673,11 @@ def notification_api_list(request):
                 if is_my_room:
                     room_map[res.room.name].append(res)
 
-            # 4. 방별로 묶인 예약을 리스트 형태의 텍스트로 만들기
             from django.urls import reverse
             facility_url = reverse('quiz:facility_dashboard')
 
             for room_name, res_list in room_map.items():
-                # 시간 순 정렬
                 res_list.sort(key=lambda x: x.start_time)
-                
-                # 헤더 메시지
                 msg_lines = [f"🔔 [오늘의 일정] {room_name}에 금일 확정된 예약이 {len(res_list)}건 있습니다."]
                 
                 for r in res_list:
@@ -672,7 +685,6 @@ def notification_api_list(request):
                     e_dt = timezone.localtime(r.end_time)
                     user_name = r.user.profile.name if hasattr(r.user, 'profile') else r.user.username
                     
-                    # 다중일 예약 시간 표기 로직 (오늘 시작인지, 어제부터 계속되는지 등)
                     if s_dt.date() < today < e_dt.date():
                         time_str = "종일 (연속 예약)"
                     elif s_dt.date() == today < e_dt.date():
@@ -686,33 +698,33 @@ def notification_api_list(request):
 
                 final_msg = "\n".join(msg_lines)
 
-                # 5. 최종 알림 DB에 저장
                 Notification.objects.create(
                     recipient=request.user,
                     message=final_msg,
-                    notification_type='facility_daily', # ★ 중복 방지용 고유 타입
-                    related_url=facility_url
+                    notification_type='facility_daily',
+                    related_url=facility_url,
+                    is_read=False
                 )
 
     # =========================================================
-    # 2. 안 읽은 알림 목록 화면에 전송
+    # 2.종국에 안 읽은 진짜 활성 알림 세트만 화면에 응답 전송
     # =========================================================
     notis = Notification.objects.filter(recipient=request.user, is_read=False).order_by('-created_at')
     count = notis.count()
     
     data = []
     for n in notis:
-        # ★ iicon 오타를 icon으로 고치고, 기본 아이콘을 확실하게 지정합니다.
         icon = 'bi-info-circle text-primary' 
         
-        if n.notification_type == 'facility': icon = 'bi-building text-success'
+        if '근무변경' in n.message or '근무 변경' in n.message:
+            icon = 'bi-calendar-date-fill text-success' 
+        elif n.notification_type == 'facility': icon = 'bi-building text-success'
         elif n.notification_type == 'facility_daily': icon = 'bi-calendar-check-fill text-primary'
         elif n.notification_type == 'signup': icon = 'bi-person-plus-fill text-info'
         elif n.notification_type == 'exam': icon = 'bi-pencil-square text-warning'
         elif n.notification_type == 'pending_eval': icon = 'bi-exclamation-square-fill text-danger'
-        # ★ 우리가 추가했던 멘션 알림 아이콘
+        elif n.notification_type == 'counseling': icon = 'bi-chat-left-dots-fill text-danger' 
         elif n.notification_type == 'chat_mention': icon = 'bi-chat-dots-fill text-primary' 
-        # 혹시 모를 일반 알림 아이콘 방어막
         elif n.notification_type == 'general': icon = 'bi-bell-fill text-secondary'
 
         data.append({
@@ -740,153 +752,420 @@ def read_notification(request, id):
 
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 from django.http import HttpResponse
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
-from collections import defaultdict
 import urllib.parse
-from .models import Reservation
 from datetime import datetime, date, timedelta
+import calendar
+from .models import Reservation
+ 
+ 
+# ──────────────────────────────────────────────────────────
+# [1] 공휴일 데이터
+# ──────────────────────────────────────────────────────────
+def get_holiday_name(check_date):
+    md = check_date.strftime('%m-%d')
+    y = check_date.year
+    
+    fixed = {'01-01':'신정', '03-01':'삼일절', '05-05':'어린이날', '06-06':'현충일', '08-15':'광복절', '10-03':'개천절', '10-09':'한글날', '12-25':'성탄절'}
+    if md in fixed: return fixed[md]
+    
+    var_holidays = {
+        2024: {'02-09':'설연휴', '02-10':'설날', '02-11':'설연휴', '02-12':'대체휴일', '04-10':'선거일', '05-06':'대체휴일', '05-15':'부처님오신날', '09-16':'추석연휴', '09-17':'추석', '09-18':'추석연휴'},
+        2025: {'01-28':'설연휴', '01-29':'설날', '01-30':'설연휴', '03-03':'대체휴일', '05-05':'부처님오신날', '05-06':'대체휴일', '10-05':'추석연휴', '10-06':'추석', '10-07':'추석연휴', '10-08':'대체휴일'},
+        2026: {'02-16':'설연휴', '02-17':'설날', '02-18':'설연휴', '03-02':'대체휴일', '05-24':'부처님오신날', '05-25':'대체휴일', '06-03':'지방선거', '08-16':'대체휴일', '09-24':'추석연휴', '09-25':'추석', '09-26':'추석연휴', '10-05':'대체휴일'},
+    }
+    
+    generic_var_list = {
+        2027: ['02-06','02-07','02-08','02-09','03-03','05-13','08-16','09-14','09-15','09-16'],
+        2028: ['01-26','01-27','01-28','05-02','10-02','10-03','10-04','10-05'],
+        2029: ['02-12','02-13','02-14','05-07','05-20','09-21','09-22','09-23','09-24'],
+        2030: ['02-02','02-03','02-04','02-05','05-06','05-09','06-12','09-11','09-12','09-13'],
+        2031: ['01-22','01-23','01-24','05-28','09-30','10-01','10-02'],
+        2032: ['02-10','02-11','02-12','03-03','05-14','09-18','09-19','09-20'],
+        2033: ['01-30','01-31','02-01','05-06','10-07','10-08','10-09'],
+        2034: ['02-18','02-19','02-20','05-25','09-26','09-27','09-28'],
+        2035: ['02-07','02-08','02-09','05-15','09-15','09-16','09-17'],
+    }
+    
+    if y in var_holidays and md in var_holidays[y]: return var_holidays[y][md]
+    if y in generic_var_list and md in generic_var_list[y]:
+        m = int(md.split('-')[0])
+        if m in [1, 2]: return "설연휴"
+        if m in [4, 5, 6]: return "부처님오신날/대체휴일"
+        if m in [9, 10]: return "추석연휴"
+        return "공휴일"
+        
+    return None
+ 
+ 
+# ──────────────────────────────────────────────────────────
+# [2] 스타일 헬퍼
+# ──────────────────────────────────────────────────────────
+def _fill(hex_color):
+    return PatternFill('solid', fgColor=hex_color)
+ 
+def _thin_border():
+    s = Side(style='thin', color='AAAAAA')
+    return Border(left=s, right=s, top=s, bottom=s)
+ 
+def _thick_bottom_border():
+    m = Side(style='medium', color='4472C4')
+    t = Side(style='thin',   color='AAAAAA')
+    return Border(left=t, right=t, top=t, bottom=m)
+ 
+def _center(wrap=False):
+    return Alignment(horizontal='center', vertical='center', wrap_text=wrap)
+ 
+def _top_left():
+    return Alignment(horizontal='left', vertical='top', wrap_text=True)
+ 
+def _get_day_type(d):
+    # ★ is_holiday 대신 get_holiday_name을 사용하도록 여기도 변경!
+    if d.weekday() == 6 or get_holiday_name(d): return 'holiday'  # 일요일 or 공휴일
+    if d.weekday() == 5: return 'sat'
+    return 'weekday'
+ 
+ 
+# ──────────────────────────────────────────────────────────
+# [3] 목록형 시트 빌더
+#     열 구성: 일자 | 요일 | PMTC/기수 일정 | 강의실별 예약 현황
+# ──────────────────────────────────────────────────────────
+def _build_list_sheet(wb, year, month, start_date, end_date, reservations, cohort_list):
+    ws = wb.create_sheet(title=f"{year}년 {month}월_목록")
+ 
+    # 컬럼 너비 (조금 더 여유있게 조정)
+    ws.column_dimensions['A'].width = 14
+    ws.column_dimensions['B'].width = 16
+    ws.column_dimensions['C'].width = 40
+    ws.column_dimensions['D'].width = 55
+ 
+    # [색상 팔레트 정의 - 컨설팅 테마]
+    COLOR_TITLE_BG = '1F3864'    # 짙은 네이비 (제목)
+    COLOR_HEADER_BG = 'D9E1F2'   # 아주 연한 블루 (헤더)
+    COLOR_COHORT_BG = 'FFF2CC'   # 연한 크림 (PMTC)
+    COLOR_RES_BG = 'E7EFF6'      # 연한 하늘색 (예약)
+    COLOR_HOLIDAY_BG = 'FCE4D6'  # 연한 핑크 (공휴일)
+    COLOR_SAT_BG = 'E9F0F5'      # 연한 회색 (토요일)
+ 
+    # ── 1행: 제목 ────────────────────────────────
+    ws.merge_cells('A1:D1')
+    t = ws['A1']
+    t.value     = f"{year}년 {month}월 교육장 운영 일정표"
+    t.font      = Font(name='맑은 고딕', size=14, bold=True, color='FFFFFF')
+    t.fill      = _fill(COLOR_TITLE_BG)
+    t.alignment = _center()
+    ws.row_dimensions[1].height = 35
+ 
+    # ── 2행: 헤더 ────────────────────────────────
+    headers = ["일자", "요일/공휴일", "기수 교육 일정 (PMTC)", "강의실별 상세 예약 현황"]
+    for ci, h in enumerate(headers, 1):
+        cell = ws.cell(row=2, column=ci, value=h)
+        cell.font      = Font(name='맑은 고딕', size=10, bold=True, color='203764')
+        cell.fill      = _fill(COLOR_HEADER_BG)
+        cell.alignment = _center()
+        cell.border    = _thin_border()
+    ws.row_dimensions[2].height = 25
+ 
+    # ── 데이터 맵 구축 (주차 계산 로직 포함) ────────────────
+    cohort_map = {}
+    for c in cohort_list:
+        d = c.start_date
+        while d <= c.end_date:
+            # 주차 계산: (현재날짜 - 시작날짜).days // 7 + 1
+            week_num = (d - c.start_date).days // 7 + 1
+            cohort_map.setdefault(d, []).append(f"🏫 PMTC ({c.name}기) 교육기간 ({week_num}W)")
+            d += timedelta(days=1)
+ 
+    res_map = {}
+    for r in reservations:
+        s_l = timezone.localtime(r.start_time)
+        e_l = timezone.localtime(r.end_time)
+        s_d, e_d = s_l.date(), e_l.date()
+        cur = s_d
+        while cur <= e_d:
+            room_name = r.room.name if r.room else "미지정"
+            if cur == s_d == e_d:   t_str = f"{s_l.strftime('%H:%M')}~{e_l.strftime('%H:%M')}"
+            elif cur == s_d:        t_str = f"{s_l.strftime('%H:%M')}~"
+            elif cur == e_d:        t_str = f"~{e_l.strftime('%H:%M')}"
+            else:                   t_str = "종일"
+            res_map.setdefault(cur, []).append(f"• [{room_name}] {r.title} ({t_str})")
+            cur += timedelta(days=1)
+ 
+    # ── 날짜별 데이터 행 출력 ────────────────────
+    DAY_KR = ['월', '화', '수', '목', '금', '토', '일']
+    cur_date = start_date
+    row_num  = 3
+    alt      = False
+ 
+    while cur_date <= end_date:
+        day_type = _get_day_type(cur_date)
+        hol_name = get_holiday_name(cur_date)
+        pmtc     = cohort_map.get(cur_date, [])
+        res      = res_map.get(cur_date, [])
+ 
+        # 배경색 결정 (우선순위: 공휴일 > 토요일 > PMTC > 예약)
+        if day_type == 'holiday':   bg = COLOR_HOLIDAY_BG
+        elif day_type == 'sat':     bg = COLOR_SAT_BG
+        elif pmtc:                  bg = COLOR_COHORT_BG
+        elif res:                   bg = COLOR_RES_BG
+        else:                       bg = 'F9F9F9' if alt else 'FFFFFF'
+ 
+        ws.row_dimensions[row_num].height = max(22, 15 + (len(pmtc) + len(res)) * 14)
+ 
+        fg_day = 'A50000' if day_type == 'holiday' else ('003366' if day_type == 'sat' else '333333')
+ 
+        # A열: 일자
+        ca = ws.cell(row=row_num, column=1, value=cur_date.strftime('%Y-%m-%d'))
+        # B열: 요일
+        day_str = DAY_KR[cur_date.weekday()]
+        if hol_name: day_str += f"\n({hol_name})"
+        cb = ws.cell(row=row_num, column=2, value=day_str)
+        
+        for cell in (ca, cb):
+            cell.fill      = _fill(bg)
+            cell.alignment = _center(wrap=True)
+            cell.border    = _thin_border()
+            cell.font      = Font(name='맑은 고딕', size=10, color=fg_day)
+ 
+        # C열: PMTC 일정
+        cc = ws.cell(row=row_num, column=3, value="\n".join(pmtc) if pmtc else "")
+        cc.fill      = _fill(bg)
+        cc.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True, indent=1)
+        cc.border    = _thin_border()
+        cc.font      = Font(name='맑은 고딕', size=9, bold=True, color='7C5600' if pmtc else 'AAAAAA')
+ 
+        # D열: 강의실 예약
+        cd = ws.cell(row=row_num, column=4, value="\n".join(res) if res else "-")
+        cd.fill      = _fill(bg)
+        cd.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True, indent=1)
+        cd.border    = _thin_border()
+        cd.font      = Font(name='맑은 고딕', size=9, color='203764' if res else 'CCCCCC')
+ 
+        alt = not alt
+        cur_date += timedelta(days=1)
+        row_num  += 1
+ 
+    ws.freeze_panes = 'A3'
+    return ws
 
+
+# ──────────────────────────────────────────────────────────
+# [4] 달력형 시트 빌더 (월별)
+# ──────────────────────────────────────────────────────────
+def _build_calendar_sheet(wb, year, month, reservations, cohort_list):
+    ws = wb.create_sheet(title=f"{year}년 {month}월")
+    
+    # [컬러셋 - 컨설팅 테마]
+    COLOR_CAL_TITLE = '1F3864'
+    COLOR_WEEKDAY_HDR = '4472C4'
+    COLOR_COHORT_BAR = 'FFF2CC'
+    
+    today = date.today()
+    DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토']
+ 
+    for i in range(7):
+        ws.column_dimensions[get_column_letter(i + 1)].width = 28
+ 
+    # 1행: 제목
+    ws.merge_cells('A1:G1')
+    t = ws['A1']
+    t.value     = f"{year}년 {month}월  교육장 운영 일정"
+    t.font      = Font(name='맑은 고딕', size=15, bold=True, color='FFFFFF')
+    t.fill      = _fill(COLOR_CAL_TITLE)
+    t.alignment = _center()
+    ws.row_dimensions[1].height = 40
+ 
+    # 2행: 요일 헤더
+    for ci, dn in enumerate(DAY_NAMES, 1):
+        cell = ws.cell(row=2, column=ci, value=dn)
+        bg = '800000' if ci == 1 else (COLOR_CAL_TITLE if ci == 7 else COLOR_WEEKDAY_HDR)
+        cell.font      = Font(name='맑은 고딕', size=11, bold=True, color='FFFFFF')
+        cell.fill      = _fill(bg)
+        cell.alignment = _center()
+        cell.border    = _thin_border()
+    ws.row_dimensions[2].height = 25
+ 
+    # 데이터 맵 (기수+주차 정보)
+    cohort_map = {}
+    for c in cohort_list:
+        d = c.start_date
+        while d <= c.end_date:
+            week_num = (d - c.start_date).days // 7 + 1
+            cohort_map.setdefault(d, []).append(f"🏫 PMTC ({c.name}기) ({week_num}W)")
+            d += timedelta(days=1)
+ 
+    res_map = {}
+    for r in reservations:
+        s_l = timezone.localtime(r.start_time)
+        e_l = timezone.localtime(r.end_time)
+        s_d, e_d = s_l.date(), e_l.date()
+        cur = s_d
+        while cur <= e_d:
+            if cur == s_d == e_d: t_str = f"{s_l.strftime('%H:%M')}~{e_l.strftime('%H:%M')}"
+            elif cur == s_d:      t_str = f"{s_l.strftime('%H:%M')}~"
+            elif cur == e_d:      t_str = f"~{e_l.strftime('%H:%M')}"
+            else:                 t_str = "종일"
+            room_name = r.room.name if r.room else "?"
+            res_map.setdefault(cur, []).append(f"[{room_name}] {t_str} {r.title}")
+            cur += timedelta(days=1)
+ 
+    # 달력 레이아웃 설정
+    first_day_obj = date(year, month, 1)
+    first_col = (first_day_obj.weekday() + 1) % 7 
+    days_in_month = calendar.monthrange(year, month)[1]
+    
+    ROW_DATE_H = 22
+    ROW_CONT_H = 110
+    excel_row  = 3
+    col        = first_col + 1
+ 
+    def set_empty(er, ec):
+        for ro in range(2):
+            c = ws.cell(row=er + ro, column=ec)
+            c.fill   = _fill('F9F9F9')
+            c.border = _thin_border()
+ 
+    def set_day(er, ec, cal_date):
+        dt = _get_day_type(cal_date)
+        hol_name = get_holiday_name(cal_date)
+        pmtc = cohort_map.get(cal_date, [])
+        res  = res_map.get(cal_date, [])
+        is_today = (cal_date == today)
+ 
+        # 칸 배경색
+        if dt == 'holiday': bg = 'FFF2F2'
+        elif dt == 'sat':   bg = 'F2F7FF'
+        elif is_today:      bg = 'FFFFE1'
+        else:               bg = 'FFFFFF'
+ 
+        # 1. 날짜 줄 (번호 + 공휴일명)
+        fg_n = 'A50000' if dt == 'holiday' else ('003366' if dt == 'sat' else '333333')
+        date_label = str(cal_date.day)
+        if hol_name: date_label += f" ({hol_name})"
+        
+        nc = ws.cell(row=er, column=ec, value=date_label)
+        nc.font      = Font(name='맑은 고딕', size=9, bold=is_today, color=fg_n)
+        nc.fill      = _fill(bg)
+        nc.alignment = Alignment(horizontal='right', vertical='center', indent=1)
+        nc.border    = Border(left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'), top=Side(style='thin', color='CCCCCC'))
+ 
+        # 2. 내용 줄 (기수정보 + 예약정보)
+        full_content = []
+        if pmtc:
+            full_content.append(" ▶ " + "\n ▶ ".join(pmtc))
+        if res:
+            full_content.append(" • " + "\n • ".join(res))
+            
+        cc = ws.cell(row=er + 1, column=ec, value="\n".join(full_content))
+        cc.fill      = _fill(bg)
+        cc.alignment = _top_left()
+        cc.border    = Border(left=Side(style='thin', color='CCCCCC'), right=Side(style='thin', color='CCCCCC'), bottom=Side(style='thin', color='CCCCCC'))
+        
+        # 기수가 있으면 배경색을 기수색으로 덮어씀 (시인성)
+        if pmtc:
+            nc.fill = _fill(COLOR_CO_BG := 'FFF9E5')
+            cc.fill = _fill(COLOR_CO_BG)
+            cc.font = Font(name='맑은 고딕', size=8.5, color='203764')
+        else:
+            cc.font = Font(name='맑은 고딕', size=8.5, color='444444')
+ 
+    ws.row_dimensions[excel_row].height = ROW_DATE_H
+    ws.row_dimensions[excel_row + 1].height = ROW_CONT_H
+    
+    # 시작 전 빈칸
+    for c in range(1, col): set_empty(excel_row, c)
+ 
+    for day in range(1, days_in_month + 1):
+        set_day(excel_row, col, date(year, month, day))
+        col += 1
+        if col > 7:
+            col = 1; excel_row += 2
+            if day < days_in_month:
+                ws.row_dimensions[excel_row].height = ROW_DATE_H
+                ws.row_dimensions[excel_row + 1].height = ROW_CONT_H
+ 
+    # 끝난 후 빈칸
+    if col > 1:
+        for c in range(col, 8): set_empty(excel_row, c)
+ 
+    ws.sheet_view.zoomScale = 100
+    return ws
+ 
+ 
+# ──────────────────────────────────────────────────────────
+# [5] Django View
+# ──────────────────────────────────────────────────────────
 @login_required
 def export_facility_schedule_excel(request):
     if not request.user.is_staff:
         return HttpResponse("권한이 없습니다. (관리자 전용)", status=403)
-
-    # 1. 화면에서 넘겨받은 시작일과 종료일
+ 
     start_date_str = request.GET.get('start_date')
-    end_date_str = request.GET.get('end_date')
-
+    end_date_str   = request.GET.get('end_date')
+    export_format  = request.GET.get('export_format', 'calendar')
+ 
     if not start_date_str or not end_date_str:
         return HttpResponse("시작일과 종료일을 선택해주세요.", status=400)
-
+ 
     start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-    end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-    
+    end_date   = datetime.strptime(end_date_str,   '%Y-%m-%d').date()
     if start_date > end_date:
-        return HttpResponse("종료일이 시작일보다 빠를 수 없습니다.", status=400)
-
-    # 2. 해당 기간과 '겹치는' 예약들 가져오기
+        return HttpResponse("오류: 종료일이 시작일보다 빠릅니다.", status=400)
+ 
+    # DB 데이터
     reservations = Reservation.objects.filter(
         start_time__date__lte=end_date,
         end_time__date__gte=start_date,
         status='confirmed'
-    ).select_related('room')
-
-    # 3. 혹시 PMTC가 예약(Reservation) 테이블이 아닌 기수(Cohort) 테이블에 있을 경우를 대비한 가드코드
+    ).select_related('room', 'user__profile').order_by('start_time')
+ 
     cohort_list = []
     try:
         from accounts.models import Cohort
-        cohorts = Cohort.objects.all()
-        for c in cohorts:
-            if hasattr(c, 'start_date') and hasattr(c, 'end_date') and c.start_date and c.end_date:
-                if c.start_date <= end_date and c.end_date >= start_date:
-                    cohort_list.append(c)
+        cohort_list = list(
+            Cohort.objects.filter(start_date__lte=end_date, end_date__gte=start_date)
+        )
     except Exception:
         pass
-
+ 
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
-
-    # 엑셀 디자인 세팅
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
-    weekend_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
-    pmtc_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid") 
-    pmtc_font = Font(color="9C0006", bold=True)
-    
-    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    left_align = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-
-    headers = ["일자", "요일", "교육장 주요 일정 (PMTC 등)", "기타 확정된 예약 내역"]
-
-    # 시작일부터 종료일까지 하루씩 넘어가면서 엑셀에 쓰기
-    current_date = start_date
-    while current_date <= end_date:
-        current_year = current_date.year
-        current_month = current_date.month
-        sheet_name = f"{current_year}년 {current_month}월"
+ 
+    # ★ 달력형과 목록형 모두 월(Month) 단위로 쪼개서 시트를 생성하도록 변경!
+    cur = start_date.replace(day=1)
+    while cur <= end_date:
+        y, m = cur.year, cur.month
+        next_m = cur.replace(month=m + 1) if m < 12 else cur.replace(year=y + 1, month=1)
         
-        # 월이 바뀔 때마다 시트 새로 만들기
-        if sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
-        else:
-            ws = wb.create_sheet(title=sheet_name)
-            ws.append(headers)
-            for col_num, header in enumerate(headers, 1):
-                cell = ws.cell(row=1, column=col_num)
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.alignment = center_align
-                cell.border = thin_border
+        if export_format == 'list':
+            # 해당 월에 속하는 날짜 구간만 자르기
+            m_start = max(start_date, cur)
+            m_end = min(end_date, next_m - timedelta(days=1))
             
-            ws.column_dimensions['A'].width = 15
-            ws.column_dimensions['B'].width = 8
-            ws.column_dimensions['C'].width = 35 
-            ws.column_dimensions['D'].width = 50 
-
-        row_idx = ws.max_row + 1
-        weekday = current_date.weekday()
-        weekday_str = ["월", "화", "수", "목", "금", "토", "일"][weekday]
-
-        # ★ 핵심 버그 수정: 예약의 시작일~종료일 사이에 '오늘(current_date)'이 껴있으면 몽땅 가져옴!
-        day_res = [r for r in reservations if r.start_time.date() <= current_date <= r.end_time.date()]
-        
-        is_pmtc = False
-        pmtc_text = ""
-        res_texts = []
-
-        # 4-1. 예약(Reservation) 목록에서 PMTC 찾기
-        for r in day_res:
-            if 'PMTC' in r.title.upper():
-                is_pmtc = True
-                pmtc_text = f"🚨 {r.title}\n(전 랩실 사용 불가)"
-            else:
-                room_name = r.room.name if r.room else "미지정"
-                res_texts.append(f"[{room_name}] {r.title} ({r.start_time.strftime('%H:%M')}~{r.end_time.strftime('%H:%M')})")
-        
-        # 4-2. 기수(Cohort) 모델에서 PMTC 찾기 (예약에 안 적혀 있을 경우)
-        for c in cohort_list:
-            if c.start_date <= current_date <= c.end_date:
-                is_pmtc = True
-                name = getattr(c, 'name', '')
-                pmtc_text = f"🚨 {name} PMTC 진행\n(전 랩실 사용 불가)"
-
-        res_combined = "\n".join(res_texts) if res_texts else ""
-
-        # 5. 엑셀에 한 줄 쓰기
-        row_data = [
-            current_date.strftime('%Y-%m-%d'),
-            weekday_str,
-            pmtc_text,
-            res_combined
-        ]
-
-        for col_num, val in enumerate(row_data, 1):
-            cell = ws.cell(row=row_idx, column=col_num, value=val)
-            cell.border = thin_border
-            if col_num in [1, 2, 3]:
-                cell.alignment = center_align
-            else:
-                cell.alignment = left_align
-
-            # 색칠하기 (PMTC가 무조건 최우선!)
-            if is_pmtc:
-                cell.fill = pmtc_fill
-                cell.font = pmtc_font
-            elif weekday >= 5: 
-                cell.fill = weekend_fill
-
-        current_date += timedelta(days=1)
-
-    filename = f"배포용_운영일정_{start_date_str}_{end_date_str}.xlsx"
-    encoded_filename = urllib.parse.quote(filename)
-
-    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded_filename}"
+            # 해당 월의 예약만 걸러내기
+            m_res = [r for r in reservations if timezone.localtime(r.start_time).date() <= m_end and timezone.localtime(r.end_time).date() >= m_start]
+            _build_list_sheet(wb, y, m, m_start, m_end, m_res, cohort_list)
+        else:
+            # 달력형 생성
+            month_res = [r for r in reservations
+                         if timezone.localtime(r.start_time).date() < next_m
+                         and timezone.localtime(r.end_time).date() >= cur]
+            _build_calendar_sheet(wb, y, m, month_res, cohort_list)
+            
+        cur = next_m
+ 
+    suffix   = "배포용_일정표" if export_format == 'list' else "달력형_일정표"
+    filename = f"{suffix}_{start_date_str}_{end_date_str}.xlsx"
+    encoded  = urllib.parse.quote(filename)
+ 
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded}"
     wb.save(response)
-
     return response
 
 import json

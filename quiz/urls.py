@@ -195,7 +195,8 @@ urlpatterns = [
     path('manager/global-analytics/full/<str:analysis_type>/', views.global_analytics_full, name='global_analytics_full'),
     path('evaluate/<int:profile_id>/', views.evaluate_trainee, name='evaluate_trainee'),
     path('logs/warning-letter/<int:log_id>/print/', views.print_warning_letter, name='print_warning_letter'),
-    
+    path('manager/exception-completion/<int:req_id>/<str:action>/', views.process_exception_completion, name='process_exception_completion'),
+    path('chat/api/user/<int:user_id>/profile/', views.chat_user_quick_profile, name='chat_user_quick_profile'),
     
 ]
 

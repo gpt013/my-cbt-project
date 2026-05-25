@@ -168,9 +168,18 @@
                 </div>
             {% else %}
                 <div class="chat-message other chat-message-row" data-msg-id="{{ msg.id }}">
-                    <div class="profile-icon"><i class="bi bi-person-fill"></i></div>
-                    <div class="message-content">
-                        <div class="sender-name">{{ msg.sender.profile.name|default:msg.sender.username }}</div>
+        <div class="profile-icon" 
+             style="cursor:pointer;" 
+             onclick="showUserProfile({{ msg.sender.id }})">
+            <i class="bi bi-person-fill"></i>
+        </div>
+        <div class="message-content">
+            <div class="sender-name" 
+                 style="cursor:pointer;" 
+                 onclick="showUserProfile({{ msg.sender.id }})">
+                {{ msg.sender.profile.name|default:msg.sender.username }}
+            </div>
+                   
                         <div class="bubble-row">
                             <div class="bubble">
                                 {% if msg.parent %}
@@ -349,6 +358,11 @@
     // --- [1] 기본 설정 및 소켓 연결 ---
     const myName = JSON.parse(document.getElementById('user-name').textContent);
     const roomId = JSON.parse(document.getElementById('room-id').textContent);
+    (function() {
+    let open = JSON.parse(localStorage.getItem('openChatRooms') || '[]');
+    if (!open.includes(roomId)) { open.push(roomId); }
+    localStorage.setItem('openChatRooms', JSON.stringify(open));
+})();
     const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
     const chatSocket = new WebSocket(wsScheme + '://' + window.location.host + '/ws/chat/' + roomId + '/');
     const chatLog = document.querySelector('#chat-log');
@@ -392,8 +406,11 @@
     document.onclick = sendReadStatus;
 
     window.onbeforeunload = function() {
-        if (window.opener && !window.opener.closed) window.opener.location.reload();
-    };
+    let open = JSON.parse(localStorage.getItem('openChatRooms') || '[]');
+    open = open.filter(id => id !== roomId);
+    localStorage.setItem('openChatRooms', JSON.stringify(open));
+    if (window.opener && !window.opener.closed) window.opener.location.reload();
+};
 
     chatSocket.onopen = function(e) { sendReadStatus(); };
 
@@ -903,6 +920,89 @@
             mentionDropdown.style.display = 'none';
         }
     });
+</script>
+
+<!-- 간편 프로필 카드 모달 -->
+<div id="userProfileCard" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.45); display:none; align-items:center; justify-content:center;" onclick="closeProfileCard(event)">
+    <div style="background:white; border-radius:16px; width:260px; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,0.2);" onclick="event.stopPropagation()">
+        
+        <!-- 헤더 (파란 배경) -->
+        <div id="profile-header" style="background:#3b82f6; padding:20px; display:flex; align-items:center; gap:12px;">
+            <div style="width:52px; height:52px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <i class="bi bi-person-fill" style="font-size:28px; color:#3b82f6;"></i>
+            </div>
+            <div>
+                <div id="profile-name" style="font-size:16px; font-weight:600; color:white;"></div>
+                <span style="background:rgba(255,255,255,0.2); color:white; border-radius:20px; padding:2px 8px; font-size:11px;">🟢 접속중</span>
+            </div>
+        </div>
+        
+        <!-- 정보 -->
+        <div style="padding:16px;">
+            <table style="width:100%; font-size:13px; border-collapse:collapse;">
+                <tr>
+                    <td style="color:#6b7280; padding:5px 0;"><i class="bi bi-gear me-1"></i>공정</td>
+                    <td id="profile-process" style="font-weight:500; text-align:right;"></td>
+                </tr>
+                <tr>
+                    <td style="color:#6b7280; padding:5px 0;"><i class="bi bi-people me-1"></i>기수</td>
+                    <td id="profile-cohort" style="font-weight:500; text-align:right;"></td>
+                </tr>
+                <tr>
+                    <td style="color:#6b7280; padding:5px 0;"><i class="bi bi-building me-1"></i>소속</td>
+                    <td id="profile-company" style="font-weight:500; text-align:right;"></td>
+                </tr>
+            </table>
+            
+            <div style="border-top:1px solid #e5e7eb; margin-top:12px; padding-top:12px; display:flex; flex-direction:column; gap:8px;">
+                <a id="profile-chat-btn" href="#" style="display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:9px; background:#fae100; border-radius:8px; font-size:13px; font-weight:600; color:#3b1e1e; text-decoration:none;">
+                    <i class="bi bi-chat-fill"></i> 1:1 메시지 보내기
+                </a>
+                <button onclick="closeProfileCard()" style="width:100%; padding:7px; background:transparent; border:1px solid #e5e7eb; border-radius:8px; font-size:12px; color:#6b7280; cursor:pointer;">
+                    닫기
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// 프로필 카드 열기
+function showUserProfile(userId) {
+    if (!userId) return;
+    
+    fetch(`/quiz/chat/api/user/${userId}/profile/`)
+    .then(r => r.json())
+    .then(data => {
+        if (data.is_me) return; // 본인이면 무시
+        
+        document.getElementById('profile-name').innerText = data.name;
+        document.getElementById('profile-process').innerText = data.process;
+        document.getElementById('profile-cohort').innerText = data.cohort;
+        document.getElementById('profile-company').innerText = data.company;
+        
+        const btn = document.getElementById('profile-chat-btn');
+        if (data.existing_room_id) {
+            btn.href = `/quiz/chat/room/${data.existing_room_id}/`;
+            btn.innerHTML = '<i class="bi bi-chat-fill"></i> 대화방으로 이동';
+        } else {
+            btn.href = data.start_url;
+            btn.innerHTML = '<i class="bi bi-chat-fill"></i> 1:1 메시지 보내기';
+        }
+        
+        const card = document.getElementById('userProfileCard');
+        card.style.display = 'flex';
+    })
+    .catch(err => console.log(err));
+}
+
+// 닫기
+function closeProfileCard(e) {
+    if (!e || e.target === document.getElementById('userProfileCard')) {
+        document.getElementById('userProfileCard').style.display = 'none';
+    }
+}
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeProfileCard(); });
 </script>
 </body>
 </html>

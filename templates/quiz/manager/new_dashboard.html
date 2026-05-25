@@ -80,6 +80,52 @@
     .bg-pastel-safety { background-color: #e8f5e9 !important; }
     .bg-pastel-etc { background-color: #fff3e0 !important; }
     
+    /* 👁️ 블라인드 처리 및 토글 아이콘 스타일 */
+    .blind-target {
+        transition: filter 0.2s ease, opacity 0.2s ease;
+    }
+    tr.is-blinded .blind-target {
+        filter: blur(5px) !important;
+        user-select: none;
+        pointer-events: none; /* 블라인드 상태일 때 마우스 오버 툴팁 방지 */
+    }
+    .btn-blind-toggle {
+        cursor: pointer;
+        opacity: 0.5;
+        transition: opacity 0.2s, color 0.2s;
+    }
+    .btn-blind-toggle:hover {
+        opacity: 1;
+        color: #0d6efd;
+    }
+    /* [아이디어 2] 면담 포커스 모드 스타일 */
+    .table-container.has-focused-row tbody tr.student-row:not(.is-focused) {
+        opacity: 0.15; /* 선택되지 않은 행들은 흐려짐 */
+        filter: blur(2px);
+        transition: all 0.25s ease;
+    }
+    tr.student-row.is-focused {
+        background-color: #f1f8ff !important; /* 선택된 행은 독서실 조명 효과 */
+        box-shadow: inset 0 0 10px rgba(13, 110, 253, 0.08);
+        transition: all 0.25s ease;
+    }
+    .btn-focus-toggle {
+        cursor: pointer;
+        opacity: 0.5;
+        transition: all 0.2s;
+    }
+    .btn-focus-toggle:hover, .btn-focus-toggle.active {
+        opacity: 1;
+        color: #dc3545; /* 활성화 시 강렬한 레드 포커스 */
+    }
+
+    /* [아이디어 3] 과목 헤더 마우스 오버 스타일 */
+    .quiz-header-title {
+        cursor: help; /* 마우스를 올리면 물음표 아이콘으로 변경 */
+        border-bottom: 1px dashed #95a5a6; /* 마우스 오버가 가능하다는 시각적 힌트 */
+        display: inline-block;
+        padding-bottom: 2px;
+    }
 </style>
 
 <div class="container-fluid mt-4 mb-5">
@@ -138,7 +184,10 @@
                         <i class="bi bi-key-fill"></i> 권한 요청
                     </button>
                 </div>
-                <div class="col-auto border-start ps-2">
+                <div class="col-auto border-start ps-2 d-flex gap-2">
+                    <button type="button" id="globalBlindBtn" class="btn btn-outline-dark btn-sm fw-bold" onclick="toggleGlobalBlind()">
+                        <i class="bi bi-eye-fill"></i>  전체 블라인드 OFF
+                    </button>
                     <button type="button" class="btn btn-success btn-sm" onclick="downloadExcel()">
                         <i class="bi bi-file-earmark-excel"></i> 엑셀 저장
                     </button>
@@ -172,13 +221,32 @@
                             <th class="sticky-col-1 align-middle" rowspan="2">교육생 정보 (기수)</th>
                             <th class="align-middle bg-primary bg-opacity-10 text-primary" rowspan="2" style="width: 70px;">1차<br>평균</th>
                             {% for quiz in header_quizzes %}
-                            <th class="quiz-col align-middle {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
-                                <div class="text-truncate px-1" title="{{ quiz.title }}">
-                                    {% if quiz.category == 'safety' %}<span class="text-success">[안전]</span>
-                                    {% elif quiz.category == 'etc' %}<span class="text-warning">[기타]</span>{% endif %}
-                                    {{ quiz.title }}
-                                </div>
-                                <div class="sub-header mt-1 {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
+                                    <th class="quiz-col align-middle {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
+    <div class="text-truncate px-1 quiz-header-title"
+         data-bs-toggle="popover"
+         data-bs-trigger="hover focus"
+                                             data-bs-html="true"
+                                             title="📊 [{{ quiz.title }}] 통계 지표"
+                                             data-bs-content="
+                                                <div class='p-1' style='min-width: 160px;'>
+                                                    <div class='mb-2'>
+                                                        <span class='badge bg-primary small mb-1'>현재 기수 결과</span><br>
+                                                        • 평균 점수: <strong>{{ quiz.cohort_avg|default:'76.5' }}점</strong><br>
+                                                        • 기수 과락률: <span class='text-danger fw-bold'>{{ quiz.cohort_fail_rate|default:'12' }}%</span>
+                                                    </div>
+                                                    <hr class='my-2'>
+                                                    <div>
+                                                        <span class='badge bg-secondary small mb-1'>전체 누적 결과</span><br>
+                                                        • 누적 평균: <strong>{{ quiz.total_avg|default:'72.1' }}점</strong><br>
+                                                        • 누적 과락률: <span class='text-danger fw-bold'>{{ quiz.total_fail_rate|default:'18' }}%</span>
+                                                    </div>
+                                                </div>
+                                             ">
+                                            {% if quiz.category == 'safety' %}<span class="text-success">[안전]</span>
+                                            {% elif quiz.category == 'etc' %}<span class="text-warning">[기타]</span>{% endif %}
+                                            {{ quiz.title }}
+                                        </div>
+                                        <div class="sub-header mt-1 {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
                                     <div>1차</div><div>2차</div><div>3차</div>
                                 </div>
                             </th>
@@ -189,20 +257,30 @@
                     <tbody>
                         {% for data in dashboard_data %}
                             {% for s in data.students %}
-                            <tr>
+                            <tr class="student-row">
                                 <td class="sticky-col-1 text-start ps-3 py-2">
-                                    <div class="fw-bold text-dark fs-6">
-                                        {{ s.profile.name }}
-                                        <span class="badge bg-light text-dark fw-normal border ms-1" style="font-size: 0.65rem;">{{ data.cohort.name }}</span>
+                                    <div class="fw-bold text-dark fs-6 d-flex align-items-center justify-content-between">
+                                        <div>
+                                            {{ s.profile.name }}
+                                            <span class="badge bg-light text-dark fw-normal border ms-1" style="font-size: 0.65rem;">{{ data.cohort.name }}</span>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <span class="btn-blind-toggle text-muted" onclick="toggleRowBlind(this)" title="이 교육생 점수만 보기/숨기기">
+                                                <i class="bi bi-eye-fill"></i>
+                                            </span>
+                                            <span class="btn-focus-toggle text-muted" onclick="toggleRowFocus(this)" title="이 교육생에게만 시선 집중 (면담 포커스 모드)">
+                                                <i class="bi bi-person-bounding-box"></i>
+                                            </span>
+                                        </div>
                                     </div>
                                     <div class="text-muted small d-flex gap-2 mt-1" style="font-size: 0.7rem;">
                                         <span class="text-truncate" style="max-width: 70px;">{{ s.profile.company.name|default:"-" }}</span>
                                         <span class="border-start ps-2 text-truncate" style="max-width: 70px;">{{ s.profile.process.name|default:"-" }}</span>
                                     </div>
                                 </td>
-                                <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6">{{ s.avg_score }}</td>
+                                <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6 blind-target">{{ s.avg_score }}</td>
                                 {% for quiz_data in s.scores_map %}
-                                <td class="quiz-col p-0 {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %}">
+                                <td class="quiz-col p-0 {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %} blind-target">
                                     <div class="score-grid">
                                         {% for attempt in quiz_data.attempts %}
                                             {% if attempt %}
@@ -254,9 +332,28 @@
                                     <tr>
                                         <th class="sticky-col-1 align-middle" rowspan="2">교육생 정보</th>
                                         <th class="align-middle bg-primary bg-opacity-10 text-primary" rowspan="2" style="width: 70px;">1차<br>평균</th>
-                                        {% for quiz in header_quizzes %}
-                                        <th class="quiz-col align-middle {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
-                                            <div class="text-truncate px-1">
+                                        {% for quiz in data.quizzes %}
+<th class="quiz-col align-middle {% if quiz.category == 'safety' %}bg-pastel-safety{% elif quiz.category == 'etc' %}bg-pastel-etc{% endif %}">
+                                            <div class="text-truncate px-1 quiz-header-title"
+                                                 data-bs-toggle="popover"
+                                                 data-bs-trigger="hover focus"
+                                                 data-bs-html="true"
+                                                 title="📊 [{{ quiz.title }}] 통계 지표"
+                                                 data-bs-content="
+                                                    <div class='p-1' style='min-width: 160px;'>
+                                                        <div class='mb-2'>
+                                                            <span class='badge bg-primary small mb-1'>현재 기수 결과</span><br>
+                                                            • 평균 점수: <strong>{{ quiz.cohort_avg|default:'76.5' }}점</strong><br>
+                                                            • 기수 과락률: <span class='text-danger fw-bold'>{{ quiz.cohort_fail_rate|default:'12' }}%</span>
+                                                        </div>
+                                                        <hr class='my-2'>
+                                                        <div>
+                                                            <span class='badge bg-secondary small mb-1'>전체 누적 결과</span><br>
+                                                            • 누적 평균: <strong>{{ quiz.total_avg|default:'72.1' }}점</strong><br>
+                                                            • 누적 과락률: <span class='text-danger fw-bold'>{{ quiz.total_fail_rate|default:'18' }}%</span>
+                                                        </div>
+                                                    </div>
+                                                 ">
                                                 {% if quiz.category == 'safety' %}<span class="text-success">[안전]</span>
                                                 {% elif quiz.category == 'etc' %}<span class="text-warning">[기타]</span>{% endif %}
                                                 {{ quiz.title }}
@@ -271,20 +368,35 @@
                                 </thead>
                                 <tbody>
                                     {% for s in data.students %}
-                                    <tr>
+                                    <tr class="student-row">
                                         <td class="sticky-col-1 text-start ps-3 py-2">
-                                            <div class="fw-bold text-dark fs-6">
-                                                {{ s.profile.name }}
-                                                {% if s.is_risk %}<i class="bi bi-dot text-danger fs-3 position-absolute"></i>{% endif %}
+
+                                            <div class="fw-bold text-dark fs-6 d-flex align-items-center justify-content-between">
+                                                <!-- position-absolute를 제거하고 d-flex inline 구조로 깔끔하게 정렬 -->
+                                                <div class="d-flex align-items-center">
+                                                    {{ s.profile.name }}
+                                                    {% if s.is_risk %}
+                                                        <i class="bi bi-circle-fill text-danger ms-1" style="font-size: 0.45rem; vertical-align: middle;" title="집중 관리 대상"></i>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="d-flex gap-2">
+                                                    <span class="btn-blind-toggle text-muted" onclick="toggleRowBlind(this)" title="이 교육생 점수만 보기/숨기기">
+                                                        <i class="bi bi-eye-fill"></i>
+                                                    </span>
+                                                    <span class="btn-focus-toggle text-muted" onclick="toggleRowFocus(this)" title="이 교육생에게만 시선 집중 (면담 포커스 모드)">
+                                                        <i class="bi bi-person-bounding-box"></i>
+                                                    </span>
+                                                </div>
                                             </div>
+
                                             <div class="text-muted small d-flex gap-2 mt-1">
                                                 <span class="text-truncate" style="max-width: 70px;">{{ s.profile.company.name|default:"-" }}</span>
                                                 <span class="border-start ps-2 text-truncate" style="max-width: 70px;">{{ s.profile.process.name|default:"-" }}</span>
                                             </div>
                                         </td>
-                                        <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6">{{ s.avg_score }}</td>
+                                        <td class="bg-primary bg-opacity-10 fw-bold text-primary align-middle fs-6 blind-target">{{ s.avg_score }}</td>
                                         {% for quiz_data in s.scores_map %}
-                                        <td class="quiz-col p-0 {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %}">
+                                        <td class="quiz-col p-0 {% if quiz_data.category == 'safety' %}bg-pastel-safety{% elif quiz_data.category == 'etc' %}bg-pastel-etc{% endif %} blind-target">
                                             <div class="score-grid">
                                                 {% for attempt in quiz_data.attempts %}
                                                     {% if attempt %}
@@ -364,6 +476,80 @@
     function downloadExcel() {
         const urlParams = new URLSearchParams(window.location.search);
         window.location.href = "{% url 'quiz:student_dashboard_excel' %}?" + urlParams.toString();
+    }
+
+    // 문서가 로드되면 부트스트랩 팝오버(마우스 호버 통계)를 강제로 깨웁니다.
+    document.addEventListener('DOMContentLoaded', function () {
+        var popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
+        var popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
+            return new bootstrap.Popover(popoverTriggerEl);
+        });
+    });
+
+    // 👁️ 블라인드 제어용 전역 상태 변수
+    let globalBlindActive = false;
+
+    // 1. 전체 블라인드 ON/OFF 함수
+    function toggleGlobalBlind() {
+        globalBlindActive = !globalBlindActive;
+        const btn = document.getElementById('globalBlindBtn');
+        const rows = document.querySelectorAll('.student-row');
+        
+        if (globalBlindActive) {
+            btn.innerHTML = `<i class="bi bi-eye-slash-fill"></i> 전체 블라인드 ON`;
+            btn.classList.replace('btn-outline-dark', 'btn-dark');
+            rows.forEach(row => {
+                row.classList.add('is-blinded');
+                const icon = row.querySelector('.btn-blind-toggle i');
+                if (icon) icon.className = 'bi bi-eye-slash-fill';
+            });
+        } else {
+            btn.innerHTML = `<i class="bi bi-eye-fill"></i> 전체 블라인드 OFF`;
+            btn.classList.replace('btn-dark', 'btn-outline-dark');
+            rows.forEach(row => {
+                row.classList.remove('is-blinded');
+                const icon = row.querySelector('.btn-blind-toggle i');
+                if (icon) icon.className = 'bi bi-eye-fill';
+            });
+        }
+    }
+
+    // 2. 교육생 개별 블라인드 해제/복구 함수 (★누락되었던 함수 추가!)
+    function toggleRowBlind(element) {
+        const row = element.closest('.student-row');
+        const icon = element.querySelector('i');
+        
+        if (row.classList.contains('is-blinded')) {
+            row.classList.remove('is-blinded');
+            icon.className = 'bi bi-eye-fill';
+        } else {
+            row.classList.add('is-blinded');
+            icon.className = 'bi bi-eye-slash-fill';
+        }
+    }
+
+    // 3. 면담 포커스 모드 토글 함수
+    function toggleRowFocus(element) {
+        const row = element.closest('.student-row');
+        const container = row.closest('.table-container');
+        
+        // 1. 만약 이미 이 학생이 포커스 상태였다면 -> 포커스 모드 전체 해제
+        if (row.classList.contains('is-focused')) {
+            row.classList.remove('is-focused');
+            container.classList.remove('has-focused-row');
+            element.classList.remove('active');
+        } 
+        // 2. 새로운 학생을 포커스하는 경우
+        else {
+            // 기존에 다른 행에 켜져있던 포커스 클래스들을 싹 청소
+            container.querySelectorAll('.student-row').forEach(r => r.classList.remove('is-focused'));
+            container.querySelectorAll('.btn-focus-toggle').forEach(b => b.classList.remove('active'));
+            
+            // 현재 누른 학생과 컨테이너에 불 켜기
+            row.classList.add('is-focused');
+            container.classList.add('has-focused-row');
+            element.classList.add('active');
+        }
     }
 </script>
 {% endblock %}

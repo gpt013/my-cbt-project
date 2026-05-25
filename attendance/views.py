@@ -19,6 +19,7 @@ except ImportError:
     holidays = None
 
 # 모델 Import
+from django.contrib.auth.models import User  # ★ 추가
 from accounts.models import Profile, Process, Cohort, PartLeader
 from quiz.models import StudentLog # [필수] 알림 로그용
 from .models import WorkType, DailySchedule, ScheduleRequest, Attendance 
@@ -237,6 +238,10 @@ def schedule_index(request):
         else:
             profiles = profiles.none()
 
+    view_scope = request.GET.get('view', 'team')
+    if view_scope == 'self' and hasattr(user, 'profile'):
+        profiles = profiles.filter(user=user)
+
     profiles = profiles.order_by('name')
 
     # [연차 및 스케줄 데이터 매핑]
@@ -305,8 +310,18 @@ def schedule_index(request):
         schedule_map[p.id] = row_data
 
     # 다음달 계산
-    if today.month == 12: next_month_start = date(today.year + 1, 1, 1)
-    else: next_month_start = date(today.year, today.month + 1, 1)
+    if today.month == 12:
+        next_month_start = date(today.year + 1, 1, 1)
+    else:
+        next_month_start = date(today.year, today.month + 1, 1)
+
+    # 본인 profile_id 추출 (교육생 본인 행만 클릭 허용)
+    my_profile_id = ''
+    if hasattr(user, 'profile'):
+        try:
+            my_profile_id = user.profile.id
+        except Exception:
+            my_profile_id = ''
 
     context = {
         'year': year, 'month': month,
@@ -315,16 +330,16 @@ def schedule_index(request):
         'work_types': WorkType.objects.all().order_by('order'),
         'cohorts': Cohort.objects.all().order_by('-start_date'),
         'processes': Process.objects.all(),
-        # 템플릿에서 '선택됨' 표시를 위해 정수형 변환 (값이 있을 때만)
         'sel_cohort': int(sel_cohort) if sel_cohort else '',
         'sel_process': int(sel_process) if sel_process else '',
         'sel_role': sel_role,
         'prev_month': (start_date - timedelta(days=1)).strftime('%Y-%m'),
         'next_month': (end_date + timedelta(days=1)).strftime('%Y-%m'),
         'is_manager': is_manager_or_admin,
+        'my_profile_id': my_profile_id,  # ★ 추가
+        'view_scope': view_scope,
     }
     return render(request, 'attendance/schedule.html', context)
-
 
 # ------------------------------------------------------------------
 # 3. 스케줄 수정 (기존 로직 유지)
@@ -333,173 +348,206 @@ def schedule_index(request):
 @require_POST
 def update_schedule(request):
     try:
-        data = json.loads(request.body)
-        profile_id = data.get('profile_id')
-        date_str = data.get('date')
+        data         = json.loads(request.body)
+        profile_id   = data.get('profile_id')
+        date_str     = data.get('date')
         work_type_id = data.get('work_type_id')
-        reason = data.get('reason', '')
+        reason       = (data.get('reason') or '').strip()
 
         target_profile = get_object_or_404(Profile, pk=profile_id)
-        work_type = get_object_or_404(WorkType, pk=work_type_id)
-        target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        
-        is_owner = (target_profile.user == request.user)
+        work_type      = get_object_or_404(WorkType, pk=work_type_id)
+        target_date    = datetime.strptime(date_str, '%Y-%m-%d').date()
+        today          = timezone.now().date()
+
+        from quiz.models import Notification
+        from django.urls import reverse
+
+        # ── 역할 판별 ──────────────────────────────────────────────
         is_superuser = request.user.is_superuser
-        
+
+        # 본인 여부
+        is_owner = False
+        try:
+            is_owner = (target_profile.user_id == request.user.pk)  # ★ id 직접 비교 (역참조 오류 방지)
+        except Exception:
+            pass
+
+        # 대상이 매니저/PL/관리자인지 확인
+        target_is_manager = (
+            getattr(target_profile, 'is_manager', False) or
+            getattr(target_profile, 'is_pl', False) or
+            target_profile.user.is_superuser or
+            target_profile.user.is_staff
+        )
+
+        # 매니저 권한:
+        #   - 본인 행 제외 (is_owner=False)
+        #   - 대상이 순수 교육생인 경우만 (target_is_manager=False)
+        #   - 같은 공정
         is_manager_of_target = False
-        if hasattr(request.user, 'profile') and request.user.profile.is_manager:
-            if request.user.profile.process == target_profile.process:
-                is_manager_of_target = True
+        if not is_superuser and not is_owner and hasattr(request.user, 'profile'):
+            rp = request.user.profile
+            if getattr(rp, 'is_manager', False) or getattr(rp, 'is_pl', False):
+                if rp.process == target_profile.process and not target_is_manager:  # ★ 매니저→매니저 차단
+                    is_manager_of_target = True
 
+        # 기본 접근 차단
         if not (is_owner or is_superuser or is_manager_of_target):
-             return JsonResponse({'status': 'error', 'message': '수정 권한이 없습니다.'})
-        
-        today = timezone.now().date()
-        if today.month == 12: next_month_start = date(today.year + 1, 1, 1)
-        else: next_month_start = date(today.year, today.month + 1, 1)
+            return JsonResponse({'status': 'error', 'message': '수정 권한이 없습니다.'})
 
-        # [추가] 팝업 컨펌 후 넘겨받는 강제 진행 플래그
-        force_warning = data.get('force_warning', False)
-        is_direct_save = False
-        msg = ""
-
-        # 1. 과거 수정
-        if target_date < today:
-            if is_superuser:
-                is_direct_save = True
-                msg = '관리자 권한으로 과거 수정됨'
-            else:
-                 return JsonResponse({'status': 'error', 'message': '지난 날짜는 관리자만 수정 가능합니다.'})
-
-        # 2. 미래 수정
-        elif target_date >= next_month_start:
-            is_direct_save = True
-            msg = '미래 근무 수정됨'
-
-        # 3. 당월 수정
-        else:
-            if is_superuser:
-                is_direct_save = True
-                msg = '관리자 권한 수정'
-            elif is_manager_of_target and not is_owner:
-                is_direct_save = True
-                msg = '매니저 권한 수정'
-
-        # ★ 관리자/매니저가 즉시 저장하는 경우 (지각 자동 징계 실행)
-        if is_direct_save:
-            if ('지각' in work_type.name or '지각' in work_type.short_name) and not is_owner:
-                from quiz.models import StudentLog, Notification
-                
-                # 1. 자동/수동 상관없이 '오늘' 발부된 경고장이 있거나,
-                # 2. '해당 날짜(target_date)'에 대한 자동 지각 경고장이 이미 있는지 확인
-                has_warning = StudentLog.objects.filter(
-                    Q(profile=target_profile, log_type='warning_letter') &
-                    (Q(created_at__date=today) | Q(reason__contains=f"[{target_date}] 지각"))
-                ).exists()
-
-                # 중복이 아닐 때만 경고장 발부 로직 실행
-                if not has_warning:
-                    if target_profile.warning_count < 2:
-                        target_profile.warning_count = 2
-                    else:
-                        target_profile.warning_count += 1
-                        
-                    if target_profile.warning_count == 2:
-                        target_profile.status = 'counseling'
-                    elif target_profile.warning_count == 3:
-                        target_profile.status = 'counseling'
-                        Notification.objects.create(
-                            recipient=request.user,
-                            notification_type='general',
-                            message=f"🚨 [{target_profile.name}] 지각으로 인해 누적 3회 도달! PL 면담이 필요합니다.",
-                            related_url=f"/quiz/manager/trainees/{target_profile.id}/logs/"
-                        )
-                    elif target_profile.warning_count >= 4:
-                        target_profile.status = 'dropout'
-                        target_profile.user.is_active = False
-                        target_profile.user.save()
-                        
-                    target_profile.save()
-
-                    StudentLog.objects.create(
-                        profile=target_profile,
-                        recorder=request.user,
-                        log_type='warning_letter',
-                        reason=f"[시스템 자동] {target_date} 지각으로 인한 경고 누적 -> {target_profile.warning_count - 1}차 경고장",
-                        action_taken="자동 처리됨 (매니저 면담 필요)",
-                        is_resolved=False
-                    )
-                    
-                    Notification.objects.create(
-                        recipient=target_profile.user,
-                        notification_type='general',
-                        message=f"⚠️ {target_date} 지각으로 인해 경고장이 자동 발부되었습니다. 마이페이지 특이사항을 확인하세요.",
-                    )
-            
-            # [핵심] 경고장이 중복이라 스킵되든 말든, 달력에 '지각' 도장은 무조건 찍습니다!
+        # ══════════════════════════════════════════════════════════
+        # ① 최종관리자: 날짜/대상 무관 직접 저장
+        # ══════════════════════════════════════════════════════════
+        if is_superuser:
             DailySchedule.objects.update_or_create(
-                profile=target_profile, date=target_date, defaults={'work_type': work_type}
+                profile=target_profile, date=target_date,
+                defaults={'work_type': work_type}
             )
-            return JsonResponse({'status': 'success', 'message': msg})
+            return JsonResponse({'status': 'success', 'message': '관리자 권한으로 저장되었습니다.'})
 
-        # === 일반 교육생의 당월 수정 (결재 대기) ===
-        if not is_direct_save:
-            if not reason:
-                return JsonResponse({'status': 'reason_required'})
-            
-            req_obj = ScheduleRequest.objects.create(
-                requester=target_profile, date=target_date,
-                target_work_type=work_type, reason=reason, status='pending'
-            )
+        # ══════════════════════════════════════════════════════════
+        # ② 과거 날짜: 최종관리자 외 전면 차단
+        # ══════════════════════════════════════════════════════════
+        if target_date < today:
+            return JsonResponse({'status': 'error', 'message': '지난 날짜는 최종 관리자만 수정할 수 있습니다.'})
 
-            # 2. [추가] 매니저에게 종 알림 발송 로직
-            from quiz.models import Notification
-            from django.urls import reverse
-            from django.contrib.auth.models import User
-            
-            # 해당 학생의 공정 매니저 찾기
-            target_managers = User.objects.filter(
-                profile__is_manager=True, 
-                profile__process=target_profile.process
-            )
-            
-            # 매니저가 없으면 최고관리자에게 알림
-            if not target_managers.exists():
-                target_managers = User.objects.filter(is_superuser=True)
-                
-            for manager in target_managers:
+        # 다음달 1일
+        if today.month == 12:
+            next_month_start = date(today.year + 1, 1, 1)
+        else:
+            next_month_start = date(today.year, today.month + 1, 1)
+
+        # 알림 발송 헬퍼
+        def send_notifications(recipients, msg):
+            for recipient in recipients:
                 Notification.objects.create(
-                    recipient=manager,
+                    recipient=recipient,
                     sender=request.user,
-                    message=f"📅 [근무 변경] {target_profile.name}님이 {target_date.strftime('%m/%d')} 근무 변경을 요청했습니다.",
-                    # 클릭 시 해당 월의 달력 화면으로 바로 이동!
-                    related_url=reverse('attendance:schedule_index') + f"?year={target_date.year}&month={target_date.month}",
+                    message=msg,
+                    # ★ 기존 주소 맨 뒤에 &show_pending=true 를 딱 붙여줍니다!
+                    related_url=reverse('attendance:schedule_index') + f"?year={target_date.year}&month={target_date.month}&show_pending=true",
                     icon='bi-calendar-event',
                     notification_type='general'
                 )
-            
-            return JsonResponse({'status': 'request_sent', 'message': '승인 요청이 전송되었습니다.'})
+
+        superusers = User.objects.filter(is_superuser=True)
+
+        def send_to_superusers(msg):
+            send_notifications(superusers, msg)
+
+        def send_to_managers_and_superusers(msg):
+            managers = User.objects.filter(
+                profile__is_manager=True,
+                profile__process=target_profile.process
+            )
+            recipients = (managers | superusers).distinct()
+            send_notifications(recipients, msg)
+
+        def create_request_and_notify(msg_func):
+            if not reason:
+                return JsonResponse({'status': 'reason_required'})
+            ScheduleRequest.objects.create(
+                requester=target_profile, date=target_date,
+                target_work_type=work_type, reason=reason, status='pending'
+            )
+            msg_func()
+            return JsonResponse({'status': 'request_sent', 'message': '승인 요청이 전송되었습니다. 승인 후 반영됩니다.'})
+
+        def direct_save():
+            DailySchedule.objects.update_or_create(
+                profile=target_profile, date=target_date,
+                defaults={'work_type': work_type}
+            )
+            return JsonResponse({'status': 'success', 'message': '근무가 저장되었습니다.'})
+
+        # ══════════════════════════════════════════════════════════
+        # ③ 매니저 → 담당 교육생 행
+        #    당일 → 최종관리자 결재 / 당월~익월 → 직접저장
+        # ══════════════════════════════════════════════════════════
+        if is_manager_of_target:
+            if target_date == today:
+                # 당일: 최종관리자 결재
+                return create_request_and_notify(lambda: send_to_superusers(
+                    f"📅 [당일 근무변경 요청] {request.user.get_full_name() or request.user.username} 매니저가 {target_profile.name}님의 {target_date.strftime('%m/%d')} '{work_type.short_name}' 변경을 요청했습니다."
+                ))
+            else:
+                # 당월(당일제외) ~ 익월: 직접저장
+                return direct_save()
+
+        # ══════════════════════════════════════════════════════════
+        # ④ 본인 행 수정 (매니저 본인 or 교육생 본인)
+        # ══════════════════════════════════════════════════════════
+        if is_owner:
+            req_user_is_manager = hasattr(request.user, 'profile') and (
+                getattr(request.user.profile, 'is_manager', False) or
+                getattr(request.user.profile, 'is_pl', False)
+            )
+
+            if req_user_is_manager:
+                # 매니저 본인
+                if target_date >= next_month_start:
+                    # 익월: 직접저장
+                    return direct_save()
+                else:
+                    # 당일 + 당월(당일제외): 최종관리자 결재
+                    return create_request_and_notify(lambda: send_to_superusers(
+                        f"📅 [매니저 본인 근무변경 요청] {target_profile.name}님이 {target_date.strftime('%m/%d')} '{work_type.short_name}' 변경을 요청했습니다."
+                    ))
+            else:
+                # 교육생 본인
+                if target_date == today:
+                    # 당일: 최종관리자만 결재
+                    return create_request_and_notify(lambda: send_to_superusers(
+                        f"📅 [교육생 당일 근무변경 요청] {target_profile.name}님이 {target_date.strftime('%m/%d')} '{work_type.short_name}' 변경을 요청했습니다. (당일 건 - 최종관리자 결재 필요)"
+                    ))
+                else:
+                    # 당월(당일제외) + 익월: 매니저 + 최종관리자 결재
+                    return create_request_and_notify(lambda: send_to_managers_and_superusers(
+                        f"📅 [근무변경 요청] {target_profile.name}님이 {target_date.strftime('%m/%d')} '{work_type.short_name}' 변경을 요청했습니다."
+                    ))
+
+        return JsonResponse({'status': 'error', 'message': '처리할 수 없는 요청입니다.'})
 
     except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)})
-
+        import traceback
+        print(f"❌ update_schedule 오류:\n{traceback.format_exc()}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 @login_required
 def get_pending_requests(request):
-    if not (request.user.is_staff or request.user.is_superuser):
-        return JsonResponse({'requests': []})
-    
     if request.user.is_superuser:
-        requests = ScheduleRequest.objects.filter(status='pending')
-    elif hasattr(request.user, 'profile') and request.user.profile.is_manager:
+        # 최종관리자: 모든 대기 요청
+        reqs = ScheduleRequest.objects.filter(status='pending').select_related(
+            'requester', 'target_work_type'
+        ).order_by('-id') # ★ 여기에 최신순 정렬 추가!
+    elif hasattr(request.user, 'profile') and (
+        request.user.profile.is_manager or request.user.profile.is_pl
+    ):
+        # 매니저: 담당 공정 교육생 요청만
         my_process = request.user.profile.process
-        requests = ScheduleRequest.objects.filter(
-            requester__process=my_process, status='pending'
-        ).exclude(requester=request.user.profile)
+        reqs = ScheduleRequest.objects.filter(
+            requester__process=my_process,
+            requester__is_manager=False,
+            requester__is_pl=False,
+            status='pending'
+        ).select_related('requester', 'target_work_type').order_by('-id') # ★ 여기도 최신순 정렬 추가!
     else:
         return JsonResponse({'requests': []})
-        
-    data = [{'id': r.id, 'name': r.requester.name, 'date': r.date.strftime('%Y-%m-%d'), 'type': r.target_work_type.short_name, 'reason': r.reason} for r in requests]
+    data = [
+        {
+            'id': r.id,
+            'name': r.requester.name,
+            'date': r.date.strftime('%Y-%m-%d'),
+            'type': r.target_work_type.short_name,
+            'reason': r.reason,
+            # ★ 역할 정보 추가
+            'role': '교수' if (
+                getattr(r.requester, 'is_manager', False) or
+                getattr(r.requester, 'is_pl', False)
+            ) else '교육생',
+        }
+        for r in reqs
+    ]
     return JsonResponse({'requests': data})
 
 
@@ -549,13 +597,25 @@ def process_request(request, request_id, action):
                 req_obj.approver = request.user
                 req_obj.save()
 
+                # ★ 1. 패널티가 적용되지 않도록 log_type을 'others'(기타)로 변경
                 StudentLog.objects.create(
                     profile=req_obj.requester,
-                    log_type='warning',
+                    log_type='others',
                     reason=f"[근무변경 반려] {req_obj.date} 요청이 반려되었습니다. (사유: {req_obj.reason})",
                     is_resolved=True,
                     recorder=request.user
                 )
+                
+                # ★ 2. 학생이 알 수 있도록 우측 상단 종소리 알림(Notification) 추가 발송
+                from quiz.models import Notification
+                Notification.objects.create(
+                    recipient=req_obj.requester.user,
+                    sender=request.user,
+                    notification_type='general',
+                    message=f"📅 {req_obj.date.strftime('%m/%d')} 근무 변경 요청이 반려되었습니다.",
+                    related_url="/attendance/" # 학생 근태 페이지 연결 (필요시 URL 수정)
+                )
+
                 return JsonResponse({'status': 'success', 'message': '요청이 반려되었습니다.'})
 
             else:

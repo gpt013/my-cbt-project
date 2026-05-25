@@ -32,6 +32,22 @@
     @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
     @media (max-width: 991px) { .omr-sidebar { display: none; } }
+
+    /* ⭐ 헷갈림(검토) 마킹 스타일 (노란색) */
+    .omr-item.review-marked { background-color: #ffc107 !important; color: #000 !important; border-color: #ffc107 !important; font-weight: bold; }
+
+    /* 📱 모바일 전용 OMR 플로팅 버튼 */
+    .fab-omr {
+        position: fixed; bottom: 20px; right: 20px; z-index: 1050;
+        width: 60px; height: 60px; border-radius: 50%;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        display: none;
+    }
+
+    @media (max-width: 991px) { 
+        .omr-sidebar { display: none; } /* 데스크탑 OMR 숨김 */
+        .fab-omr { display: flex; align-items: center; justify-content: center; } /* 플로팅 버튼 표시 */
+    }
 </style>
 
 <div class="exam-container container-fluid mt-3">
@@ -58,7 +74,9 @@
         </div>
     {% else %}
 
-    <form method="post" id="examForm" action="" autocomplete="off">
+    <form method="post" id="examForm" action=""
+          autocomplete="new-password"
+          data-form-type="other">
     {% csrf_token %}
     
     <input type="hidden" name="custom_attempt_id" value="{{ attempt.id }}">
@@ -72,10 +90,21 @@
                 {% for q in questions %}
                 <div class="card shadow-sm border-0 question-card" id="q_card_{{ forloop.counter }}" data-idx="{{ forloop.counter }}">
                     <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
-                        <span class="badge bg-primary rounded-pill">문제 {{ forloop.counter }}</span>
-                        <span class="badge bg-light text-dark border">배점: {{ q.score }}점</span>
+                        <div>
+                            <span class="badge bg-primary rounded-pill me-2">문제 {{ forloop.counter }}</span>
+                            <span class="badge bg-light text-dark border">배점: {{ q.score }}점</span>
+                        </div>
+                        <!-- ⭕ 클릭하면 별이 채워지며 '다시보기'가 활성화되는 버튼 -->
+                        <button type="button" class="btn btn-link text-decoration-none p-0 mb-0" 
+                                id="reviewBtn_{{ forloop.counter }}" 
+                                onclick="toggleReviewMark({{ forloop.counter }})" 
+                                data-checked="false" style="outline: none; box-shadow: none;">
+                            <span class="fs-5 text-secondary" id="starIcon_{{ forloop.counter }}">☆</span>
+                            <span class="fw-bold text-muted small ms-1" id="reviewText_{{ forloop.counter }}">다시보기</span>
+                        </button>
                     </div>
                     
+                    <!-- 문제 내용 구역 -->
                     <div class="card-body p-4">
                         <h5 class="lh-base fw-bold mb-4">{{ q.question_text|linebreaksbr }}</h5>
                         
@@ -89,7 +118,7 @@
                             {# 1. 객관식 (단일) #}
                             {% if q.question_type == 'multiple_choice' %}
                                 <div class="d-flex flex-column gap-2">
-                                    {% for choice in q.choice_set.all %}
+                                    {% for choice in q.shuffled_choices %}
                                     <input type="radio" class="btn-check choice-input" 
                                            name="question_{{ q.id }}" id="q{{ q.id }}_c{{ choice.id }}" 
                                            value="{{ choice.id }}" onchange="markOMR({{ forloop.parentloop.counter }})">
@@ -107,7 +136,7 @@
                             {% elif q.question_type == 'multiple_select' %}
                                 <div class="alert alert-info py-1 small mb-2"><i class="bi bi-info-circle"></i> 답을 모두 선택하세요.</div>
                                 <div class="d-flex flex-column gap-2">
-                                    {% for choice in q.choice_set.all %}
+                                    {% for choice in q.shuffled_choices %}
                                     <input type="checkbox" class="btn-check choice-input" 
                                            name="question_{{ q.id }}" id="q{{ q.id }}_c{{ choice.id }}" 
                                            value="{{ choice.id }}" onchange="markOMR({{ forloop.parentloop.counter }})">
@@ -135,11 +164,26 @@
                             {% elif q.question_type == 'short_answer' %}
                                 <div class="mt-2">
                                     <label class="form-label fw-bold">정답 입력</label>
-                                    <input type="text" class="form-control form-control-lg" 
-                                           name="question_{{ q.id }}" placeholder="정답을 입력하세요" 
-                                           autocomplete="off" spellcheck="false"
-                                           readonly onfocus="setTimeout(() => this.removeAttribute('readonly'), 50);"
-                                           oninput="markOMR({{ forloop.counter }})">
+
+                                    <!-- ★ contenteditable: 브라우저 자동완성 원천 차단 -->
+                                    <div class="form-control form-control-lg"
+                                         contenteditable="true"
+                                         spellcheck="false"
+                                         data-qid="{{ q.id }}"
+                                         data-qidx="{{ forloop.counter }}"
+                                         style="min-height: 50px; cursor: text; line-height: 1.8;"
+                                         onpaste="return false;"
+                                         ondrop="return false;"
+                                         oninput="syncAnswer(this)">
+                                    </div>
+                                    <div class="text-muted small mt-1">
+                                        <i class="bi bi-keyboard"></i> 직접 타이핑하세요 (붙여넣기 불가)
+                                    </div>
+
+                                    <!-- 폼 제출용 hidden input (서버 수신용) -->
+                                    <input type="hidden"
+                                           name="question_{{ q.id }}"
+                                           id="hidden_q{{ q.id }}">
                                 </div>
                             {% endif %}
                         </div>
@@ -182,8 +226,10 @@
                             <button type="button" class="btn btn-outline-danger fw-bold" onclick="submitExam()">
                                 답안 제출하기
                             </button>
-                            <div class="text-center small text-muted mt-2">
-                                <i class="bi bi-info-circle"></i> 파란색 칸은 마킹 완료
+                            <!-- ⭕ 마킹(파란색)과 다시보기(노란색) 상태를 모두 안내하도록 문구 업그레이드 -->
+                            <div class="text-center small text-muted mt-2 d-flex justify-content-center gap-3">
+                                <span><i class="bi bi-square-fill text-primary"></i> 파란색: 마킹 완료</span>
+                                <span><i class="bi bi-square-fill text-warning"></i> 노란색: 다시보기</span>
                             </div>
                         </div>
                     </div>
@@ -191,6 +237,7 @@
             </div>
         </div>
     </form>
+
 
     {% endif %}
 </div>
@@ -219,23 +266,39 @@
     // [2] 초기화 (DOMContentLoaded)
     // ==========================================
     document.addEventListener('DOMContentLoaded', function() {
-        // 1. 시험 로직 초기화
         if (totalQuestions > 0) {
             showQuestion(1);
             startTimer();
         }
-
-        // 2. [보안] 우클릭 방지
         document.addEventListener('contextmenu', event => event.preventDefault());
+
+        // ★ 자동완성 드롭다운 강제 제거 (브라우저가 무시해도 JS로 직접 닫음)
+        document.querySelectorAll('[contenteditable="true"]').forEach(el => {
+            el.addEventListener('paste', e => e.preventDefault());
+            el.addEventListener('drop', e => e.preventDefault());
+
+            // ★ 한글 IME 조합 중 간섭 방지 (compositionstart/end 활용)
+            let isComposing = false;
+            el.addEventListener('compositionstart', () => { isComposing = true; });
+            el.addEventListener('compositionend', () => { 
+                isComposing = false;
+                syncAnswer(el);  // 조합 완료 후 동기화
+            });
+            el.addEventListener('input', function() {
+                if (!isComposing) syncAnswer(this);  // 조합 중이 아닐 때만 동기화
+            });
+        });
 
         // 3. [보안] 페이지 이탈 경고 (새로고침, 닫기 실수 방지)
         // 주의: form 제출(isSubmitting=true) 시에는 경고가 뜨면 안 됨
-        window.addEventListener('beforeunload', function(e) {
-            if (!isSubmitting) {
-                e.preventDefault();
-                e.returnValue = ''; // Chrome 호환
-            }
-        });
+        window.addEventListener('beforeunload', function (e) {
+        if (!isSubmitting) {
+            // 브라우저 기본 경고 메시지 활성화
+            e.preventDefault();
+            e.returnValue = '시험 중입니다! 지금 나가면 시험이 0점 처리되거나 강제 제출될 수 있습니다.';
+            return e.returnValue;
+        }
+    });
 
         // 4. [보안] 폼의 기본 submit 이벤트 감지 (엔터키 제출 등 대비)
         const form = document.getElementById('examForm');
@@ -244,7 +307,29 @@
                 isSubmitting = true;
             });
         }
-    });
+
+        // ⭕ 뒤로가기 시 의사를 물어보고, 진행 시 불법 행위 단서를 심어 0점 처리하는 정석 구조
+        history.pushState(null, null, location.href);
+        window.addEventListener('popstate', function(event) {
+            history.pushState(null, null, location.href); // 이탈 취소 시를 대비해 뒤로가기 고리 재설정
+            
+            if (!isSubmitting) {
+                // 1차 경고 의사 타진
+                const leaveConfirm = confirm("⚠️ [부정행위 경고]\n시험 도중 페이지 이탈 및 뒤로가기는 제한됩니다.\n\n이대로 화면을 나갈 경우 부정행위로 접수되어 즉시 '0점 처리' 및 '강제 제출' 처리가 진행됩니다.\n\n정말 시험을 중단하고 나가시겠습니까?");
+                
+                if (leaveConfirm) {
+                    isSubmitting = true;
+                    const cheatInput = document.createElement('input');
+                    cheatInput.type = 'hidden';
+                    cheatInput.name = 'cheat_detected';
+                    cheatInput.value = 'back_button'; // ⭕ 변경: 뒤로가기 전용 키워드 주입
+                    form.appendChild(cheatInput);
+                    
+                    document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+                    form.submit();
+                }
+            }
+        });
 
 
     // ==========================================
@@ -269,8 +354,8 @@
         // Backspace (뒤로가기 방지 - 입력창 제외)
         if ((e.which || e.keyCode) == 8) {
             const tag = e.target.tagName.toUpperCase();
-            // input이나 textarea가 아닐 때만 막음
-            if (tag !== "INPUT" && tag !== "TEXTAREA") {
+            const isEditable = e.target.contentEditable === 'true';  // ★ contenteditable 허용
+            if (tag !== "INPUT" && tag !== "TEXTAREA" && !isEditable) {
                 e.preventDefault();
                 return;
             }
@@ -283,7 +368,7 @@
         }
 
         // --- [기능] 문제 이동 (화살표 키) ---
-        f(e.key === 'ArrowRight') nextQuestion();
+        if(e.key === 'ArrowRight') nextQuestion();
         if(e.key === 'ArrowLeft') prevQuestion();
     });
 
@@ -296,7 +381,6 @@
 
     // 브라우저 탭을 변경하거나 창을 내렸을 때 귀신같이 감지합니다.
     document.addEventListener('visibilitychange', function() {
-        // 화면이 숨겨졌고(가려졌고), 시간이 남아있고, 정상 제출 중이 아닐 때만 발동!
         if (document.hidden && timeLeft > 0 && !isSubmitting) {
             cheatCount++;
             let remainCount = maxCheatLimit - cheatCount;
@@ -306,15 +390,18 @@
             } else {
                 alert(`🚨 경고 3회 누적!\n부정행위 의심으로 인해 시험이 강제 종료 및 제출됩니다.`);
                 
-                // 경고 3회 누적 시 얄짤없이 폼을 강제로 쏴버립니다.
                 isSubmitting = true;
                 const form = document.getElementById('examForm');
-                if (form) {
-                    // 버튼 비활성화 (중복 제출 방지)
-                    document.querySelectorAll('button').forEach(btn => btn.disabled = true);
-                    form.submit();
-                }
-            }
+                
+                const cheatInput = document.createElement('input');
+                cheatInput.type = 'hidden';
+                cheatInput.name = 'cheat_detected';
+                cheatInput.value = 'screen_switch'; // ⭕ 변경: 탭 전환 전용 키워드 주입
+                form.appendChild(cheatInput);
+
+                document.querySelectorAll('button').forEach(btn => btn.disabled = true);
+                form.submit();
+            } // 이 괄호 하나면 충분합니다!
         }
     });
 
@@ -341,6 +428,41 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    function toggleReviewMark(idx) {
+        const btn = document.getElementById(`reviewBtn_${idx}`);
+        const starIcon = document.getElementById(`starIcon_${idx}`);
+        const reviewText = document.getElementById(`reviewText_${idx}`);
+        const omrItem = document.getElementById(`omr_${idx}`);
+        
+        if (omrItem) {
+            if (isAnswered) omrItem.classList.add('marked');
+            else omrItem.classList.remove('marked');
+        }
+        updateProgress();
+            // 1. 활성화 시 (다시보기 체크)
+            btn.setAttribute('data-checked', 'true');
+            if (starIcon) {
+                starIcon.innerText = '★';
+                starIcon.className = 'fs-5 text-warning'; // 노란색 꽉 찬 별
+            }
+            if (reviewText) {
+                reviewText.className = 'fw-bold text-warning small ms-1'; // 텍스트도 밝은 노란색으로 리라이트
+            }
+            if (omrItem) omrItem.classList.add('review-marked'); // OMR 칸 노란색 불 켜기
+        } else {
+            // 2. 비활성화 시 (다시보기 해제)
+            btn.setAttribute('data-checked', 'false');
+            if (starIcon) {
+                starIcon.innerText = '☆';
+                starIcon.className = 'fs-5 text-secondary'; // 회색 빈 별
+            }
+            if (reviewText) {
+                reviewText.className = 'fw-bold text-muted small ms-1'; // 텍스트 기본 회색으로 원복
+            }
+            if (omrItem) omrItem.classList.remove('review-marked'); // OMR 칸 불 끄기
+        }
+    }
+
     function nextQuestion() {
         if (currentIdx < totalQuestions) showQuestion(currentIdx + 1);
     }
@@ -358,17 +480,17 @@
         if (!card) return;
 
         let isAnswered = false;
-        // 라디오/체크박스 확인
         if (card.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked').length > 0) {
             isAnswered = true;
         }
-        // 텍스트 확인
-        const texts = card.querySelectorAll('input[type="text"]');
-        if (texts.length > 0 && texts[0].value.trim() !== "") {
+        // ★ input[type=text] 대신 contenteditable div 확인
+        const editables = card.querySelectorAll('[contenteditable="true"]');
+        if (editables.length > 0 && editables[0].innerText.trim() !== "") {
             isAnswered = true;
         }
 
         const omrItem = document.getElementById(`omr_${idx}`);
+        const mobileOmrItem = document.getElementById(`mobile_omr_${idx}`);
         if (omrItem) {
             if (isAnswered) omrItem.classList.add('marked');
             else omrItem.classList.remove('marked');
@@ -432,6 +554,20 @@
             const form = document.getElementById('examForm');
             if (form) form.submit();
         }
+    }
+    
+    // ★ contenteditable 입력값을 hidden input에 동기화
+    function syncAnswer(el) {
+        const qid = el.getAttribute('data-qid');
+        const qidx = el.getAttribute('data-qidx');
+        const text = el.innerText.trim();
+
+        // hidden input에 값 복사 (서버 전송용)
+        const hidden = document.getElementById(`hidden_q${qid}`);
+        if (hidden) hidden.value = text;
+
+        // OMR 마킹
+        markOMR(parseInt(qidx));
     }
 </script>
 

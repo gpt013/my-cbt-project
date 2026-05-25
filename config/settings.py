@@ -254,19 +254,22 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:8000',
     'https://127.0.0.1:8000',
     'http://localhost:8000',
-    'https://localhost:8000', # ★ 403 에러 로그에 뜬 HTTPS 출처를 명시적으로 신뢰 추가
+    'https://localhost:8000',
+    'http://localhost',         # ★ 포트 없는 경우도 추가
+    'https://localhost',        # ★
 ]
 
 # ★ 깃허브 코드스페이스 프록시 환경에서 HTTPS를 정확히 인식하기 위한 필수 설정
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+# ★ 환경 자동 감지 (Render 배포 = DATABASE_URL 있음 / 로컬·Codespace = 없음)
+IS_PRODUCTION = 'DATABASE_URL' in os.environ
 
-# ★ 중요: 'Lax'에서 'None'으로 변경 (프록시/iframe 환경에서 쿠키 누락 방지)
-CSRF_COOKIE_SAMESITE = 'None'
-SESSION_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = IS_PRODUCTION        # 배포: True / 로컬: False
+SESSION_COOKIE_SECURE = IS_PRODUCTION     # 배포: True / 로컬: False
+CSRF_COOKIE_SAMESITE = 'None' if IS_PRODUCTION else 'Lax'
+SESSION_COOKIE_SAMESITE = 'None' if IS_PRODUCTION else 'Lax'
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 * 1024 * 1024

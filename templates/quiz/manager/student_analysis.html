@@ -22,16 +22,17 @@
 
     <div class="row g-4 mb-4">
         <div class="col-12">
-            <div class="card border-primary shadow-sm">
-                <div class="card-header bg-primary bg-opacity-10 text-primary fw-bold">
-                    <i class="bi bi-magic"></i> AI 맞춤형 학습 처방
+            <div class="card border-0 shadow-sm rounded-3 overflow-hidden">
+                <div class="card-header bg-dark text-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-cpu-fill text-info"></i> <span id="currentPrescTitle">전체 과목 종합</span> AI 진단 분석 결과</span>
+                    <span class="badge bg-primary-subtle text-primary" id="selectedExamBadge">종합 리포트 뷰</span>
                 </div>
-                <div class="card-body">
-                    <div class="d-flex align-items-center">
-                        <i class="bi bi-robot fs-1 text-primary opacity-25 me-3"></i>
-                        <div>
-                            <h5 class="fw-bold text-dark mb-1">분석 결과:</h5>
-                            <p class="fs-5 text-danger fw-bold mb-0">{{ prescription }}</p>
+                <div class="card-body bg-white p-4">
+                    <div class="d-flex align-items-start">
+                        <i class="bi bi-robot text-primary opacity-50 me-3" style="font-size: 2.5rem;"></i>
+                        <div class="w-100">
+                            <!-- 텍스트 형태로만 깔끔하게 출력되는 공간 -->
+                            <p id="aiPrescriptionText" class="fw-bold text-dark mb-0 p-3 bg-light rounded border-start border-primary border-4" style="font-size: 1rem; line-height: 1.6; white-space: pre-wrap;">{{ prescription }}</p>
                         </div>
                     </div>
                 </div>
@@ -40,9 +41,28 @@
 
         <div class="col-lg-4">
             <div class="card shadow-sm h-100 border-0">
-                <div class="card-header bg-white fw-bold py-3"><i class="bi bi-pie-chart-fill text-primary"></i> 성취도 시각화</div>
+                <div class="card-header bg-white fw-bold py-3 d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-pie-chart-fill text-primary"></i> 성취도 및 추이 시각화</span>
+                    <!-- 레이더 차트와 시계열 런닝 커브를 전환하는 토글 버튼 컨트롤러 -->
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button" class="btn btn-outline-primary active" id="btnRadar" onclick="switchChart('radar')">방사형 (동기비교)</button>
+                        <button type="button" class="btn btn-outline-primary" id="btnLine" onclick="switchChart('line')">런닝 커브</button>
+                    </div>
+                </div>
                 <div class="card-body d-flex align-items-center justify-content-center">
-                    <div style="width: 100%; max-height: 300px;"><canvas id="tagRadarChart"></canvas></div>
+                    <div style="width: 100%; height: 320px; position: relative;">
+                        <!-- 두 개의 차트 캔버스를 중첩 배치 후 스위칭 제어 -->
+                        <canvas id="tagRadarChart"></canvas>
+                        <div id="lineChartFilters" class="mb-2 text-center" style="display: none;">
+                            <span class="badge bg-dark p-2 me-1 mb-1 fw-bold" style="cursor: pointer;" onclick="selectExamFilter('ALL', null)">🌍 전체 과목 보기</span>
+                            {% for item in tag_analysis %}
+                                <span class="badge p-2 me-1 mb-1 fw-bold exam-filter-badge" data-exam="{{ item.tag }}" style="background-color: #6c757d; cursor: pointer; opacity: 0.6;" onclick="selectExamFilter('{{ item.tag }}', {{ forloop.counter0 }})">
+                                    {{ item.tag }}
+                                </span>
+                            {% endfor %}
+                        </div>
+                        <canvas id="learningCurveChart" style="display: none;"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
@@ -50,32 +70,79 @@
             <div class="card shadow-sm h-100 border-0">
                 <div class="card-header bg-white fw-bold py-3"><i class="bi bi-table text-success"></i> 태그별 정답률</div>
                 <div class="card-body p-0 custom-scroll" style="max-height: 340px; overflow-y: auto;">
-                    <table class="table table-hover align-middle mb-0 text-center">
-                        <thead class="table-light sticky-top">
+                    <table class="table table-hover align-middle mb-0 text-center" style="font-size: 0.9rem;">
+                        <thead class="table-light sticky-top" style="z-index: 5;">
                             <tr>
-                                <th class="text-start ps-4">태그</th>
-                                <th>문제수</th>
-                                <th>정답률</th>
-                                <th>평가</th>
+                                <th class="text-start ps-4" width="25%">태그 / 취약점 진단</th>
+                                <th width="15%">문제수</th>
+                                <th width="25%">정답률 (본인 vs 기수평균)</th>
+                                <th width="20%">오답 행동 패턴</th>
+                                <th width="15%">상세 오답</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for item in tag_analysis %}
-                            <tr>
-                                <td class="text-start ps-4 fw-bold">{{ item.tag }}</td>
-                                <td>{{ item.count }}</td>
+                            <tr style="cursor: pointer;" onclick="selectExamFilter('{{ item.tag }}', {{ forloop.counter0 }})">
+                                <td class="text-start ps-4">
+                                    <div class="fw-bold text-dark">{{ item.tag }}</div>
+                                    <small class="text-muted" style="font-size: 0.75rem;">{{ item.main_weakness }}</small>
+                                </td>
+                                <td class="fw-bold">{{ item.count }}개</td>
                                 <td>
-                                    <div class="progress" style="height: 6px; max-width: 100px; margin: 0 auto;">
-                                        <div class="progress-bar {% if item.rate < 60 %}bg-danger{% else %}bg-success{% endif %}" style="width: {{ item.rate }}%"></div>
+                                    <div class="d-flex align-items-center justify-content-center gap-2">
+                                        <div class="progress flex-grow-1" style="height: 8px; max-width: 80px;">
+                                            <div class="progress-bar {% if item.rate < 60 %}bg-danger{% else %}bg-success{% endif %}" style="width: {{ item.rate }}%"></div>
+                                        </div>
+                                        <span class="small fw-bold text-dark">{{ item.rate }}%</span>
+                                        <span class="small text-muted" style="font-size: 0.75rem;">/ {{ item.cohort_rate }}%</span>
                                     </div>
-                                    <span class="small">{{ item.rate }}%</span>
                                 </td>
                                 <td>
-                                    {% if item.rate < 60 %}<span class="badge bg-danger">취약</span>{% else %}<span class="badge bg-success">우수</span>{% endif %}
+                                    {% if item.wrong_cnt > 0 %}
+                                        <!-- 백엔드에서 5초 기준으로 판별된 패턴분석 결과에 맞춰 예쁜 배지 하이라이트 -->
+                                        {% if "찍기" in item.main_weakness or item.rate < 50 %}
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1"><i class="bi bi-lightning-charge"></i> 속독/찍기 성향</span>
+                                        {% else %}
+                                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle px-2 py-1"><i class="bi bi-brain"></i> 개념 혼동 경향</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="badge bg-success-subtle text-success border border-success-subtle px-2 py-1">완벽 이해</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.wrong_cnt > 0 %}
+                                        <!-- 클릭 시 해당 행의 템플릿 영역 데이터를 모달로 전송 -->
+                                        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2 fw-bold" style="font-size: 0.75rem;" onclick="openWrongQuestionModal({{ forloop.counter0 }})">
+                                            <i class="bi bi-search"></i> 문항 {{ item.wrong_cnt }}개
+                                        </button>
+                                        
+                                        <!-- 문항별 세부 오답 데이터를 안전하게 임베딩해두는 숨김 보관소 -->
+                                        <div id="wrong-data-store-{{ forloop.counter0 }}" style="display: none;">
+                                            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3"><i class="bi bi-bookmark-star-fill text-danger"></i> [{{ item.tag }}] 취약 영역 상세 문항 리스트</h6>
+                                            {% for wq in item.wrong_questions %}
+                                                <div class="p-3 mb-3 bg-light rounded border border-start border-danger border-4 shadow-sm">
+                                                    <div class="d-flex justify-content-between mb-2 align-items-center">
+                                                        <span class="badge bg-secondary" style="font-size: 0.7rem;">{{ wq.quiz_title }}</span>
+                                                        <span class="badge {% if '찍기' in wq.pattern %}bg-danger{% else %}bg-warning text-dark{% endif %}" style="font-size: 0.7rem;">{{ wq.pattern }}</span>
+                                                    </div>
+                                                    <p class="fw-bold mb-3 text-dark" style="font-size: 0.9rem; line-height: 1.5;">❓ 문제 지문: {{ wq.question_text }}</p>
+                                                    <div class="row g-2 p-2 bg-white rounded border mb-2 small text-start">
+                                                        <div class="col-6 text-truncate"><span class="text-danger fw-bold">❌ 선택 오답:</span> <span class="bg-danger bg-opacity-10 px-1 rounded">{{ wq.user_choice }}</span></div>
+                                                        <div class="col-6 text-truncate"><span class="text-success fw-bold">✅ 실제 정답:</span> <span class="bg-success bg-opacity-10 px-1 rounded">{{ wq.correct_answer }}</span></div>
+                                                    </div>
+                                                    <div class="text-end text-muted" style="font-size: 0.75rem;">
+                                                        <i class="bi bi-stopwatch"></i> 문항 풀이 소요 시간: <strong class="text-dark">{{ wq.solve_time }}초</strong> (5초 미만 임계선)
+                                                    </div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% else %}
+                                        <span class="text-muted small">-</span>
+                                    {% endif %}
                                 </td>
                             </tr>
                             {% empty %}
-                            <tr><td colspan="4" class="py-4 text-muted">데이터 없음</td></tr>
+                            <tr><td colspan="5" class="py-4 text-muted">데이터 없음</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
@@ -146,32 +213,178 @@
     </div>
 </div>
 
-<script>
-    const ctx = document.getElementById('tagRadarChart');
-    if (ctx) {
-        const labels = [{% for item in tag_analysis %}"{{ item.tag }}",{% endfor %}];
-        const data = [{% for item in tag_analysis %}{{ item.rate }},{% endfor %}];
 
-        new Chart(ctx.getContext('2d'), {
-            type: 'radar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: '정답률 (%)',
-                    data: data,
-                    fill: true,
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                    borderColor: 'rgb(54, 162, 235)',
-                    pointBackgroundColor: 'rgb(54, 162, 235)',
-                    pointBorderColor: '#fff'
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { r: { suggestedMin: 0, suggestedMax: 100 } }
+<div class="modal fade" id="wrongQuestionDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-danger text-white py-3">
+                <h5 class="modal-title fw-bold"><i class="bi bi-exclamation-octagon-fill me-2"></i>취약 카테고리 행동 패턴 리포트</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body bg-white p-4" id="wrongModalDynamicBody">
+                <!-- 자바스크립트가 숨김 보관소에서 데이터를 복사해 채워넣는 역 공간 -->
+            </div>
+            <div class="modal-footer bg-light border-top-0 py-2">
+                <button type="button" class="btn btn-secondary fw-bold shadow-sm" data-bs-dismiss="modal">리포트 닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let radarChartObj = null;
+    let lineChartObj = null;
+    
+    // 프론트 연동 제어를 위한 백엔드 데이터 JSON 배열 바인딩
+    const examDataPack = [
+        {% for item in tag_analysis %}
+        {
+            "tag": "{{ item.tag }}",
+            "rate": {{ item.rate }},
+            "prescription": "{{ item.prescription|escapejs }}"
+        },
+        {% endfor %}
+    ];
+
+    let selectedExamTitle = "ALL";
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. 방사형 섀도우 차트 빌드
+        const ctxRadar = document.getElementById('tagRadarChart');
+        if (ctxRadar) {
+            radarChartObj = new Chart(ctxRadar.getContext('2d'), {
+                type: 'radar',
+                data: {
+                    labels: examDataPack.map(x => x.tag),
+                    datasets: [
+                        {
+                            label: '본인 성취도 (%)',
+                            data: examDataPack.map(x => x.rate),
+                            fill: true,
+                            backgroundColor: 'rgba(13, 110, 253, 0.15)',
+                            borderColor: 'rgb(13, 110, 253)',
+                            z: 2
+                        },
+                        {
+                            label: '기수 평균 (섀도우선)',
+                            data: [{% for item in tag_analysis %}{{ item.cohort_rate }},{% endfor %}],
+                            fill: true,
+                            backgroundColor: 'rgba(149, 165, 166, 0.1)',
+                            borderColor: 'rgba(149, 165, 166, 0.4)',
+                            borderDash: [4, 4],
+                            z: 1
+                        }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { r: { suggestedMin: 0, suggestedMax: 100 } } }
+            });
+        }
+
+        // 2. 멀티 과목 회차별 막대그래프(Bar Chart) 빌드 (기본 최대 6개 다 노출)
+        const ctxLine = document.getElementById('learningCurveChart');
+        if (ctxLine) {
+            const datasets = [
+                {% for ds in learning_curve_datasets %}
+                {
+                    label: "{{ ds.title }}",
+                    data: {{ ds.scores }}, // 재시험 없으면 [30] 처럼 1개만 깔끔하게 출력됨
+                    backgroundColor: "{{ ds.color }}CC",
+                    borderColor: "{{ ds.color }}",
+                    borderWidth: 1,
+                    maxBarThickness: 30
+                },
+                {% endfor %}
+            ];
+
+            lineChartObj = new Chart(ctxLine.getContext('2d'), {
+                type: 'bar', // 당당한 막대그래프로 변경!
+                data: {
+                    labels: ['1차 응시', '2차 응시', '3차 응시+'],
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { min: 0, max: 100 } }
+                }
+            });
+        }
+    });
+
+    // ──────────────────────────────────────────────────────────
+    // 🎯 [수정된 핵심 함수] 과목 선택 시 차트막대 격리 + AI 의견 실시간 동적 매핑
+    // ──────────────────────────────────────────────────────────
+    function selectExamFilter(examTitle, index) {
+        selectedExamTitle = examTitle;
+        const titleEl = document.getElementById('currentPrescTitle');
+        const badgeEl = document.getElementById('selectedExamBadge');
+        const textContainerEl = document.getElementById('aiPrescriptionText'); // 텍스트 영역 타겟팅
+
+        // 모든 필터 배지 투명도 초기화
+        document.querySelectorAll('.exam-filter-badge').forEach(b => b.style.opacity = '0.4');
+
+        if (examTitle === 'ALL') {
+            titleEl.innerText = "전체 과목 종합";
+            badgeEl.innerText = "종합 리포트 뷰";
+            textContainerEl.innerText = "{{ prescription|escapejs }}"; // value 대신 innerText로 변경
+            
+            // 차트 막대 전체 복구
+            if (lineChartObj) {
+                lineChartObj.data.datasets.forEach(ds => ds.hidden = false);
+                lineChartObj.update();
             }
-        });
+            document.querySelectorAll('.exam-filter-badge').forEach(b => b.style.opacity = '1');
+        } else {
+            // 클릭한 해당 시험 전용 데이터 바인딩
+            const targetPack = examDataPack[index];
+            titleEl.innerText = targetPack.tag;
+            badgeEl.innerText = targetPack.tag + " 과목 가동중";
+            textContainerEl.innerText = targetPack.prescription; // value 대신 innerText로 변경
+
+            // 차트 막대 격리
+            if (lineChartObj) {
+                lineChartObj.data.datasets.forEach(ds => {
+                    ds.hidden = (ds.label !== examTitle);
+                });
+                lineChartObj.update();
+            }
+            // 누른 배지만 하이라이트
+            const targetBadge = document.querySelector(`.exam-filter-badge[data-exam="${examTitle}"]`);
+            if (targetBadge) targetBadge.style.opacity = '1';
+        }
     }
+
+    function switchChart(type) {
+        const btnRadar = document.getElementById('btnRadar');
+        const btnLine = document.getElementById('btnLine');
+        const canvasRadar = document.getElementById('tagRadarChart');
+        const canvasLine = document.getElementById('learningCurveChart');
+        const filters = document.getElementById('lineChartFilters');
+
+        if (type === 'radar') {
+            btnRadar.classList.add('active');
+            btnLine.classList.remove('active');
+            canvasRadar.style.display = 'block';
+            canvasLine.style.display = 'none';
+            if (filters) filters.style.display = 'none';
+        } else {
+            btnLine.classList.add('active');
+            btnRadar.classList.remove('active');
+            canvasLine.style.display = 'block';
+            canvasRadar.style.display = 'none';
+            if (filters) filters.style.display = 'block';
+        }
+    }
+
+    function openWrongQuestionModal(index) {
+        const storeSource = document.getElementById('wrong-data-store-' + index);
+        const modalBody = document.getElementById('wrongModalDynamicBody');
+        if (storeSource && modalBody) {
+            modalBody.innerHTML = storeSource.innerHTML;
+            new bootstrap.Modal(document.getElementById('wrongQuestionDetailModal')).show();
+        }
+    }
+    
+   
 </script>
 {% endblock %}

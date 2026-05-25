@@ -117,151 +117,219 @@
 
 
     <div class="row g-3 mb-4">
-
-        <div class="col-md-3">
-
-            <div class="card shadow-sm h-100 border-start border-primary border-5">
-
-                <div class="card-body">
-
-                    <h6 class="text-uppercase text-muted mb-2">관리 인원</h6>
-
-                    <h2 class="mb-0 fw-bold">{{ total_count }} <span class="fs-6 text-muted">명</span></h2>
-
+    
+    <div class="col-md-3">
+        <div class="card shadow-sm h-100 border-0 border-start border-primary border-4" style="background: #fcfdff;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <small class="text-uppercase fw-bold text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">🥇 Top Performer</small>
+                        <h6 class="text-secondary mb-0 mt-1">수석 (1등)</h6>
+                    </div>
+                    <div class="bg-primary bg-opacity-10 text-primary rounded-3 d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                        <i class="bi bi-award-fill fs-5"></i>
+                    </div>
                 </div>
-
+                
+                {% if chart_top %}
+                    <div class="mb-3">
+                        <h3 class="fw-bold text-dark mb-0" style="font-size: 1.6rem;">{{ chart_top.0.profile.name }}</h3>
+                        <div class="text-muted small d-flex align-items-center mt-1">
+                            <i class="bi bi-layers me-1"></i> {{ chart_top.0.profile.cohort.name|default:"-" }}
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <span class="badge bg-white border border-warning text-dark fw-bold px-2 py-1">
+                            <i class="bi bi-lightning-fill text-warning me-1"></i>{{ chart_top.0.final_score|floatformat:1 }}점
+                        </span>
+                        <span class="badge bg-primary px-2 py-1">{{ chart_top.0.final_tier }}등급</span>
+                    </div>
+                {% else %}
+                    <h3 class="fw-bold text-muted mb-0">데이터 없음</h3>
+                {% endif %}
             </div>
-
         </div>
-
-        <div class="col-md-3">
-
-            <div class="card shadow-sm h-100 border-start border-success border-5">
-
-                <div class="card-body">
-
-                    <h6 class="text-uppercase text-muted mb-2">과정 평균</h6>
-
-                    <h2 class="mb-0 fw-bold text-success">{{ avg_final }} <span class="fs-6 text-muted">점</span></h2>
-
-                </div>
-
-            </div>
-
-        </div>
-
-        <div class="col-md-3">
-
-            <div class="card shadow-sm h-100 border-start border-warning border-5">
-
-                <div class="card-body">
-
-                    <h6 class="text-uppercase text-muted mb-2">🥇 수석 (1등)</h6>
-
-                    {% if top_trainees %}
-
-                        <h4 class="mb-0 fw-bold">{{ top_trainees.0.profile.name }} <span class="badge bg-warning text-dark fs-6">{{ top_trainees.0.final_assessment.final_score|floatformat:1 }}점</span></h4>
-
-                    {% else %}
-
-                        <span class="text-muted">-</span>
-
-                    {% endif %}
-
-                </div>
-
-            </div>
-
-        </div>
-
-        <div class="col-md-3">
-
-            <div class="card shadow-sm h-100 border-start border-danger border-5">
-
-                <div class="card-body">
-
-                    <h6 class="text-uppercase text-muted mb-2">🚨 집중 케어</h6>
-
-                    <h2 class="mb-0 fw-bold text-danger">{{ risk_trainees.count }} <span class="fs-6 text-muted">명</span></h2>
-
-                </div>
-
-            </div>
-
-        </div>
-
     </div>
 
+    <div class="col-md-3">
+        <div class="card shadow-sm h-100 border-0 border-start border-success border-4" style="background: #fcfdfc;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <small class="text-uppercase fw-bold text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">📈 Learning Index</small>
+                        <h6 class="text-secondary mb-0 mt-1">과정 평균 점수</h6>
+                    </div>
+                    <div class="bg-success bg-opacity-10 text-success rounded-3 d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                        <i class="bi bi-graph-up-arrow fs-5"></i>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <h2 class="fw-bold text-success mb-0" style="font-size: 2.2rem;">{{ avg_final }}<span class="fs-5 text-muted fw-normal ms-1">점</span></h2>
+                </div>
+                <div class="text-muted small pt-2 border-top">
+                    <i class="bi bi-info-circle me-1"></i> 현재 필터링 인원 기준
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm h-100 border-0 border-start border-info border-4" style="background: #fcfcfe;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <small class="text-uppercase fw-bold text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">📊 Quality Level</small>
+                        <h6 class="text-secondary mb-0 mt-1">파트 평균 등급</h6>
+                    </div>
+                    <div class="bg-info bg-opacity-10 text-info rounded-3 d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                        <i class="bi bi-bar-chart-steps fs-5"></i>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <h2 class="fw-bold text-info mb-0" style="font-size: 2.2rem;">{{ avg_tier }}<span class="fs-5 text-muted fw-normal ms-1">Grade</span></h2>
+                </div>
+                <div class="text-muted small pt-2 border-top">
+                    <i class="bi bi-calculator me-1"></i> S~D 가중치 환산 결과
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card shadow-sm h-100 border-0 border-start border-warning border-4" style="background: #fffdfb;">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <small class="text-uppercase fw-bold text-muted" style="letter-spacing: 0.5px; font-size: 0.75rem;">🌟 Potential Talent</small>
+                        <h6 class="text-secondary mb-0 mt-1">기대 우수자 (S/A)</h6>
+                    </div>
+                    <div class="bg-warning bg-opacity-10 text-warning rounded-3 d-flex align-items-center justify-content-center" style="width: 38px; height: 38px;">
+                        <i class="bi bi-star-fill fs-5"></i>
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-baseline mb-2">
+                    <h2 class="fw-bold text-warning mb-0" style="font-size: 2.2rem;">{{ high_potential_count }}</h2>
+                    <span class="fs-5 text-muted ms-1">명</span>
+                    <span class="ms-auto fw-bold text-secondary">{{ high_potential_rate }}%</span>
+                </div>
+                
+                <div class="progress mb-2" style="height: 8px; border-radius: 10px; background-color: #f0f0f0;">
+                    <div class="progress-bar bg-warning progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: {{ high_potential_rate|floatformat:0 }}%; border-radius: 10px;"></div>
+                </div>
+                <div class="text-muted small">
+                    파트 내 핵심 인재 점유율
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
 
 
     <div class="row mb-4">
-
         <div class="col-lg-4">
-
             <div class="card shadow-sm h-100">
-
                 <div class="card-header bg-white fw-bold"><i class="bi bi-hexagon-half"></i> 종합 역량 (평균)</div>
-
                 <div class="card-body"><canvas id="radarChart" style="max-height: 250px;"></canvas></div>
-
             </div>
-
         </div>
-
         <div class="col-lg-4">
-
             <div class="card shadow-sm h-100">
-
                 <div class="card-header bg-white fw-bold"><i class="bi bi-pie-chart-fill"></i> 상태 현황</div>
-
                 <div class="card-body position-relative"><canvas id="statusChart" style="max-height: 250px;"></canvas></div>
-
             </div>
-
         </div>
-
         <div class="col-lg-4">
-
-            <div class="card shadow-sm h-100">
-
-                <div class="card-header bg-white fw-bold text-warning"><i class="bi bi-trophy-fill"></i> 명예의 전당 (Top 3)</div>
-
-                <ul class="list-group list-group-flush">
-
-                    {% for item in top_trainees %}
-
-                        <li class="list-group-item d-flex justify-content-between align-items-center py-3">
-
-                            <div class="d-flex align-items-center">
-
-                                <span class="badge bg-warning text-dark me-3 rounded-circle p-2" style="width:30px; height:30px;">{{ forloop.counter }}</span>
-
-                                <div><h6 class="mb-0 fw-bold">{{ item.profile.name }}</h6><small class="text-muted">{{ item.profile.cohort.name }}</small></div>
-
-                            </div>
-
-                            <span class="fw-bold text-primary">{{ item.final_assessment.final_score|floatformat:1 }}점</span>
-
-                        </li>
-
-                    {% empty %}
-
-                        <li class="list-group-item text-center py-4 text-muted">데이터가 없습니다.</li>
-
-                    {% endfor %}
-
-                </ul>
-
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center py-3">
+                    <span><i class="bi bi-shield-fill-check text-primary"></i> 종합 등급 분포</span>
+                    <span class="badge bg-light text-dark fw-normal small">전체 수질</span>
+                </div>
+                <div class="card-body py-4">
+                    <canvas id="tierBarChart" style="max-height: 250px;"></canvas>
+                </div>
             </div>
-
         </div>
-
     </div>
 
+    <div class="row g-3 mb-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center py-3">
+                    <span><i class="bi bi-people-fill text-success"></i> 인재 매트릭스 (역량 vs 인성)</span>
+                    <i class="bi bi-info-circle text-muted" data-bs-toggle="tooltip" title="X축: 시험평균(역량) / Y축: 태도·실습 환산점수(인성)"></i>
+                </div>
+                <div class="card-body p-0 position-relative">
+                    <canvas id="matrixScatterChart" style="max-height: 310px;"></canvas>
+                </div>
+            </div>
+        </div>
 
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100 border-0 overflow-hidden">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center py-3 border-bottom-0">
+                    <h6 class="mb-0 fw-bold"><i class="bi bi-trophy-fill text-warning"></i> 인재 명예/보완</h6>
+                    <div class="form-check form-switch h-of-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="hofToggle" style="cursor: pointer;">
+                        <label class="form-check-label small hof-label text-muted" for="hofToggle" id="hofLabelText" style="cursor: pointer;"> Top 3 </label>
+                    </div>
+                </div>
+                
+                <div class="position-relative h-of-content-area" style="min-height: 250px;">
+                    <ul class="list-group list-group-flush h-of-list shadow-sm active" id="topTraineesList">
+                        {% for item in chart_top %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center py-3 bg-white">
+                            <div class="d-flex align-items-center">
+                                <span class="badge bg-warning text-dark me-3 rounded-circle p-2 d-flex align-items-center justify-content-center" style="width:32px; height:32px; font-size:1.1rem; font-weight:900;">{{ forloop.counter }}</span>
+                                <div><h6 class="mb-0 fw-bold text-dark">{{ item.profile.name }}</h6></div>
+                            </div>
+                            <div class="text-end">
+                                <span class="fw-bold text-primary fs-5">{{ item.final_score|floatformat:1 }}</span><span class="text-primary small">점</span>
+                                <div class="badge bg-primary text-white p-1 rounded-pill small ms-1">{{ item.final_tier }}등급</div>
+                            </div>
+                        </li>
+                        {% empty %}
+                        <li class="list-group-item text-center py-5 text-muted bg-white">데이터가 없습니다.</li>
+                        {% endfor %}
+                    </ul>
 
+                    <ul class="list-group list-group-flush h-of-list shadow-sm d-none" id="bottomTraineesList">
+                        {% for item in chart_bottom %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center py-3 bg-white">
+                            <div class="d-flex align-items-center">
+                                <span class="badge bg-dark text-white me-3 rounded-circle p-2 d-flex align-items-center justify-content-center" style="width:32px; height:32px; font-size:1.1rem; font-weight:900;">{{ forloop.counter }}</span>
+                                <div><h6 class="mb-0 fw-bold text-dark">{{ item.profile.name }}</h6></div>
+                            </div>
+                            <div class="text-end">
+                                <span class="fw-bold text-danger fs-5">{{ item.final_score|floatformat:1 }}</span><span class="text-danger small">점</span>
+                                <div class="badge bg-dark text-white p-1 rounded-pill small ms-1">{{ item.final_tier }}등급</div>
+                            </div>
+                        </li>
+                        {% empty %}
+                        <li class="list-group-item text-center py-5 text-muted bg-white">데이터가 없습니다.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .h-of-switch .form-check-input:checked { background-color: #dc3545; border-color: #dc3545; }
+        .h-of-switch .form-check-input:checked + .hof-label { color: #dc3545 !important; font-weight: bold; }
+        .h-of-list {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; transform: translateY(10px); transition: all 0.3s ease-in-out; pointer-events: none;
+        }
+        .h-of-list.active { opacity: 1; transform: translateY(0); pointer-events: auto; }
+        .h-of-list.d-none { display: none; }
+    </style>
+    
     <div class="card shadow-sm">
-
         <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
 
             <h5 class="mb-0 fw-bold"><i class="bi bi-list-ul"></i> 교육생 상세 현황</h5>
@@ -277,180 +345,728 @@
         </div>
 
         <div class="table-responsive">
-
-            <table class="table table-hover align-middle mb-0">
-
-                <thead class="table-light">
-
+            <table class="table table-hover align-middle mb-0 text-center" style="min-width: 1200px;">
+                <thead class="table-light text-secondary small">
                     <tr>
-
-                        <th>이름 / 사번</th>
-
-                        <th>현재 상태</th>
-
-                        <th>기수</th>
-
-                        <th>공정</th>
-
-                        <th class="text-center">시험 평균</th>
-
-                        <th class="text-center">종합 점수</th>
-
-                        <th class="text-center">석차</th>
-
-                        <th class="text-center">관리</th>
-
+                        <th class="text-start ps-3" style="width: 8%;">이름</th>
+                        <th style="width: 8%;">사번</th>
+                        <th style="width: 8%;">공정</th>
+                        <th style="width: 6%;">기수</th>
+                        <th style="width: 8%;">시험 평균</th>
+                        <th style="width: 8%;">종합 점수</th>
+                        <th style="width: 6%;">석차</th>
+                        <th style="width: 25%;">항목별 등급</th>
+                        <th style="width: 8%;">종합 등급</th>
+                        <th style="width: 8%;">현재 상태</th>
+                        <th style="width: 7%;">관리</th>
                     </tr>
-
                 </thead>
-
                 <tbody>
-
                     {% for item in trainee_list %}
-
-                    <tr style="cursor: pointer;" onclick="location.href='{% url 'quiz:pl_trainee_detail' item.profile.id %}'">
-
-                        <td>
-
-                            <div class="fw-bold">{{ item.profile.name }}</div>
-
-                            <small class="text-muted">{{ item.profile.employee_id }}</small>
-
-                        </td>
-
-                        <td>
-
-                            {% if item.profile.status == 'attending' %}<span class="badge bg-success">재직중</span>
-
-                            {% elif item.profile.status == 'counseling' %}<span class="badge bg-warning text-dark">⚠️ 면담필요</span>
-
-                            {% elif item.profile.status == 'dropout' %}<span class="badge bg-danger">퇴소</span>
-
-                            {% else %}<span class="badge bg-info">수료</span>{% endif %}
-
-                        </td>
-
+                    <tr class="border-bottom">
+                        <td class="text-start ps-3 fw-bold text-dark fs-6">{{ item.profile.name }}</td>
+                        <td class="text-muted small">{{ item.profile.employee_id|default:"-" }}</td>
+                        <td><span class="text-dark">{{ item.profile.process.name|default:"-" }}</span></td>
                         <td>{{ item.profile.cohort.name|default:"-" }}</td>
-
-                        <td>{{ item.profile.process.name|default:"-" }}</td>
-
-                        <td class="text-center">
-
-                            <small class="fw-bold">{{ item.exam_avg|floatformat:1 }}점</small>
-
+                        
+                        <td><span class="fw-bold text-secondary">{{ item.exam_avg|floatformat:1 }}</span>점</td>
+                        <td class="fw-bold text-primary fs-6">{{ item.final_score|floatformat:1 }}</td>
+                        <td>
+    {% if item.process_rank != '-' %}
+        <div class="d-flex flex-column gap-1 align-items-center">
+            <span class="badge bg-secondary rounded-pill" style="font-size:0.7rem;">
+                {{ item.profile.process.name|default:"공정" }} {{ item.process_rank }}등
+            </span>
+            <span class="badge bg-outline rounded-pill border text-secondary" style="font-size:0.7rem;">
+                {{ item.profile.cohort.name|default:"기수" }} {{ item.cohort_rank }}등
+            </span>
+        </div>
+    {% else %}-{% endif %}
+</td>
+                        
+                        <td>
+                            <div class="d-flex justify-content-center gap-1">
+                                <span class="badge bg-light border text-secondary category-badge" style="cursor: pointer;" data-bs-toggle="tooltip" title="{{ item.tier_details.theory.desc }}"
+                                    data-student="{{ item.profile.name }}" data-type="theory" data-title="이론/직무 역량" data-grade="{{ item.tier_details.theory.grade }}" data-desc="{{ item.tier_details.theory.desc }}" data-detail="{{ item.tier_details.theory.detail }}">
+                                    이론 <strong class="{% if item.tier_details.theory.grade == 'S' %}text-primary fw-bolder{% elif item.tier_details.theory.grade == 'A' %}text-primary text-opacity-75 fw-bold{% elif item.tier_details.theory.grade == 'B' %}text-primary text-opacity-50 fw-bold{% elif item.tier_details.theory.grade == 'C' %}text-primary text-opacity-25{% elif item.tier_details.theory.grade == 'F' %}text-danger fw-bolder{% else %}text-dark fw-bold{% endif %} fs-6">{{ item.tier_details.theory.grade }}</strong>
+                                </span>
+                                <span class="badge bg-light border text-secondary category-badge" style="cursor: pointer;" data-bs-toggle="tooltip" title="{{ item.tier_details.manager.desc }}"
+                                    data-student="{{ item.profile.name }}" data-type="manager" data-title="매니저 평가" data-grade="{{ item.tier_details.manager.grade }}" data-desc="{{ item.tier_details.manager.desc }}" data-detail="{{ item.tier_details.manager.detail }}">
+                                    평가 <strong class="{% if item.tier_details.manager.grade == 'S' %}text-primary fw-bolder{% elif item.tier_details.manager.grade == 'A' %}text-primary text-opacity-75 fw-bold{% elif item.tier_details.manager.grade == 'B' %}text-primary text-opacity-50 fw-bold{% elif item.tier_details.manager.grade == 'C' %}text-primary text-opacity-25{% elif item.tier_details.manager.grade == 'F' %}text-danger fw-bolder{% else %}text-dark fw-bold{% endif %} fs-6">{{ item.tier_details.manager.grade }}</strong>
+                                </span>
+                                <span class="badge bg-light border text-secondary category-badge" style="cursor: pointer;" data-bs-toggle="tooltip" title="{{ item.tier_details.attitude.desc }}"
+                                    data-student="{{ item.profile.name }}" data-type="attitude" data-title="학습 태도" data-grade="{{ item.tier_details.attitude.grade }}" data-desc="{{ item.tier_details.attitude.desc }}" data-detail="{{ item.tier_details.attitude.detail }}">
+                                    태도 <strong class="{% if item.tier_details.attitude.grade == 'S' %}text-primary fw-bolder{% elif item.tier_details.attitude.grade == 'A' %}text-primary text-opacity-75 fw-bold{% elif item.tier_details.attitude.grade == 'B' %}text-primary text-opacity-50 fw-bold{% elif item.tier_details.attitude.grade == 'C' %}text-primary text-opacity-25{% elif item.tier_details.attitude.grade == 'F' %}text-danger fw-bolder{% else %}text-dark fw-bold{% endif %} fs-6">{{ item.tier_details.attitude.grade }}</strong>
+                                </span>
+                                <span class="badge bg-light border text-secondary category-badge" style="cursor: pointer;" data-bs-toggle="tooltip" title="{{ item.tier_details.attendance.desc }}"
+                                    data-student="{{ item.profile.name }}" data-type="attendance" data-title="근태 성실도" data-grade="{{ item.tier_details.attendance.grade }}" data-desc="{{ item.tier_details.attendance.desc }}" data-detail="{{ item.tier_details.attendance.detail }}">
+                                    근태 <strong class="{% if item.tier_details.attendance.grade == 'S' %}text-primary fw-bolder{% elif item.tier_details.attendance.grade == 'A' %}text-primary text-opacity-75 fw-bold{% elif item.tier_details.attendance.grade == 'B' %}text-primary text-opacity-50 fw-bold{% elif item.tier_details.attendance.grade == 'C' %}text-primary text-opacity-25{% elif item.tier_details.attendance.grade == 'F' %}text-danger fw-bolder{% else %}text-dark fw-bold{% endif %} fs-6">{{ item.tier_details.attendance.grade }}</strong>
+                                </span>
+                                <span class="badge bg-light border text-secondary category-badge" style="cursor: pointer;" data-bs-toggle="tooltip" title="{{ item.tier_details.discipline.desc }}"
+                                    data-student="{{ item.profile.name }}" data-type="discipline" data-title="규율 준수도" data-grade="{{ item.tier_details.discipline.grade }}" data-desc="{{ item.tier_details.discipline.desc }}" data-detail="{{ item.tier_details.discipline.detail }}">
+                                    규율 <strong class="{% if item.tier_details.discipline.grade == 'S' %}text-primary fw-bolder{% elif item.tier_details.discipline.grade == 'A' %}text-primary text-opacity-75 fw-bold{% elif item.tier_details.discipline.grade == 'B' %}text-primary text-opacity-50 fw-bold{% elif item.tier_details.discipline.grade == 'C' %}text-primary text-opacity-25{% elif item.tier_details.discipline.grade == 'F' %}text-danger fw-bolder{% else %}text-dark fw-bold{% endif %} fs-6">{{ item.tier_details.discipline.grade }}</strong>
+                                </span>
+                            </div>
                         </td>
 
-                        <td class="text-center fw-bold text-primary">{{ item.final_score|floatformat:2 }}</td>
+                        <td>
+                            <span class="badge bg-white border border-2 rounded-pill px-3 py-2 fs-6 tier-badge
+                                {% if item.final_tier == 'S' %}border-primary text-primary fw-bolder
+{% elif item.final_tier == 'A' %}border-primary border-opacity-75 text-primary text-opacity-75 fw-bold
+{% elif item.final_tier == 'B' %}border-primary border-opacity-50 text-primary text-opacity-50 fw-bold
+{% elif item.final_tier == 'C' %}border-primary border-opacity-25 text-primary text-opacity-25
+{% elif item.final_tier == 'F' %}border-danger text-danger fw-bolder
+{% else %}border-dark text-dark fw-bold{% endif %}
+                                style="cursor: pointer;"
+                                data-bs-toggle="modal" data-bs-target="#tierReasonModal"
+                                data-name="{{ item.profile.name }}" 
+                                data-final="{{ item.final_tier }}"
+                                data-score="{{ item.final_score|floatformat:1 }}"
+                                data-theory-g="{{ item.tier_details.theory.grade }}" data-theory-d="{{ item.tier_details.theory.desc }}"
+                                data-attendance-g="{{ item.tier_details.attendance.grade }}" data-attendance-d="{{ item.tier_details.attendance.desc }}"
+                                data-attitude-g="{{ item.tier_details.attitude.grade }}" data-attitude-d="{{ item.tier_details.attitude.desc }}"
+                                data-manager-g="{{ item.tier_details.manager.grade }}" data-manager-d="{{ item.tier_details.manager.desc }}"
+                                data-discipline-g="{{ item.tier_details.discipline.grade }}" data-discipline-d="{{ item.tier_details.discipline.desc }}">
+                                {{ item.final_tier }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if item.profile.status == 'attending' %}<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1">교육중</span>
+                            {% elif item.profile.status == 'counseling' %}<span class="badge bg-warning bg-opacity-10 text-dark border border-warning border-opacity-50 px-2 py-1">면담요망</span>
+                            {% elif item.profile.status == 'dropout' %}<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-1">퇴소</span>
+                            {% else %}<span class="badge bg-info bg-opacity-10 text-info border border-info border-opacity-25 px-2 py-1">수료</span>{% endif %}
+                        </td>
 
-                        <td class="text-center">{% if item.rank != '-' %}{{ item.rank }}등{% else %}-{% endif %}</td>
-
-                        <td class="text-center">
-
-                            <a href="{% url 'quiz:pl_trainee_detail' item.profile.id %}" class="btn btn-sm btn-outline-primary">
-
+                        <td>
+                            <a href="{% url 'quiz:pl_trainee_detail' item.profile.id %}" class="btn btn-sm btn-outline-secondary">
                                 <i class="bi bi-search"></i> 상세
-
                             </a>
-
                         </td>
-
                     </tr>
-
                     {% endfor %}
-
                 </tbody>
-
             </table>
-
         </div>
 
     </div>
-
     {% endif %}
-
 </div>
 
+<div class="modal fade" id="tierReasonModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered"> 
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-white border-bottom-0 pb-0">
+                <h5 class="modal-title fw-bold"><i class="bi bi-bar-chart-steps text-primary"></i> <span id="modalTraineeName"></span> 종합 등급 분석</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body pt-0">
+                
+                <div class="text-center py-4">
+                    <span class="text-muted small text-uppercase fw-bold"><i class="bi bi-calculator"></i> Final Tier & Score</span>
+                    <h1 class="display-2 mb-2" id="modalFinalTier"></h1>
+                    
+                    <div class="d-inline-block bg-light border rounded-pill px-4 py-2 mt-2 shadow-sm">
+                        <span class="text-secondary fw-bold me-3">최종 종합 점수</span>
+                        <span class="fs-4 fw-bolder text-dark" id="modalFinalScore"></span><span class="text-muted ms-1">점</span>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-bordered align-middle">
+                        <thead class="table-light text-center small">
+                            <tr>
+                                <th style="width: 20%;">평가 항목</th>
+                                <th style="width: 25%;">나의 기록 (Actual)</th>
+                                <th style="width: 10%;">등급</th>
+                                <th style="width: 45%;">산정 기준 (Criteria)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="small">
+                            <tr>
+                                <td class="fw-bold bg-light-subtle"><i class="bi bi-book me-1"></i> 이론/직무</td>
+                                <td id="modalTheoryDesc" class="text-center text-primary fw-bold"></td>
+                                <td id="modalTheoryGrade" class="text-center fw-bold fs-6"></td>
+                                <td id="modalTheoryCriteria" class="text-muted small lh-lg">
+                                    <span class="crit-S p-1">S: 95↑ & 재시험0</span> / 
+<span class="crit-A p-1">A: 88↑ & 재시험1↓</span> / 
+<span class="crit-B p-1">B: 80↑ & 재시험2~3</span> / 
+<span class="crit-C p-1">C: 80↓ or 재시험4~5</span> /
+<span class="crit-D p-1 fw-bold text-dark">D: 재시험5↑</span> /
+<span class="crit-F p-1 fw-bold text-danger">F: 동일 시험 3회 탈락 → 퇴소</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold bg-light-subtle"><i class="bi bi-person-check me-1"></i> 매니저 평가</td>
+                                <td id="modalManagerDesc" class="text-center text-primary fw-bold"></td>
+                                <td id="modalManagerGrade" class="text-center fw-bold fs-6"></td>
+                                <td id="modalManagerCriteria" class="text-muted small lh-lg">
+                                    <span class="crit-S p-1">S: 긍정14↑ & 부정0</span> / 
+<span class="crit-A p-1">A: 긍정10↑ & 부정2↓</span> / 
+<span class="crit-B p-1">B: 긍정6↑ & 부정3~4</span> / 
+<span class="crit-C p-1">C: 긍정6↓ or 부정5↑</span> /
+<span class="crit-D p-1 fw-bold text-dark">D: 부정≥긍정×2</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold bg-light-subtle"><i class="bi bi-pencil-square me-1"></i> 학습 태도</td>
+                                <td id="modalAttitudeDesc" class="text-center text-primary fw-bold"></td>
+                                <td id="modalAttitudeGrade" class="text-center fw-bold fs-6"></td>
+                                <td id="modalAttitudeCriteria" class="text-muted small lh-lg">
+                                    <span class="crit-S p-1">S: 95↑</span> / 
+<span class="crit-A p-1">A: 85↑</span> / 
+<span class="crit-B p-1">B: 75↑</span> / 
+<span class="crit-C p-1">C: 65↑</span> /
+<span class="crit-D p-1 fw-bold text-dark">D: 65↓</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold bg-light-subtle"><i class="bi bi-clock-history me-1"></i> 근태 성실도</td>
+                                <td id="modalAttendanceDesc" class="text-center text-primary fw-bold"></td>
+                                <td id="modalAttendanceGrade" class="text-center fw-bold fs-6"></td>
+                                <td id="modalAttendanceCriteria" class="text-muted small lh-lg">
+                                    <span class="crit-S p-1">S: 무결점</span> / 
+<span class="crit-A p-1">A: 지각0 & 승인휴가2↓</span> / 
+<span class="crit-B p-1">B: 지각1 or 승인휴가3~4</span> / 
+<span class="crit-C p-1">C: 지각2 or 무단결근</span>
+<span class="crit-D p-1 fw-bold text-dark">D: 지각2+추가이슈</span> /
+<span class="crit-F p-1 fw-bold text-danger">F: 지각 3회↑ or 중도 퇴소</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="fw-bold bg-light-subtle"><i class="bi bi-shield-exclamation me-1"></i> 규율 준수</td>
+                                <td id="modalDisciplineDesc" class="text-center text-primary fw-bold"></td>
+                                <td id="modalDisciplineGrade" class="text-center fw-bold fs-6"></td>
+                                <td id="modalDisciplineCriteria" class="text-muted small lh-lg">
+                                    <span class="crit-S p-1">S: 경고 0회</span> / 
+<span class="crit-A p-1">A: 경고 1회(참작)</span> / 
+<span class="crit-B p-1">B: 경고장 1장(경고2회)</span> / 
+<span class="crit-C p-1">C: 경고장 2장(경고3회)</span>
+<span class="crit-D p-1 fw-bold text-dark">D: 경고장 2장+추가경고</span> /
+<span class="crit-F p-1 fw-bold text-danger">F: 경고장 3장↑ → 퇴소</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer bg-light border-top-0 d-block p-4">
+                <h6 class="fw-bold text-dark mb-3"><i class="bi bi-info-circle-fill text-primary"></i> 종합 등급 산정 원칙 (최저점 우선 반영)</h6>
+                <div class="row g-2">
 
+                    <div class="col-md-6">
+                        <div class="bg-white border rounded p-2 h-100 principle-card" data-tier="S">
+                            <span class="badge bg-primary mb-1">S 등급</span>
+                            <p class="small text-muted mb-0">전 항목 <strong class="text-primary">A 이상 & S 3개↑</strong>, B/C/D 없음</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="bg-white border rounded p-2 h-100 principle-card" data-tier="A">
+                            <span class="badge bg-success mb-1">A 등급</span>
+                            <p class="small text-muted mb-0">C/D 없음 & <strong class="text-dark">B 1개 이하</strong></p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="bg-white border rounded p-2 h-100 principle-card" data-tier="B">
+                            <span class="badge bg-secondary mb-1">B 등급</span>
+                            <p class="small text-muted mb-0">C/D 없음 & <strong class="text-dark">B 2개 이상</strong></p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="bg-white border rounded p-2 h-100 principle-card" data-tier="C">
+                            <span class="badge bg-warning text-dark mb-1">C 등급</span>
+                            <p class="small text-muted mb-0"><strong class="text-warning">핵심 3항목(이론·근태·규율)</strong> 중 C 1개↑<br>또는 전체 C 2개↑</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="bg-white border rounded p-2 h-100 principle-card" data-tier="D">
+                            <span class="badge bg-dark mb-1">D 등급</span>
+                            <p class="small text-muted mb-0">항목 D <strong class="text-dark">1개↑</strong> 또는 C <strong class="text-dark">3개↑</strong></p>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="bg-white border rounded p-2 h-100 principle-card" data-tier="F">
+    <span class="badge bg-danger mb-1">F 등급 (자동 퇴소)</span>
+    <p class="small text-muted mb-0">
+        아래 조건 중 <strong class="text-danger">하나라도 해당</strong>하면 즉시 퇴소 처리<br>
+        <span class="me-3">① 동일 시험 <strong class="text-danger">3회 연속 탈락</strong></span>
+        <span class="me-3">② 지각 <strong class="text-danger">3회 누적</strong></span>
+        <span class="me-3">③ 경고장 <strong class="text-danger">3장 누적</strong></span>
+        <span>④ <strong class="text-danger">중도 퇴소</strong> (자진/관리자)</span>
+    </p>
+</div>
+                    </div>
+
+                </div><!-- /.row.g-2 -->
+            </div><!-- /.modal-footer -->
+        </div><!-- /.modal-content -->
+    </div><!-- /.modal-dialog -->
+</div><!-- /#tierReasonModal -->
+
+<div class="modal fade" id="categoryDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered"> 
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header bg-light border-bottom-0">
+                <h5 class="modal-title fw-bold"><i class="bi bi-search text-primary"></i> <span id="catStudentName" class="text-primary"></span> - <span id="catTitle"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body py-4 bg-white">
+                
+                <div class="text-center mb-4 border-bottom pb-4">
+                    <h6 class="text-muted mb-2">해당 항목 등급</h6>
+                    <h1 class="display-2 fw-bold mb-3" id="catGrade"></h1>
+                    <div class="bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded p-2 d-inline-block px-4">
+                        <span class="fw-bold text-dark fs-5" id="catDesc"></span>
+                    </div>
+                </div>
+
+                <div class="row g-4 px-2">
+                    
+                    <div class="col-md-7">
+                        <div class="text-start bg-light p-3 rounded border h-100 shadow-sm">
+                            <h6 class="fw-bold mb-3 text-dark border-bottom pb-2"><i class="bi bi-file-text text-primary"></i> 상세 내역 및 사유</h6>
+                            <div id="catSpecificDetail" class="text-secondary" style="white-space: pre-wrap; line-height: 1.8; font-size: 0.95rem;">
+                                </div>
+                        </div>
+                    </div>
+
+                    <div class="col-md-5">
+                        <div class="text-start h-100">
+                            <h6 class="fw-bold mb-3 text-secondary px-1"><i class="bi bi-info-circle"></i> 산정 기준표</h6>
+                            <ul class="list-group list-group-flush small border rounded shadow-sm" id="catCriteriaList">
+                                </ul>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .border-bottom-dashed { border-bottom: 1px dashed #dee2e6 !important; }
+</style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-
 document.addEventListener("DOMContentLoaded", function() {
 
-    const radarCtx = document.getElementById('radarChart');
-
-    if(radarCtx) {
-
-        new Chart(radarCtx.getContext('2d'), {
-
-            type: 'radar',
-
-            data: {
-
-                labels: ['시험 성적', '실습 능력', '노트 필기', '태도/인성'],
-
-                datasets: [{
-
-                    label: '우리 반 평균',
-
-                    data: {{ radar_data|safe }},
-
-                    fill: true,
-
-                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
-
-                    borderColor: 'rgb(54, 162, 235)',
-
-                    pointBackgroundColor: 'rgb(54, 162, 235)',
-
-                }]
-
-            },
-
-            options: {
-
-                elements: { line: { borderWidth: 3 } },
-
-                scales: { r: { angleLines: { display: false }, suggestedMin: 0, suggestedMax: 100 } }
-
+    // ==========================================
+    // 1. 종합 팝업창 (tier-badge) 이벤트
+    // ==========================================
+    const tierBadges = document.querySelectorAll('.tier-badge');
+    tierBadges.forEach(badge => {
+        badge.addEventListener('click', function() {
+            const dataTarget = this.hasAttribute('data-theory-g') ? this : this.closest('tr').querySelector('[data-theory-g]');
+            if (!dataTarget) return;
+            
+            const name = dataTarget.getAttribute('data-name');
+            const finalTier = dataTarget.getAttribute('data-final');
+            const finalScore = dataTarget.getAttribute('data-score'); // 🌟 점수 변수 추가
+            
+            const nameEl = document.getElementById('modalTraineeName');
+            if (nameEl) nameEl.innerText = name;
+            
+            const finalScoreEl = document.getElementById('modalFinalScore'); // 🌟 점수 텍스트 넣기
+            if (finalScoreEl) finalScoreEl.innerText = finalScore;
+            
+            const finalTierEl = document.getElementById('modalFinalTier');
+            if (finalTierEl) {
+                finalTierEl.innerText = finalTier + " 등급";
+                finalTierEl.className = 'display-3 mb-0 '; 
+                
+                // 파란색 톤 그라데이션 적용 
+                if(finalTier === 'S')      finalTierEl.className += 'text-primary fw-bolder';
+else if(finalTier === 'A') finalTierEl.className += 'text-primary text-opacity-75 fw-bold';
+else if(finalTier === 'B') finalTierEl.className += 'text-primary text-opacity-50 fw-bold';
+else if(finalTier === 'C') finalTierEl.className += 'text-primary text-opacity-25';
+else if(finalTier === 'F') finalTierEl.className += 'text-danger fw-bolder';
+else                        finalTierEl.className += 'text-dark fw-bold';
             }
 
+            const setDetail = (type, gradeAttr, descAttr) => {
+                const grade = (dataTarget.getAttribute(gradeAttr) || '').trim();
+                const desc = dataTarget.getAttribute(descAttr);
+                
+                const gradeEl = document.getElementById(`modal${type}Grade`);
+                const descEl = document.getElementById(`modal${type}Desc`);
+                
+                if (gradeEl) gradeEl.innerText = grade;
+                if (descEl) descEl.innerText = desc;
+
+                // 모달 좌측 등급 색상
+                if (gradeEl) {
+                    gradeEl.className = 'text-center fs-6 ';
+                    // 🌟 파란색 톤 그라데이션 적용 🌟
+                    if(grade === 'S')      gradeEl.className += 'text-primary fw-bolder';
+else if(grade === 'A') gradeEl.className += 'text-primary text-opacity-75 fw-bold';
+else if(grade === 'B') gradeEl.className += 'text-primary text-opacity-50 fw-bold';
+else if(grade === 'C') gradeEl.className += 'text-primary text-opacity-25';
+else if(grade === 'F') gradeEl.className += 'text-danger fw-bolder';
+else                    gradeEl.className += 'text-dark fw-bold';
+                }
+
+                // 모달 우측 형광펜 처리 (D등급은 어둡게, 나머지는 빨갛게 유지)
+                const criteriaContainer = document.getElementById(`modal${type}Criteria`);
+                if (criteriaContainer) {
+                    criteriaContainer.querySelectorAll('span').forEach(span => {
+                        span.classList.remove('fw-bold', 'text-danger', 'text-dark', 'rounded', 'd-inline-block');
+                        span.classList.add('text-muted');
+                        span.style.backgroundColor = '';
+                        span.style.color = '';
+                    });
+                    
+                    if (grade) {
+                        const targetSpan = criteriaContainer.querySelector(`.crit-${grade}`);
+                        if (targetSpan) {
+                            targetSpan.classList.remove('text-muted');
+                            targetSpan.classList.add('fw-bold', 'rounded', 'd-inline-block');
+                            if(grade === 'F') {
+    targetSpan.style.backgroundColor = '#6f0000';
+    targetSpan.style.color = '#ffffff';
+} else if(grade === 'D') {
+    targetSpan.style.backgroundColor = '#e9ecef';
+    targetSpan.style.color = '#212529';
+} else {
+    targetSpan.style.backgroundColor = '#ffe5e5';
+    targetSpan.style.color = '#dc3545';
+}
+                        }
+                    }
+                }
+            };
+
+            setDetail('Theory', 'data-theory-g', 'data-theory-d');
+            setDetail('Attendance', 'data-attendance-g', 'data-attendance-d');
+            setDetail('Attitude', 'data-attitude-g', 'data-attitude-d');
+            setDetail('Manager', 'data-manager-g', 'data-manager-d');
+            setDetail('Discipline', 'data-discipline-g', 'data-discipline-d');
+
+            // ✅ 종합 등급 카드 하이라이트 (일치하는 것만 테두리)
+            const colorMap = {
+                'S': '#0d6efd', 'A': '#198754', 'B': '#6c757d',
+                'C': '#ffc107', 'D': '#212529', 'F': '#dc3545'
+            };
+            document.querySelectorAll('.principle-card').forEach(card => {
+                card.style.outline    = '';
+                card.style.boxShadow  = '';
+                card.style.transform  = '';
+            });
+            const matchCard = document.querySelector(`.principle-card[data-tier="${finalTier}"]`);
+            if (matchCard) {
+                const color = colorMap[finalTier] || '#212529';
+                matchCard.style.outline   = `2px solid ${color}`;
+                matchCard.style.boxShadow = `0 0 8px ${color}40`;
+                matchCard.style.transform = 'scale(1.02)';
+            }
         });
+    });
 
+    // ==========================================
+    // 2. 개별 항목 팝업창 (category-badge) 이벤트
+    // ==========================================
+    const criteriaData = {
+    'theory': [
+        {g: 'S', text: 'S: 평균 95↑ & 재시험 0회'},
+        {g: 'A', text: 'A: 평균 88↑ & 재시험 1회↓'},
+        {g: 'B', text: 'B: 평균 80↑ & 재시험 2~3회'},
+        {g: 'C', text: 'C: 평균 80↓ or 재시험 4~5회'},
+        {g: 'D', text: 'D: 재시험 5회↑ (집중 관리)'},
+        {g: 'F', text: 'F: 동일 시험 3회 연속 탈락 → 자동 퇴소'}  // ✅ 추가
+    ],
+    'manager': [
+        {g: 'S', text: 'S: 긍정 14↑ & 부정 0'},
+        {g: 'A', text: 'A: 긍정 10↑ & 부정 2↓'},
+        {g: 'B', text: 'B: 긍정 6↑ & 부정 3~4'},
+        {g: 'C', text: 'C: 긍정 6↓ or 부정 5↑'},
+        {g: 'D', text: 'D: 부정이 긍정의 2배 이상'}
+        // F 없음 (이 항목 단독으로 퇴소 없음)
+    ],
+    'attitude': [
+        {g: 'S', text: 'S: 95점 이상'},
+        {g: 'A', text: 'A: 85점 이상'},
+        {g: 'B', text: 'B: 75점 이상'},
+        {g: 'C', text: 'C: 65점 이상'},
+        {g: 'D', text: 'D: 65점 미만'}
+        // F 없음 (이 항목 단독으로 퇴소 없음)
+    ],
+    'attendance': [
+        {g: 'S', text: 'S: 무결점 (지각·휴가 0)'},
+        {g: 'A', text: 'A: 지각0 & 승인휴가 2회↓'},
+        {g: 'B', text: 'B: 지각1 or 승인휴가 3~4회'},
+        {g: 'C', text: 'C: 지각2 or 무단결근'},
+        {g: 'D', text: 'D: 지각2+추가이슈 (퇴소 임박)'},
+        {g: 'F', text: 'F: 지각 3회↑ or 중도퇴소 → F 처리'}     // 🎯 수정 완료
+    ],
+    'discipline': [
+        {g: 'S', text: 'S: 경고 0회'},
+        {g: 'A', text: 'A: 경고 1회 (정상 참작)'},
+        {g: 'B', text: 'B: 경고장 1장 (경고 2회 누적)'},
+        {g: 'C', text: 'C: 경고장 2장 (경고 3회 누적)'},
+        {g: 'D', text: 'D: 경고장 2장 + 추가 경고 진행 중'},
+        {g: 'F', text: 'F: 경고장 3장↑ → 자동 퇴소'}            // ✅ 추가
+    ]
+};
+
+    const catBadges = document.querySelectorAll('.category-badge');
+    catBadges.forEach(badge => {
+        badge.addEventListener('click', function(e) {
+            e.stopPropagation();
+            e.preventDefault();
+
+            this.blur();
+            if (typeof bootstrap !== 'undefined' && bootstrap.Tooltip) {
+                const tooltipInstance = bootstrap.Tooltip.getInstance(this);
+                if (tooltipInstance) tooltipInstance.hide();
+            }
+
+            const student = this.getAttribute('data-student');
+            const title   = this.getAttribute('data-title');
+            const type    = this.getAttribute('data-type');
+            const grade   = (this.getAttribute('data-grade') || '').trim();
+            const desc    = this.getAttribute('data-desc');
+            const rawDetail = this.getAttribute('data-detail') || '';
+
+            document.getElementById('catStudentName').innerText = student;
+            document.getElementById('catTitle').innerText       = title;
+            document.getElementById('catDesc').innerText        = desc;
+
+            const gradeEl = document.getElementById('catGrade');
+            gradeEl.innerText = grade;
+            gradeEl.className = 'display-1 mb-3 ';
+if(grade === 'S')      gradeEl.className += 'text-primary fw-bolder';
+else if(grade === 'A') gradeEl.className += 'text-primary text-opacity-75 fw-bold';
+else if(grade === 'B') gradeEl.className += 'text-primary text-opacity-50 fw-bold';
+else if(grade === 'C') gradeEl.className += 'text-primary text-opacity-25';
+else if(grade === 'F') gradeEl.className += 'text-danger fw-bolder';
+else                   gradeEl.className += 'text-dark fw-bold';
+
+            const detailContainer = document.getElementById('catSpecificDetail');
+            if (!rawDetail.trim() || rawDetail.includes('특이사항(지각/휴가) 없음') || rawDetail.includes('특이사항(경고/주의) 없음')) {
+                detailContainer.innerHTML = `<div class="text-center text-muted py-3 bg-white rounded border border-light"><i class="bi bi-inbox fs-4 d-block mb-2 opacity-25"></i>해당 사항 없음</div>`;
+            } else {
+                const lines = rawDetail.split('\n');
+                let htmlContent = '<ul class="list-group list-group-flush mb-0">';
+                let inCommentBlock = false;
+
+                lines.forEach(line => {
+                    if (!line.trim()) return;
+                    if (line.includes('[매니저 종합의견]')) {
+                        htmlContent += `</ul><div class="mt-3 p-3 bg-white rounded border border-primary border-opacity-25 shadow-sm">
+                            <strong class="text-primary"><i class="bi bi-chat-quote-fill"></i> 매니저 종합의견</strong>
+                            <p class="mt-2 mb-0 small text-dark" style="white-space: pre-wrap; line-height:1.6;">`;
+                        inCommentBlock = true;
+                        return;
+                    }
+                    if (inCommentBlock && !line.startsWith('- ')) { htmlContent += line + '\n'; return; }
+
+                    let text = line.startsWith('- ') ? line.substring(2).trim() : line.trim();
+                    let badgeHtml = '<i class="bi bi-check2-circle text-primary me-2 mt-1"></i>';
+
+                    if (text.includes('👍[Good]')) {
+                        text = text.replace('👍[Good]', '').trim();
+                        badgeHtml = `<span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-50 me-2 mt-1" style="min-width:55px;"><i class="bi bi-hand-thumbs-up-fill"></i> 긍정</span>`;
+                    } else if (text.includes('⚠️[Weak]')) {
+                        text = text.replace('⚠️[Weak]', '').trim();
+                        badgeHtml = `<span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-50 me-2 mt-1" style="min-width:55px;"><i class="bi bi-exclamation-triangle-fill"></i> 보완</span>`;
+                    } else {
+                        const match = text.match(/\[(.*?)\]/);
+                        if (match) {
+                            const cat = match[1];
+                            text = text.replace(`[${cat}]`, '').trim();
+                            if (cat.includes('지각'))                          badgeHtml = `<span class="badge bg-warning text-dark border border-warning me-2 mt-1" style="min-width:55px;">${cat}</span>`;
+                            else if (cat.includes('경고') || cat.includes('주의')) badgeHtml = `<span class="badge bg-danger text-white border border-danger me-2 mt-1" style="min-width:55px;">${cat}</span>`;
+                            else if (cat.includes('중도퇴소') || cat.includes('과락')) badgeHtml = `<span class="badge bg-dark text-white border border-dark me-2 mt-1" style="min-width:55px;">${cat}</span>`;
+                            else badgeHtml = `<span class="badge bg-secondary bg-opacity-10 text-secondary border border-secondary border-opacity-25 me-2 mt-1" style="min-width:55px;">${cat}</span>`;
+                        } else if (text.includes('점)')) {
+                            badgeHtml = '<i class="bi bi-journal-x text-danger me-2 mt-1"></i>';
+                        }
+                    }
+                    htmlContent += `<li class="list-group-item px-2 py-2 d-flex align-items-start bg-transparent border-bottom-dashed">
+                        <div>${badgeHtml}</div>
+                        <div class="text-dark small align-self-center mt-1" style="word-break: keep-all; line-height:1.4;">${text}</div>
+                    </li>`;
+                });
+
+                if (inCommentBlock) { htmlContent += `</p></div>`; }
+                else { htmlContent += `</ul>`; }
+                detailContainer.innerHTML = htmlContent;
+            }
+
+            const ul = document.getElementById('catCriteriaList');
+            ul.innerHTML = '';
+            const rules = criteriaData[type] || [];
+            rules.forEach(rule => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item bg-transparent px-2 py-2 text-muted';
+                if (rule.g === grade) {
+    if(grade === 'F') {
+        li.innerHTML = `<span class="fw-bold text-white px-2 py-1 rounded d-inline-block" style="background:#6f0000">${rule.text}</span>`;
+    } else if(grade === 'D') {
+        li.innerHTML = `<span class="fw-bold text-dark bg-secondary bg-opacity-10 px-2 py-1 rounded d-inline-block">${rule.text}</span>`;
+    } else {
+        li.innerHTML = `<span class="fw-bold text-danger bg-danger bg-opacity-10 px-2 py-1 rounded d-inline-block">${rule.text}</span>`;
     }
+} else {
+                    li.innerText = rule.text;
+                }
+                ul.appendChild(li);
+            });
 
+            // ✅ 핵심 수정: 클릭 핸들러 안에서 올바르게 모달 오픈 (categoryDetailModalObj 제거)
+            setTimeout(() => {
+                bootstrap.Modal.getOrCreateInstance(
+                    document.getElementById('categoryDetailModal')
+                ).show();
+            }, 100);
+        });
+    });
 
+    // ==========================================
+    // 3. 차트 유지 구역
+    // ==========================================
+    const radarCtx = document.getElementById('radarChart');
+    if(radarCtx) {
+        new Chart(radarCtx.getContext('2d'), {
+            type: 'radar',
+            data: {
+                // ★ [핵심 변경] 과거의 4개 지표를 버리고, 새롭게 개편된 5대 지표를 넣습니다!
+                labels: ['이론/직무', '매니저 평가', '학습 태도', '근태 성실도', '규율 준수도'],
+                datasets: [{
+                    label: '우리 반 평균',
+                    data: {{ radar_data|safe }},
+                    fill: true,
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgb(54, 162, 235)',
+                    pointBackgroundColor: 'rgb(54, 162, 235)',
+                }]
+            },
+            options: {
+                elements: { line: { borderWidth: 3 } },
+                // 만약 5.0 만점 기준이라면 아래 Max를 100에서 5로 변경하세요. (100점 만점이면 그대로 100 유지)
+                scales: { r: { angleLines: { display: true }, suggestedMin: 0, suggestedMax: 100 } }
+            }
+        });
+    }
 
     const statusCtx = document.getElementById('statusChart');
-
     if(statusCtx) {
-
         new Chart(statusCtx.getContext('2d'), {
-
             type: 'doughnut',
-
             data: {
-
-                labels: ['재직', '면담필요', '퇴소', '수료'],
-
+                labels: ['교육중', '면담필요', '퇴소', '수료'],
                 datasets: [{
-
                     data: {{ status_counts|safe }},
-
                     backgroundColor: ['#198754', '#ffc107', '#dc3545', '#0dcaf0'],
-
                 }]
-
             },
-
             options: { cutout: '70%', plugins: { legend: { position: 'bottom' } } }
-
         });
-
     }
 
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+      return new bootstrap.Tooltip(tooltipTriggerEl)
+    })
+
+    const tierBarCtx = document.getElementById('tierBarChart');
+        if(tierBarCtx) {
+            new Chart(tierBarCtx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: ['S', 'A', 'B', 'C', 'D', 'F'],
+datasets: [{
+    data: {{ tier_distribution|safe|default:"[0,0,0,0,0,0]" }},
+    backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#212529', '#6f0000'],
+                        borderRadius: 8, barThickness: 30,
+                    }]
+                },
+                options: {
+                    plugins: { legend: { display: false } },
+                    scales: { 
+                        y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 }, grid: { drawBorder: false } },
+                        x: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 14 } } }
+                    }
+                }
+            });
+        }
+
+        // 2. 인재 매트릭스 (Scatter Chart)
+        const matrixScatterCtx = document.getElementById('matrixScatterChart');
+        if(matrixScatterCtx) {
+            new Chart(matrixScatterCtx.getContext('2d'), {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: '교육생 역량 매트릭스',
+                        data: {{ scatter_data|safe|default:"[]" }}, // views.py에서 받을 데이터
+                        pointRadius: 8, pointHoverRadius: 10,
+                        pointBackgroundColor: function(context) {
+    const tier = context.raw?.tier;
+    if(tier === 'S') return '#0d6efd';
+    if(tier === 'A') return '#198754';
+    if(tier === 'B') return '#ffc107';
+    if(tier === 'C') return '#dc3545';
+    if(tier === 'F') return '#6f0000';
+    return '#212529';
+},
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) { return ` [${ctx.raw.tier}] ${ctx.raw.name} - 역량:${ctx.raw.x}점 인성:${ctx.raw.y}점`; }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { title: { display: true, text: '역량 (시험 평균)' }, min: 0, max: 100, grid: { color: '#f0f0f0' } },
+                        y: { title: { display: true, text: '인성 (태도·평가·근태)' }, min: 0, max: 100, grid: { color: '#f0f0f0' } }
+                    }
+                }
+            });
+        }
+
+        // 3. 명예의 전당 Top/Bottom 스위치 토글 기능
+        const hofToggle = document.getElementById('hofToggle');
+        const topTraineesList = document.getElementById('topTraineesList');
+        const bottomTraineesList = document.getElementById('bottomTraineesList');
+        const hofLabelText = document.getElementById('hofLabelText');
+
+        if(hofToggle && topTraineesList && bottomTraineesList) {
+            hofToggle.addEventListener('change', function() {
+                if(this.checked) {
+                    topTraineesList.classList.remove('active');
+                    setTimeout(() => { 
+                        topTraineesList.classList.add('d-none');
+                        bottomTraineesList.classList.remove('d-none');
+                        setTimeout(() => bottomTraineesList.classList.add('active'), 50);
+                    }, 300);
+                    hofLabelText.innerText = " Bottom 3 ";
+                } else {
+                    bottomTraineesList.classList.remove('active');
+                    setTimeout(() => {
+                        bottomTraineesList.classList.add('d-none');
+                        topTraineesList.classList.remove('d-none');
+                        setTimeout(() => topTraineesList.classList.add('active'), 50);
+                    }, 300);
+                    hofLabelText.innerText = " Top 3 ";
+                }
+            });
+        }
 });
+
+document.getElementById('tierReasonModal').addEventListener('hidden.bs.modal', function() {
+        document.querySelectorAll('.principle-card').forEach(card => {
+            card.style.outline   = '';
+            card.style.boxShadow = '';
+            card.style.transform = '';
+        });
+    });
 
 </script>
 
