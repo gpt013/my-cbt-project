@@ -59,6 +59,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     
     # [기능용 미들웨어]
+    'accounts.middleware.SessionIdleTimeoutMiddleware', 
     'accounts.middleware.ConcurrentLoginMiddleware', 
     
     # [기능용 미들웨어]
@@ -91,7 +92,10 @@ ASGI_APPLICATION = 'config.asgi.application'  # 주의: 'config' 부분은 상�
 # ★ Redis(우체국) 연결 설정
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer"
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+        "CONFIG": {
+            "capacity": 300000,  # 🔥 [핵심 패치] 대화방에 글이 집중될 때 신호가 누락되어 멈추는 버그를 막기 위해 버퍼 용량을 3000으로 확장합니다!
+        },
     }
 }
 
@@ -170,7 +174,7 @@ LOGOUT_REDIRECT_URL = 'accounts:login' # '/accounts/login/'과 동일 (이름 �
 
 # Session
 SESSION_COOKIE_AGE = 10800 # 3시간
-SESSION_SAVE_EVERY_REQUEST = False
+SESSION_SAVE_EVERY_REQUEST = True
 
 # Admin Interface
 ADMIN_INTERFACE_SETTINGS = {
@@ -228,7 +232,7 @@ ADMIN_INTERFACE_MODELS_GROUP_BY_CATEGORY = [
             "quiz.Choice",
             "quiz.StudentLog", # accounts.StudentLog -> quiz.StudentLog (모델 위치에 맞게 수정됨)
             "quiz.Notification", # [추가] 알림 모델도 보이게
-            'quiz.middleware.StudentAccessControlMiddleware',
+           
         ],
     },
 ]

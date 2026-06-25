@@ -6,7 +6,7 @@ from django.utils.safestring import mark_safe
 from django.db.models import Count
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-
+from accounts.models import Profile  # ★ 학생 프로필 연동용
 
 # 모델 임포트
 from .models import (
@@ -94,6 +94,9 @@ class QuizAdmin(admin.ModelAdmin):
         ('시험 규칙', {
             'fields': (('question_count', 'time_limit', 'pass_score'),),
             'description': '문항 수, 제한 시간(분), 합격 점수를 설정합니다.'
+        }),
+        ('차수별 대체 시험지 설정 (징검다리)', {
+            'fields': ['second_attempt_quiz', 'third_attempt_quiz']
         }),
         ('문제 출제 방식', {
             'fields': ('generation_method', 'required_tags', 'questions'),
@@ -212,11 +215,9 @@ class TestResultAdmin(admin.ModelAdmin):
 
     def get_user(self, obj):
         return obj.user.profile.name if hasattr(obj.user, 'profile') else obj.user.username
-    get_user.short_description = '이름'
 
     def get_process(self, obj):
         return obj.user.profile.process.name if hasattr(obj.user, 'profile') and obj.user.profile.process else '-'
-    get_process.short_description = '공정'
 
     def get_quiz(self, obj):
         return obj.quiz.title
@@ -225,6 +226,37 @@ class TestResultAdmin(admin.ModelAdmin):
     def is_pass_icon(self, obj):
         return "✅ 합격" if obj.is_pass else "❌ 불합격"
     is_pass_icon.short_description = "결과"
+
+    # ===== [여기서부터 수정/추가되는 코드] =====
+    def save_model(self, request, obj, form, change):
+        """
+        최종관리자가 admin에서 성적을 수동 정정(수정)했을 때만 발동하는 마스터 자동화 헬퍼
+        """
+        # 시험지 자체에 설정된 합격 점수를 가져오고, 없으면 기본값인 80점을 기준으로 잡음
+        pass_score = obj.quiz.pass_score or 80
+        
+        # 관리자가 정정한 점수를 기준점과 비교하여 합격 여부(True/False) 자동 갱신
+        obj.is_pass = obj.score >= pass_score
+        
+        # 성적 본체 데이터를 먼저 저장 완료
+        super().save_model(request, obj, form, change)
+
+        # 불합격 상태에서 합격으로 구제된 경우, 해당 학생의 재응시 막기(락) 로그를 자동으로 해제 처리
+        if obj.is_pass:
+            try:
+                student_profile = Profile.objects.get(user=obj.user)
+                StudentLog.objects.filter(
+                    profile=student_profile,
+                    related_quiz=obj.quiz,
+                    log_type='exam_fail',
+                    stage=obj.attempt_number,
+                    is_resolved=False
+                ).update(
+                    is_resolved=True,
+                    reason=f"[최종관리자 정정] admin 오입력 수정으로 인한 자동 잠금 해제 (정정 점수: {int(obj.score)}점)"
+                )
+            except Profile.DoesNotExist:
+                pass
 
 
 class UserAnswerAdmin(admin.ModelAdmin):

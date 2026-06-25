@@ -24,8 +24,20 @@
     .omr-item {
         width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
         border: 1px solid #dee2e6; border-radius: 4px; cursor: pointer; font-size: 0.9rem; background: white;
+        transition: all 0.2s ease-in-out; /* 부드러운 애니메이션 효과 추가 */
     }
-    .omr-item.current { border-color: #0d6efd; border-width: 2px; }
+
+    /* ──────────────────────────────────────────────────────────
+       🎯 [수정됨] 현재 풀고 있는 문제 확실하게 강조 (절대 안 묻힘!)
+       ────────────────────────────────────────────────────────── */
+    .omr-item.current { 
+        border: 1px solid #0d6efd !important; /* 테두리 대신 기본 색상 유지 */
+        background-color: #f1f8ff !important;  /* 아주 연한 파란색 배경으로 강조 */
+        font-weight: bold;
+        transform: scale(1.05); /* 크기는 살짝만 확대 */
+    }
+
+    /* 🔵 파란색: 마킹 완료 */
     .omr-item.marked { background-color: #0d6efd; color: white; border-color: #0d6efd; }
     
     .timer-badge { font-variant-numeric: tabular-nums; letter-spacing: 1px; }
@@ -35,6 +47,16 @@
 
     /* ⭐ 헷갈림(검토) 마킹 스타일 (노란색) */
     .omr-item.review-marked { background-color: #ffc107 !important; color: #000 !important; border-color: #ffc107 !important; font-weight: bold; }
+
+    /* ──────────────────────────────────────────────────────────
+       🎯 [신규 추가] 풀고 다시보기(마킹 + 다시보기) 반반 그라데이션 스타일
+       ────────────────────────────────────────────────────────── */
+    .omr-item.marked.review-marked {
+        background: linear-gradient(135deg, #0d6efd 50%, #ffc107 50%) !important;
+        color: #ffffff !important;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.9) !important;
+        border-color: #0d6efd !important;
+    }
 
     /* 📱 모바일 전용 OMR 플로팅 버튼 */
     .fab-omr {
@@ -92,7 +114,12 @@
                     <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
                         <div>
                             <span class="badge bg-primary rounded-pill me-2">문제 {{ forloop.counter }}</span>
-                            <span class="badge bg-light text-dark border">배점: {{ q.score }}점</span>
+                            
+                            <!-- ──────────────────────────────────────────────────────────
+                                 🎯 [변경 적용] DB에 배점 값이 비어있을 경우 기본값 '10'점이 나오도록 방어막 추가
+                                 ────────────────────────────────────────────────────────── -->
+                            <span class="badge bg-light text-dark border">배점: {{ q.score|default:"4" }}점</span>
+                            
                         </div>
                         <!-- ⭕ 클릭하면 별이 채워지며 '다시보기'가 활성화되는 버튼 -->
                         <button type="button" class="btn btn-link text-decoration-none p-0 mb-0" 
@@ -226,12 +253,25 @@
                             <button type="button" class="btn btn-outline-danger fw-bold" onclick="submitExam()">
                                 답안 제출하기
                             </button>
-                            <!-- ⭕ 마킹(파란색)과 다시보기(노란색) 상태를 모두 안내하도록 문구 업그레이드 -->
-                            <div class="text-center small text-muted mt-2 d-flex justify-content-center gap-3">
-                                <span><i class="bi bi-square-fill text-primary"></i> 파란색: 마킹 완료</span>
-                                <span><i class="bi bi-square-fill text-warning"></i> 노란색: 다시보기</span>
+                            
+                            <div class="text-center small text-muted mt-2 d-flex flex-wrap justify-content-center gap-2">
+                                <span><i class="bi bi-square-fill text-primary"></i> 마킹완료</span>
+                                <span><i class="bi bi-square-fill text-warning"></i> 빈칸 다시보기</span>
+                                <span class="d-flex align-items-center">
+                                    <div style="width:12px; height:12px; background: linear-gradient(135deg, #0d6efd 50%, #ffc107 50%); margin-right:4px; border-radius:2px;"></div>
+                                    풀고 다시보기
+                                </span>
                             </div>
-                        </div>
+                            
+                            <div class="mt-3 p-3 bg-light border rounded text-muted small shadow-sm mb-3">
+                                <div class="fw-bold mb-2 text-dark"><i class="bi bi-keyboard"></i> 키보드 단축키</div>
+                                <ul class="list-unstyled mb-0" style="line-height: 2.0; font-size: 0.85rem;">
+                                    <li><kbd class="bg-secondary text-white px-2 py-1 rounded">←</kbd> <kbd class="bg-secondary text-white px-2 py-1 rounded">→</kbd> : 이전 / 다음 문제 이동</li>
+                                    <li><kbd class="bg-secondary text-white px-2 py-1 rounded">1</kbd> ~ <kbd class="bg-secondary text-white px-2 py-1 rounded">5</kbd> : 해당 번호 보기 마킹</li>
+                                    <li><kbd class="bg-secondary text-white px-2 py-1 rounded" style="padding-left: 15px !important; padding-right: 15px !important;">Space</kbd> : 다시보기 (★) 체크/해제</li>
+                                </ul>
+                            </div>
+                            </div>
                     </div>
                 </div>
             </div>
@@ -246,21 +286,11 @@
     // ==========================================
     // [1] 전역 변수 및 설정
     // ==========================================
-    
-    // [중요] 변수가 없어도 자바스크립트가 죽지 않도록 default 값 처리
     const totalQuestions = {{ questions|length|default:0 }};
-    
-    // [수정] duration_minutes -> time_limit 사용 (DB 설정값 연동)
     const examDurationMinutes = {{ quiz.time_limit|default:30 }}; 
-    
     let currentIdx = 1;
-    
-    // [수정] 1분은 60초입니다. (기존 * 30 오류 수정)
     let timeLeft = examDurationMinutes * 60;
-
-    // [보안] 정상적인 제출인지 확인하는 플래그 (페이지 이탈 경고 제어용)
     let isSubmitting = false;
-
 
     // ==========================================
     // [2] 초기화 (DOMContentLoaded)
@@ -270,37 +300,35 @@
             showQuestion(1);
             startTimer();
         }
+        
         document.addEventListener('contextmenu', event => event.preventDefault());
 
-        // ★ 자동완성 드롭다운 강제 제거 (브라우저가 무시해도 JS로 직접 닫음)
+        // 자동완성 드롭다운 강제 제거
         document.querySelectorAll('[contenteditable="true"]').forEach(el => {
             el.addEventListener('paste', e => e.preventDefault());
             el.addEventListener('drop', e => e.preventDefault());
 
-            // ★ 한글 IME 조합 중 간섭 방지 (compositionstart/end 활용)
             let isComposing = false;
             el.addEventListener('compositionstart', () => { isComposing = true; });
             el.addEventListener('compositionend', () => { 
                 isComposing = false;
-                syncAnswer(el);  // 조합 완료 후 동기화
+                syncAnswer(el);  
             });
             el.addEventListener('input', function() {
-                if (!isComposing) syncAnswer(this);  // 조합 중이 아닐 때만 동기화
+                if (!isComposing) syncAnswer(this);  
             });
         });
 
-        // 3. [보안] 페이지 이탈 경고 (새로고침, 닫기 실수 방지)
-        // 주의: form 제출(isSubmitting=true) 시에는 경고가 뜨면 안 됨
+        // 페이지 이탈 경고
         window.addEventListener('beforeunload', function (e) {
-        if (!isSubmitting) {
-            // 브라우저 기본 경고 메시지 활성화
-            e.preventDefault();
-            e.returnValue = '시험 중입니다! 지금 나가면 시험이 0점 처리되거나 강제 제출될 수 있습니다.';
-            return e.returnValue;
-        }
-    });
+            if (!isSubmitting) {
+                e.preventDefault();
+                e.returnValue = '시험 중입니다! 지금 나가면 시험이 0점 처리되거나 강제 제출될 수 있습니다.';
+                return e.returnValue;
+            }
+        });
 
-        // 4. [보안] 폼의 기본 submit 이벤트 감지 (엔터키 제출 등 대비)
+        // 폼 submit 감지
         const form = document.getElementById('examForm');
         if (form) {
             form.addEventListener('submit', function() {
@@ -308,13 +336,12 @@
             });
         }
 
-        // ⭕ 뒤로가기 시 의사를 물어보고, 진행 시 불법 행위 단서를 심어 0점 처리하는 정석 구조
+        // 뒤로가기 시 0점 처리 보안
         history.pushState(null, null, location.href);
         window.addEventListener('popstate', function(event) {
-            history.pushState(null, null, location.href); // 이탈 취소 시를 대비해 뒤로가기 고리 재설정
+            history.pushState(null, null, location.href); 
             
             if (!isSubmitting) {
-                // 1차 경고 의사 타진
                 const leaveConfirm = confirm("⚠️ [부정행위 경고]\n시험 도중 페이지 이탈 및 뒤로가기는 제한됩니다.\n\n이대로 화면을 나갈 경우 부정행위로 접수되어 즉시 '0점 처리' 및 '강제 제출' 처리가 진행됩니다.\n\n정말 시험을 중단하고 나가시겠습니까?");
                 
                 if (leaveConfirm) {
@@ -322,7 +349,7 @@
                     const cheatInput = document.createElement('input');
                     cheatInput.type = 'hidden';
                     cheatInput.name = 'cheat_detected';
-                    cheatInput.value = 'back_button'; // ⭕ 변경: 뒤로가기 전용 키워드 주입
+                    cheatInput.value = 'back_button'; 
                     form.appendChild(cheatInput);
                     
                     document.querySelectorAll('button').forEach(btn => btn.disabled = true);
@@ -330,56 +357,82 @@
                 }
             }
         });
-
+    }); // 🚨 [핵심 해결] DOMContentLoaded를 닫는 이 괄호가 없어서 화면이 뻗었던 것입니다! 🚨
 
     // ==========================================
     // [3] 키보드 제어 (보안 + 네비게이션 통합)
     // ==========================================
     document.addEventListener('keydown', function(e) {
-        // --- [보안] 키보드 단축키 차단 ---
-        
-        // F5 (새로고침) / Ctrl+R
         if ((e.which || e.keyCode) == 116 || ((e.ctrlKey || e.metaKey) && e.keyCode == 82)) {
             e.preventDefault();
             alert("시험 중에는 새로고침을 할 수 없습니다.");
             return;
         }
         
-        // F12 (개발자 도구)
-        if ((e.which || e.keyCode) == 123) {
-            e.preventDefault();
-            return;
-        }
+        if ((e.which || e.keyCode) == 123) { e.preventDefault(); return; }
         
-        // Backspace (뒤로가기 방지 - 입력창 제외)
         if ((e.which || e.keyCode) == 8) {
             const tag = e.target.tagName.toUpperCase();
-            const isEditable = e.target.contentEditable === 'true';  // ★ contenteditable 허용
+            const isEditable = e.target.contentEditable === 'true';  
             if (tag !== "INPUT" && tag !== "TEXTAREA" && !isEditable) {
                 e.preventDefault();
                 return;
             }
         }
         
-        // Alt+Left (뒤로가기)
-        if (e.altKey && (e.which || e.keyCode) == 37) {
-            e.preventDefault();
-            return;
+        if (e.altKey && (e.which || e.keyCode) == 37) { e.preventDefault(); return; }
+
+        // 현재 유저가 주관식 입력 창 안에서 타이핑 중인지 판별하는 센서
+        const isTyping = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.contentEditable === 'true';
+
+        // ──────────────────────────────────────────────────────────
+        // 🎯 [완벽 해결] 객관식 내장 간섭 차단 + 주관식 기입 후 자동 탈출 시스템
+        // ──────────────────────────────────────────────────────────
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            
+            // 1. 주관식 입력 창 밖일 때는 브라우저가 라디오 버튼을 멋대로 바꾸지 못하게 기본 동작 완전 진압
+            if (!isTyping) {
+                e.preventDefault(); 
+            } else {
+                // 2. 주관식 입력 창 내부일 때 화살표를 누르면, 현재 입력창 포커스를 강제로 해제(탈출)시킵니다.
+                e.target.blur(); 
+            }
+            
+            // 3. 포커스를 안전하게 탈출시킨 뒤 다음/이전 문제로 깔끔하게 이동
+            if (e.key === 'ArrowRight') nextQuestion();
+            if (e.key === 'ArrowLeft') prevQuestion();
+            return; // 방향키 로직 수행 완료 시 즉시 리턴
         }
 
-        // --- [기능] 문제 이동 (화살표 키) ---
-        if(e.key === 'ArrowRight') nextQuestion();
-        if(e.key === 'ArrowLeft') prevQuestion();
+        // 주관식 글자 타이핑 중일 때는 숫자키(1~5)와 스페이스바가 단축키로 작동하지 않도록 차단
+        if (isTyping) return; 
+
+        // 🎯 숫자키 1~5번 누르면 현재 문제 보기 즉시 마킹 (CBT 표준 규격)
+        if (e.key >= '1' && e.key <= '5') {
+            e.preventDefault(); // 브라우저 간섭 방지
+            const choiceIdx = parseInt(e.key) - 1; // 배열 인덱스 매칭 (0~4)
+            const currentCard = document.getElementById(`q_card_${currentIdx}`);
+            if (currentCard) {
+                const inputs = currentCard.querySelectorAll('.choice-input');
+                if (inputs && inputs[choiceIdx]) {
+                    inputs[choiceIdx].click(); // 해당 보기를 키보드로 강제 클릭 트리거
+                }
+            }
+        }
+
+        // 🎯 스페이스바(Space) 누르면 현재 문제 '다시보기(★)' 원터치 토글
+        if (e.key === ' ' || e.code === 'Space') {
+            e.preventDefault(); // 스페이스바 누를 때 웹 페이지가 아래로 덜컥 스크롤되는 기본 현상 방지
+            toggleReviewMark(currentIdx);
+        }
     });
 
-
     // ==========================================
-    // ★ [5] 부정행위(화면 이탈) 방지 시스템 (3진 아웃)
+    // [4] 부정행위(화면 이탈) 방지 시스템 (3진 아웃)
     // ==========================================
     let cheatCount = 0;
-    const maxCheatLimit = 3; // 최대 허용 횟수 (3번 걸리면 강제 제출)
+    const maxCheatLimit = 3; 
 
-    // 브라우저 탭을 변경하거나 창을 내렸을 때 귀신같이 감지합니다.
     document.addEventListener('visibilitychange', function() {
         if (document.hidden && timeLeft > 0 && !isSubmitting) {
             cheatCount++;
@@ -396,30 +449,25 @@
                 const cheatInput = document.createElement('input');
                 cheatInput.type = 'hidden';
                 cheatInput.name = 'cheat_detected';
-                cheatInput.value = 'screen_switch'; // ⭕ 변경: 탭 전환 전용 키워드 주입
+                cheatInput.value = 'screen_switch'; 
                 form.appendChild(cheatInput);
 
                 document.querySelectorAll('button').forEach(btn => btn.disabled = true);
                 form.submit();
-            } // 이 괄호 하나면 충분합니다!
+            } 
         }
     });
 
-
     // ==========================================
-    // [4] 시험 핵심 로직 함수들
+    // [5] 시험 핵심 로직 함수들
     // ==========================================
-
     function showQuestion(idx) {
         if (idx < 1 || idx > totalQuestions) return;
 
-        // 모든 카드 숨김
         document.querySelectorAll('.question-card').forEach(el => el.classList.remove('active'));
-        // 해당 카드 표시 (ID 존재 여부 체크)
         const targetCard = document.getElementById(`q_card_${idx}`);
         if (targetCard) targetCard.classList.add('active');
         
-        // OMR 표시
         document.querySelectorAll('.omr-item').forEach(el => el.classList.remove('current'));
         const targetOmr = document.getElementById(`omr_${idx}`);
         if (targetOmr) targetOmr.classList.add('current');
@@ -434,32 +482,28 @@
         const reviewText = document.getElementById(`reviewText_${idx}`);
         const omrItem = document.getElementById(`omr_${idx}`);
         
-        if (omrItem) {
-            if (isAnswered) omrItem.classList.add('marked');
-            else omrItem.classList.remove('marked');
-        }
-        updateProgress();
-            // 1. 활성화 시 (다시보기 체크)
+        const isChecked = btn.getAttribute('data-checked') === 'true';
+
+        if (!isChecked) {
             btn.setAttribute('data-checked', 'true');
             if (starIcon) {
                 starIcon.innerText = '★';
-                starIcon.className = 'fs-5 text-warning'; // 노란색 꽉 찬 별
+                starIcon.className = 'fs-5 text-warning';
             }
             if (reviewText) {
-                reviewText.className = 'fw-bold text-warning small ms-1'; // 텍스트도 밝은 노란색으로 리라이트
+                reviewText.className = 'fw-bold text-warning small ms-1';
             }
-            if (omrItem) omrItem.classList.add('review-marked'); // OMR 칸 노란색 불 켜기
+            if (omrItem) omrItem.classList.add('review-marked');
         } else {
-            // 2. 비활성화 시 (다시보기 해제)
             btn.setAttribute('data-checked', 'false');
             if (starIcon) {
                 starIcon.innerText = '☆';
-                starIcon.className = 'fs-5 text-secondary'; // 회색 빈 별
+                starIcon.className = 'fs-5 text-secondary';
             }
             if (reviewText) {
-                reviewText.className = 'fw-bold text-muted small ms-1'; // 텍스트 기본 회색으로 원복
+                reviewText.className = 'fw-bold text-muted small ms-1';
             }
-            if (omrItem) omrItem.classList.remove('review-marked'); // OMR 칸 불 끄기
+            if (omrItem) omrItem.classList.remove('review-marked');
         }
     }
 
@@ -483,7 +527,6 @@
         if (card.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked').length > 0) {
             isAnswered = true;
         }
-        // ★ input[type=text] 대신 contenteditable div 확인
         const editables = card.querySelectorAll('[contenteditable="true"]');
         if (editables.length > 0 && editables[0].innerText.trim() !== "") {
             isAnswered = true;
@@ -516,21 +559,17 @@
                 
                 alert("시험 시간이 종료되었습니다. 답안을 제출합니다.");
                 
-                // [보안 연동] 자동 제출 시 이탈 경고 무시 설정
                 isSubmitting = true; 
-
                 const form = document.getElementById('examForm');
                 if (form) form.submit();
                 return;
             }
 
-            // [수정] 30초 단위가 아닌 60초 단위로 분/초 계산
             const minutes = Math.floor(timeLeft / 60); 
             const seconds = timeLeft % 60;
             
             timerElement.innerText = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
             
-            // 종료 임박 효과 (30초 미만일 때)
             if (timeLeft < 30) timerElement.classList.add('text-danger', 'blink');
             timeLeft--;
         }, 1000);
@@ -545,10 +584,7 @@
         msg += "제출하시겠습니까?";
 
         if (confirm(msg)) {
-            // 버튼 중복 클릭 방지
             document.querySelectorAll('button').forEach(btn => btn.disabled = true);
-            
-            // [보안 연동] 수동 제출 시 이탈 경고 무시 설정
             isSubmitting = true;
 
             const form = document.getElementById('examForm');
@@ -556,17 +592,14 @@
         }
     }
     
-    // ★ contenteditable 입력값을 hidden input에 동기화
     function syncAnswer(el) {
         const qid = el.getAttribute('data-qid');
         const qidx = el.getAttribute('data-qidx');
         const text = el.innerText.trim();
 
-        // hidden input에 값 복사 (서버 전송용)
         const hidden = document.getElementById(`hidden_q${qid}`);
         if (hidden) hidden.value = text;
 
-        // OMR 마킹
         markOMR(parseInt(qidx));
     }
 </script>

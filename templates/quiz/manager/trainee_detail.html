@@ -49,6 +49,37 @@
     font-size: 0.9rem;
 }
     .btn-process { width: 80px; height: 50px; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+
+    /* ★ [신규] 경고 단계 진행바 - 단계별 비균등 구간 */
+    .warning-stage-track {
+        position: relative;
+        height: 8px;
+        background: #e9ecef;
+        border-radius: 4px;
+        overflow: hidden;
+        display: flex;
+    }
+    .warning-stage-seg {
+        height: 100%;
+        position: relative;
+    }
+    .warning-stage-seg.seg-caution { background-color: #ffc107; } /* 1회: 주의 (노랑) */
+    .warning-stage-seg.seg-letter1 { background-color: #fd7e14; } /* 2회: 1차 경고장 (주황) */
+    .warning-stage-seg.seg-letter2 { background-color: #dc3545; } /* 3회: 2차 경고장(PL) (빨강) */
+    .warning-stage-seg.seg-dropout { background-color: #212529; } /* 4회: 퇴소 (검정) */
+    .warning-stage-seg.seg-empty { background-color: #e9ecef; }
+
+    .warning-stage-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.65rem;
+        color: #888;
+        margin-top: 4px;
+    }
+    .warning-stage-labels span { flex: 1; text-align: center; }
+    .warning-stage-labels span:first-child { text-align: left; }
+    .warning-stage-labels span:last-child { text-align: right; }
+    .warning-stage-labels .current-stage { font-weight: bold; color: #dc3545; }
 </style>
 
 <div class="container-fluid mt-4 pb-5">
@@ -103,12 +134,29 @@
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="fw-bold small">누적 경고</span>
                             <span class="badge bg-danger rounded-pill">{{ profile.warning_count }}회</span>
+                            {% if profile.warning_count == 1 %}
+                                <span class="badge bg-warning text-dark">주의 (실수 단계)</span>
+                            {% elif profile.warning_count == 2 %}
+                                <span class="badge" style="background-color:#fd7e14;">1차 경고장</span>
+                            {% elif profile.warning_count == 3 %}
+                                <span class="badge bg-danger">2차 경고장 (PL면담)</span>
+                            {% elif profile.warning_count >= 4 %}
+                                <span class="badge bg-dark">퇴소</span>
+                            {% endif %}
                         </div>
-                        <div class="progress" style="height: 6px;">
-                            <div class="progress-bar bg-danger" role="progressbar" style="width: {% widthratio profile.warning_count 4 100 %}%"></div>
+
+                        <!-- ★ [수정] 4단계 비균등 진행바: 1(주의)-2(1차경고장)-3(2차경고장/PL)-4(퇴소) -->
+                        <div class="warning-stage-track">
+                            <div class="warning-stage-seg {% if profile.warning_count >= 1 %}seg-caution{% else %}seg-empty{% endif %}" style="width:25%;"></div>
+                            <div class="warning-stage-seg {% if profile.warning_count >= 2 %}seg-letter1{% else %}seg-empty{% endif %}" style="width:25%;"></div>
+                            <div class="warning-stage-seg {% if profile.warning_count >= 3 %}seg-letter2{% else %}seg-empty{% endif %}" style="width:25%;"></div>
+                            <div class="warning-stage-seg {% if profile.warning_count >= 4 %}seg-dropout{% else %}seg-empty{% endif %}" style="width:25%;"></div>
                         </div>
-                        <div class="d-flex justify-content-between mt-1" style="font-size: 0.7em; color: #aaa;">
-                            <span>0</span><span>2(경고장)</span><span>4(퇴소)</span>
+                        <div class="warning-stage-labels">
+                            <span class="{% if profile.warning_count == 1 %}current-stage{% endif %}">1(주의)</span>
+                            <span class="{% if profile.warning_count == 2 %}current-stage{% endif %}">2(1차경고장)</span>
+                            <span class="{% if profile.warning_count == 3 %}current-stage{% endif %}">3(2차경고장·PL)</span>
+                            <span class="{% if profile.warning_count >= 4 %}current-stage{% endif %}">4(퇴소)</span>
                         </div>
                     </div>
 
@@ -397,20 +445,50 @@
                                 <div class="card border-0 shadow-sm">
                                     <div class="card-body border-start border-4 
                                         {% if log.log_type == 'warning' %}border-warning
-                                        {% elif log.log_type == 'warning_letter' %}border-danger
+                                        {% elif log.log_type == 'warning_letter' %}
+                                            {% if log.action_taken and 'PL' in log.action_taken %}border-danger
+                                            {% else %}border-orange
+                                            {% endif %}
                                         {% elif log.log_type == 'counseling' %}border-success
-                                        {% else %}border-secondary{% endif %}">
+                                        {% else %}border-secondary{% endif %}"
+                                        {% if log.log_type == 'warning_letter' and log.action_taken and 'PL' in log.action_taken %}style="border-left-color:#dc3545 !important;"
+                                        {% elif log.log_type == 'warning_letter' %}style="border-left-color:#fd7e14 !important;"
+                                        {% endif %}>
                                         
                                         <div class="d-flex justify-content-between mb-2">
-                                            <span class="badge rounded-pill bg-secondary">{{ log.get_log_type_display }}</span>
+                                            <span>
+                                                {% if log.log_type == 'warning' %}
+                                                    <span class="badge rounded-pill bg-warning text-dark">⚠️ 경고</span>
+                                                {% elif log.log_type == 'warning_letter' %}
+                                                    {% if log.action_taken and 'PL' in log.action_taken %}
+                                                        <span class="badge rounded-pill bg-danger">🚫 2차 경고장 (PL면담)</span>
+                                                    {% else %}
+                                                        <span class="badge rounded-pill" style="background-color:#fd7e14;">📋 1차 경고장</span>
+                                                    {% endif %}
+                                                {% else %}
+                                                    <span class="badge rounded-pill bg-secondary">{{ log.get_log_type_display }}</span>
+                                                {% endif %}
+                                            </span>
                                             <small class="text-muted">{{ log.created_at|date:"Y-m-d H:i" }}</small>
                                         </div>
                                         <p class="fw-bold mb-1">{{ log.reason }}</p>
+                                        {% if log.action_taken %}
+                                            <p class="small text-muted mb-1"><i class="bi bi-arrow-return-right"></i> 조치: {{ log.action_taken }}</p>
+                                        {% endif %}
                                         <div class="d-flex justify-content-between align-items-center mt-2">
                                             <small class="text-muted">작성자: {{ log.recorder.profile.name|default:"시스템" }}</small>
-                                            {% if log.is_resolved %}
-                                                <span class="badge bg-primary-subtle text-primary"><i class="bi bi-check-all"></i> 조치 완료</span>
-                                            {% endif %}
+                                            <div>
+                                                {% if log.log_type == 'warning_letter' %}
+                                                    <a href="{% url 'quiz:print_warning_letter' log.id %}" class="btn btn-xs btn-outline-secondary" target="_blank">
+                                                        <i class="bi bi-printer"></i> 경고장 출력
+                                                    </a>
+                                                {% endif %}
+                                                {% if log.is_resolved %}
+                                                    <span class="badge bg-primary-subtle text-primary"><i class="bi bi-check-all"></i> 조치 완료</span>
+                                                {% elif log.log_type == 'warning_letter' %}
+                                                    <span class="badge bg-warning text-dark"><i class="bi bi-lock-fill"></i> 해제 대기중</span>
+                                                {% endif %}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

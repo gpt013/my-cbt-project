@@ -335,7 +335,24 @@ def facility_reserve(request):
             end_dt = safe_parse_datetime(request.POST.get('end_time'))
             title = request.POST.get('title')
             attendees = request.POST.get('attendees', 0)
-            company_name = request.POST.get('company_name', '')
+            
+            # ──────────────────────────────────────────────────────────
+            # 🎯 [7번 교정] company_name 처리 안전 장치 추가
+            # ──────────────────────────────────────────────────────────
+            company_input = request.POST.get('company_name', '').strip()
+            
+            # 만약 Reservation 모델의 company_name이 문자열(CharField)이라면 그냥 쓰면 되지만, 
+            # 혹시 Company 모델의 외래키(ForeignKey)를 기대하는 것이라면 매칭을 시도하거나 에러를 방지합니다.
+            company_to_save = company_input
+            
+            # 만약 company_name이 DB의 id(숫자)로 들어온 경우를 대비한 가드
+            if company_input.isdigit():
+                 try:
+                     company_obj = Company.objects.get(id=int(company_input))
+                     company_to_save = company_obj.name # 또는 모델 필드 타입에 맞게 company_obj를 할당
+                 except Company.DoesNotExist:
+                     pass
+            # ──────────────────────────────────────────────────────────
 
             if not start_dt or not end_dt: 
                 return JsonResponse({'status': 'error', 'message': '날짜 오류'})
@@ -343,10 +360,9 @@ def facility_reserve(request):
                 return JsonResponse({'status': 'error', 'message': '종료 시간이 시작 시간보다 빠를 수 없습니다.'})
 
             # 3. 예약 처리 (루프 돌면서 선택한 방 개수만큼 예약 생성)
-            # 수정 모드일 때는 선택된 첫 번째 방 하나만 처리하는 것이 안전합니다.
             if event_id:
                 res = get_object_or_404(Reservation, pk=event_id)
-                room = get_object_or_404(Room, pk=room_ids[0]) # 수정 시엔 첫 번째 선택된 방으로
+                room = get_object_or_404(Room, pk=room_ids[0]) 
                 
                 # 권한 체크
                 is_approver = request.user.is_superuser or (request.user in room.managers.all())
@@ -358,7 +374,7 @@ def facility_reserve(request):
                 res.start_time = start_dt
                 res.end_time = end_dt
                 res.attendees = attendees
-                res.company_name = company_name
+                res.company_name = company_to_save # 🎯 수정된 변수 사용
                 if not is_approver: res.status = 'pending'
                 
                 # 중복 체크 후 저장
@@ -379,7 +395,7 @@ def facility_reserve(request):
                         start_time=start_dt, 
                         end_time=end_dt,
                         attendees=attendees,
-                        company_name=company_name,
+                        company_name=company_to_save, # 🎯 수정된 변수 사용
                         status='confirmed' if is_approver else 'pending'
                     )
                     
@@ -388,28 +404,26 @@ def facility_reserve(request):
                         return JsonResponse({'status': 'error', 'message': f'[{room.name}] 이미 예약된 시간입니다.'})
                     new_res.save()
 
-                    # 관리자 알림 발송 (생략 가능)
+                    # 관리자 알림 발송
                     if not is_approver:
                         msg = f"📢 [예약신청] {request.user.profile.name if hasattr(request.user, 'profile') else request.user.username}님이 {room.name} 예약을 신청했습니다."
+                        target_users = set() 
                         
-                        target_users = set() # 중복 수신 방지 바구니
-                        
-                        # 1. 해당 강의실의 우선 배정 공정(target_process) 매니저들 싹 다 담기
                         if room.target_process:
                             for p in Profile.objects.filter(process=room.target_process, is_manager=True):
                                 target_users.add(p.user)
                                 
-                        # 2. 지정 관리자들 담기
                         for m in room.managers.all():
                             target_users.add(m)
                             
-                        # 3. 바구니에 담긴 모두에게 알림 발송!
                         for user_to_notify in target_users:
                             send_notification(user_to_notify, msg)
 
             return JsonResponse({'status': 'success', 'message': '예약이 정상적으로 처리되었습니다.'})
 
         except Exception as e:
+            # 🎯 [추가 방어] 예외 발생 시 서버 터미널에도 에러를 찍어 디버깅을 돕습니다.
+            print(f"facility_reserve 에러 발생: {e}")
             return JsonResponse({'status': 'error', 'message': f'서버 오류: {str(e)}'})
             
     return JsonResponse({'status': 'error', 'message': '잘못된 요청입니다.'})
@@ -585,13 +599,19 @@ def notification_api_list(request):
     # 🛡️ [2중 방어선] 평가 대기 인원 '독촉 알림' 중복 생성 스패밍 처단 로직
     # =========================================================
     if request.user.is_staff:
-        today = timezone.now().date()
+        today = timezone.localdate()
         
-        # 평가 대기 대상 프로필 조회
+        # 🎯 [신규] D-2 (수요일) 사전 알림을 위해 추적 기준일을 2일 뒤로 확장!
+        target_date = today + timedelta(days=4) 
+        
+        # 🎯 대상 지표에 'dropout' 장착 및 종국 평가서가 마감 완료된 퇴소자는 중복 알림 차단
+        # final_assessment 역참조를 select_related에 추가하여 속도 대폭 최적화
         pending_profiles = Profile.objects.filter(
-            cohort__end_date__lt=today,
-            status__in=['attending', 'caution', 'counseling']
-        ).exclude(user__is_superuser=True).exclude(is_manager=True).select_related('cohort', 'process')
+            cohort__end_date__lte=target_date, # D-2 부터 추적망에 걸림
+            status__in=['attending', 'caution', 'counseling', 'dropout']
+        ).exclude(
+            status='dropout', managerevaluation__isnull=False  # ✨ 이미 사유 적고 최종 저장 완료된 퇴소자는 자동 제외!
+        ).exclude(user__is_superuser=True).exclude(is_manager=True).select_related('cohort', 'process', 'final_assessment')
 
         if not request.user.is_superuser:
             if hasattr(request.user, 'profile') and request.user.profile.process:
@@ -604,14 +624,56 @@ def notification_api_list(request):
         for p in pending_profiles:
             cohort_name = p.cohort.name if p.cohort else "미지정"
             process_name = p.process.name if p.process else "미지정"
-            days_passed = (today - p.cohort.end_date).days
-            target_url = reverse('quiz:evaluate_trainee', args=[p.id])
+            
+            # (기존) target_url = reverse('quiz:evaluate_trainee', args=[p.id])
+            
+            days_left = (p.cohort.end_date - today).days
 
-            # 알림 메시지 정의
-            if days_passed <= 1:
-                msg = f"[{cohort_name}/{process_name}] {p.name}님 기수가 종료되었습니다. 상세 페이지에서 최종 평가 및 수료 처리를 진행해주세요."
+            # 🎯 세부 평가(수학태도, 실습) 누락 여부 정밀 진단 엔진
+            fa = getattr(p, 'final_assessment', None)
+            missing_attitude = (fa is None or fa.attitude_score is None)
+            missing_practice = (fa is None or fa.practice_score is None)
+
+            # 🎯 [신규] 누락된 항목에 따라 '빠른 액션 센터' 모달로 자동 연결하는 주소 생성
+            dashboard_url = reverse('quiz:manager_dashboard')
+            if missing_attitude:
+                # 수학태도가 없으면 -> 빠른 수학태도 평가 모달로!
+                target_url = f"{dashboard_url}?action=attitude&pid={p.id}"
+            elif missing_practice:
+                # 실습점수가 없으면 -> 빠른 실습 점수 모달로!
+                target_url = f"{dashboard_url}?action=practice&pid={p.id}"
             else:
-                msg = f"🚨 [D+{days_passed}일 지연] [{cohort_name}/{process_name}] {p.name}님 수료 처리가 안되었습니다! 즉시 작성 부탁드립니다."
+                target_url = reverse('quiz:evaluate_trainee', args=[p.id])
+
+            # 💡 상황별 다이내믹 메시지 매핑
+            if days_left > 0: # 수료 전 (D-2, D-1) 사전 독촉 기간
+                # 두 가지 평가를 모두 완료했다면 사전 알림은 패스!
+                if not missing_attitude and not missing_practice:
+                    continue 
+                
+                missing_list = []
+                if missing_attitude: missing_list.append("수학태도 평가")
+                if missing_practice: missing_list.append("실습 평가")
+                missing_str = " 및 ".join(missing_list)
+                
+                msg = f"⏳ [수료 임박 D-{days_left}] 우수자 선별을 위해 [{cohort_name}/{process_name}] {p.name}님의 {missing_str}를 조속히 진행해주세요!"
+                
+            elif days_left == 0: # D-Day (수료식 당일)
+                if missing_attitude or missing_practice:
+                    missing_list = []
+                    if missing_attitude: missing_list.append("수학태도")
+                    if missing_practice: missing_list.append("실습")
+                    missing_str = " 및 ".join(missing_list)
+                    msg = f"🚨 [오늘 수료식] [{cohort_name}/{process_name}] {p.name}님의 {missing_str} 평가가 누락되었습니다! 즉시 완료해주세요."
+                else:
+                    msg = f"🎓 [{cohort_name}/{process_name}] {p.name}님 기수가 오늘 종료됩니다. 최종 수료 확정 처리를 진행해주세요."
+                    
+            else: # days_left < 0 (수료일이 지났음에도 안 한 경우)
+                days_passed = abs(days_left)
+                if days_passed == 1:
+                    msg = f"[{cohort_name}/{process_name}] {p.name}님 기수가 종료되었습니다. 상세 페이지에서 최종 평가 및 수료 처리를 진행해주세요."
+                else:
+                    msg = f"🚨 [D+{days_passed}일 지연] [{cohort_name}/{process_name}] {p.name}님 수료 처리가 안되었습니다! 즉시 작성 부탁드립니다."
 
             # 🛡️ 핵심 방어: 이미 동일 타겟팅 주소로 전송된 알림이 있는지 우선 검색
             existing_noti = Notification.objects.filter(
@@ -630,8 +692,8 @@ def notification_api_list(request):
                     is_read=False # 새로 왔으니 알림 켜기
                 )
             else:
-                # 🛡️ 버그 킬러: 이미 알림이 존재한다면 절대 중복 생성하지 않고, 날짜가 바뀌었을 때만 내용 '갱신(Update)'만 수행!
-                if existing_noti.created_at.date() < today:
+                # 🛡️ 버그 킬러: 이미 알림이 존재한다면 절대 중복 생성하지 않고, 메세지가 달라졌거나(D-day 변동) 날짜가 바뀌었을 때 내용 '갱신(Update)'만 수행!
+                if existing_noti.message != msg or existing_noti.created_at.date() < today:
                     existing_noti.message = msg
                     existing_noti.is_read = False  # 새 날짜가 되었으니 다시 빨간 불 켜기
                     existing_noti.created_at = timezone.now()  # 리스트 맨 위로 상향 조정
@@ -641,7 +703,7 @@ def notification_api_list(request):
     # ★ [추가] 시설/장비 예약 당일 아침 브리핑 (Daily Reminder)
     # =========================================================
     if request.user.is_superuser or request.user.groups.filter(name='FacilityManager').exists() or hasattr(request.user, 'profile'):
-        today = timezone.localtime().date()
+        today = timezone.localdate()
         today_start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
         today_end = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.max.time()))
 
@@ -709,12 +771,14 @@ def notification_api_list(request):
     # =========================================================
     # 2.종국에 안 읽은 진짜 활성 알림 세트만 화면에 응답 전송
     # =========================================================
-    notis = Notification.objects.filter(recipient=request.user, is_read=False).order_by('-created_at')
-    count = notis.count()
+    count = Notification.objects.filter(recipient=request.user, is_read=False).count()
+    
+    # ★ 화면에 뿌려줄 목록(notis)은 읽었든 안 읽었든 최근 20개를 싹 다 가져옵니다.
+    notis = Notification.objects.filter(recipient=request.user).order_by('-created_at')[:20]
     
     data = []
     for n in notis:
-        icon = 'bi-info-circle text-primary' 
+        icon = 'bi-info-circle text-primary'
         
         if '근무변경' in n.message or '근무 변경' in n.message:
             icon = 'bi-calendar-date-fill text-success' 

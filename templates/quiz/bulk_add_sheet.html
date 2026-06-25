@@ -18,7 +18,12 @@
                 <i class="bi bi-check-circle-fill"></i> 문제를 추가할 시험 선택 (필수)
             </label>
             <select id="quiz-select-common" class="form-select form-select-lg border-primary">
-                <option value="" selected disabled>-- 시험을 선택하세요 --</option>
+                {% if user.is_superuser %}
+                    <option value="" selected disabled>-- 시험을 선택하세요 (전체 공정 마스터 권한 가동 중) --</option>
+                {% else %}
+                    <option value="" selected disabled>-- 시험을 선택하세요 (담당: {{ user.profile.process.name|default:"공정 미지정" }} 관련 시험만 표출) --</option>
+                {% endif %}
+                
                 {% for quiz in quizzes %}
                     <option value="{{ quiz.id }}">
                         [{{ quiz.get_category_display }}] {{ quiz.title }} 

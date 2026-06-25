@@ -132,12 +132,23 @@ class RecordTypeAdmin(admin.ModelAdmin):
 
 @admin.register(Cohort)
 class CohortAdmin(admin.ModelAdmin):
-    # ★ 핵심 1: list_display를 딱 한 번만 쓰고, 필요한 걸 다 넣었습니다.
-    list_display = ('name', 'start_date', 'end_date', 'is_registration_open', 'is_manual_exam_allowed')
+    # ★ 수정 1: 없는 필드인 'is_active'를 지우고, 'is_registration_open'을 넣었습니다.
+    list_display = (
+        'name', 
+        'start_date', 
+        'end_date', 
+        'is_registration_open', 
+        'is_manual_exam_allowed', 
+        'is_process_manual_exam_allowed'
+    )
     list_filter = ('is_registration_open', 'start_date')
     
-    # ★ 핵심 2: list_editable도 딱 한 번만 쓰고, 두 개 다 넣었습니다.
-    list_editable = ('is_registration_open', 'is_manual_exam_allowed') 
+    # ★ 수정 2: list_display에 존재하는 필드들만 넣었고, 공정 권한(process)도 리스트에서 바로 수정 가능하게 추가했습니다.
+    list_editable = (
+        'is_registration_open', 
+        'is_manual_exam_allowed', 
+        'is_process_manual_exam_allowed'
+    ) 
     
     search_fields = ('name',)
     ordering = ('-start_date',)
@@ -160,9 +171,17 @@ class EvaluationItemAdmin(admin.ModelAdmin):
 @admin.register(ManagerEvaluation)
 class ManagerEvaluationAdmin(admin.ModelAdmin):
     list_display = ('trainee_profile', 'manager', 'created_at')
-    list_filter = ('manager',)
-    search_fields = ('trainee_profile__name', 'manager__username')
-    filter_horizontal = ('selected_items',)
+    
+    # 기존 '매니저' 검색에 '사번'과 '종합의견 내용' 검색까지 추가!
+    search_fields = ('trainee_profile__name', 'trainee_profile__employee_id', 'manager__username', 'overall_comment')
+    
+    # 필터도 '생성일'과 '매니저' 두 가지 다 쓸 수 있게 통합!
+    list_filter = ('created_at', 'manager')
+    
+    # 기존에 있던 체크리스트 좌우 넘기기 편한 UI 그대로 유지!
+    filter_horizontal = ('selected_items',) 
+    
+    readonly_fields = ('created_at',)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "manager":
@@ -408,7 +427,19 @@ class ProcessAccessRequestAdmin(admin.ModelAdmin):
     list_display = ('requester', 'target_process', 'status', 'created_at')
     list_filter = ('status',)
 
-
+@admin.register(FinalAssessment)
+class FinalAssessmentAdmin(admin.ModelAdmin):    
+    # 리스트에 1, 2, 3차 점수가 모두 보이도록 추가
+    list_display = ['profile', 'exam_avg_score', 'practice_score_1', 'practice_score_2', 'practice_score_3', 'practice_score', 'attitude_score', 'final_score', 'rank']    
+    
+    # ★ admin에서 1~3차 점수 및 최종 실습 점수를 클릭해서 바로 수정 가능하도록 허용
+    list_editable = ['practice_score_1', 'practice_score_2', 'practice_score_3', 'practice_score']  
+    search_fields = ['profile__name']    
+    list_filter = ['profile__cohort', 'profile__process']        
+    
+    # ★ 실습 점수들은 관리자 권한이므로 readonly에서 제외
+    readonly_fields = ['exam_avg_score', 'attitude_score', 'final_score', 'rank']
+    
 # 최종 등록 (User, Group)
 admin.site.unregister(User)
 admin.site.register(User, UserAdmin)

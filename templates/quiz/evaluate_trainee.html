@@ -187,11 +187,12 @@
                                             <h6 class="fw-bold text-secondary"><i class="bi bi-tools me-1"></i> 실습 점수</h6>
                                         </div>
                                         <div class="position-relative py-2">
-                                            <input type="number" name="practice_score" id="score_practice" 
+                                            <input type="number" id="score_practice" 
                                                    class="form-control score-input text-success" 
-                                                   placeholder="0~100" min="0" max="100" step="1" required
-                                                   value="{{ final_assessment.practice_score|default:'' }}">
-                                            <div class="mt-2 text-muted small">0~100점 입력</div>
+                                                   value="{{ final_assessment.practice_score|default:0 }}" readonly>
+                                            <div class="mt-2">
+                                                <span class="badge bg-secondary bg-opacity-75"><i class="bi bi-robot"></i> 자동 적용</span>
+                                            </div>
                                         </div>
                                         <div class="mt-3 text-success small fw-bold" id="calc_practice">0.0점 반영</div>
                                     </div>
@@ -201,23 +202,29 @@
                             <div class="col-md-4">
                                 <div class="card score-card h-100 shadow-sm border-warning border-opacity-25">
                                     <div class="card-body text-center p-4 position-relative">
+                                        
                                         {% if total_penalty > 0 %}
                                             <span class="position-absolute top-0 end-0 mt-2 me-2 badge bg-danger rounded-pill shadow-sm animate__animated animate__pulse animate__infinite"
                                                   data-bs-toggle="tooltip" title="경고 {{ warning_cnt }}회, 경고장 {{ letter_cnt }}회 누적">
                                                 -{{ total_penalty }} 감점
                                             </span>
                                         {% endif %}
+                                        
                                         <div class="mb-3">
                                             <span class="badge bg-warning bg-opacity-10 text-warning rounded-pill mb-2 px-3">비중 10%</span>
                                             <h6 class="fw-bold text-secondary"><i class="bi bi-person-check me-1"></i> 수학태도 점수</h6>
                                         </div>
+                                        
                                         <div class="position-relative py-2">
-                                            <input type="number" name="attitude_score" id="score_attitude" 
+                                            <input type="number" id="score_attitude" 
                                                    class="form-control score-input text-warning" 
-                                                   placeholder="0~100" min="0" max="100" step="1" required
-                                                   value="{{ final_assessment.attitude_score|default:'' }}">
-                                            <div class="mt-2 text-muted small">기본 점수 입력</div>
+                                                   value="{{ final_assessment.attitude_score|default:0 }}" readonly>
+                                            
+                                            <div class="mt-2">
+                                                <span class="badge bg-secondary bg-opacity-75"><i class="bi bi-robot"></i> 자동 적용</span>
+                                            </div>
                                         </div>
+                                        
                                         <div class="mt-3 small fw-bold" id="calc_attitude" style="color: #fd7e14;">
                                             {% if total_penalty > 0 %}
                                                 (감점 자동 적용)
@@ -229,8 +236,7 @@
                                     </div>
                                 </div>
                             </div>
-
-                        </div> 
+                            </div> 
 
                         <div class="mt-5">
                             <div class="total-score-box p-4 text-center shadow-sm">

@@ -190,6 +190,16 @@ class Quiz(models.Model):
         verbose_name="선택된 문제 세트 (구버전)", related_name='+' 
     )
 
+    # 🎯 [신규 추가] 차정별 징검다리 출제 시험지 매핑 링크 (자기 참조 구조)
+    second_attempt_quiz = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, 
+        related_name='first_attempt_links', verbose_name="2차 재시험 대체용 퀴즈 (예: LAM)"
+    )
+    third_attempt_quiz = models.ForeignKey(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, 
+        related_name='second_attempt_links', verbose_name="3차 재시험 대체용 퀴즈 (예: CVD)"
+    )
+
     is_published = models.BooleanField(default=False, verbose_name="공개 여부 (체크 시 응시 가능)")
 
     class Meta:
@@ -461,15 +471,13 @@ class Reservation(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE, verbose_name="강의실")
     user = models.ForeignKey(User, on_delete=models.CASCADE, verbose_name="예약자")
     
-    # 통계용 스냅샷
-    company_name = models.CharField(max_length=100, blank=True, null=True)
-    process_name = models.CharField(max_length=100, blank=True, null=True)
-
     title = models.CharField(max_length=100, verbose_name="사용 목적")
     start_time = models.DateTimeField(verbose_name="시작 시간")
     end_time = models.DateTimeField(verbose_name="종료 시간")
 
     attendees = models.PositiveIntegerField(default=0, verbose_name="사용 인원")
+    
+    # 🎯 중복 선언을 제거하고 verbose_name이 포함된 이 필드만 남깁니다.
     company_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="업체명")
     process_name = models.CharField(max_length=100, blank=True, null=True, verbose_name="공정명")
     

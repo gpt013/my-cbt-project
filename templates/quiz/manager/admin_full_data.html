@@ -163,6 +163,57 @@
         </div>
     </div>
 
+    <div class="row g-4 mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm border-0 rounded-3">
+            <div class="card-header bg-dark text-white py-3 d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold mb-0"><i class="bi bi-trophy-fill text-warning me-2"></i>카테고리별 다차원 수상 분석</h5>
+                <ul class="nav nav-pills card-header-pills" id="awardTab">
+                    <li class="nav-item">
+                        <button class="nav-link active bg-white text-dark fw-bold px-4 py-1 me-2 shadow-sm award-btn" data-category="process">공정별 보기</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link text-white px-4 py-1 me-2 border border-white award-btn" data-category="cohort">기수별 보기</button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link text-white px-4 py-1 border border-white award-btn" data-category="company">회사별 보기</button>
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="card-body bg-white p-4">
+                <div class="d-flex flex-wrap gap-3 mb-4 p-3 rounded" style="background-color: #f1f3f5; border: 1px solid #dee2e6;">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-funnel-fill text-secondary me-2"></i>
+                        <span class="fw-bold text-dark me-2 small">크로스 필터:</span>
+                    </div>
+                    <select id="awFilterCohort" class="form-select form-select-sm border-0 shadow-sm fw-bold text-primary" style="width: auto; min-width: 140px;">
+                        <option value="">🎓 모든 기수 전체</option>
+                    </select>
+                    <select id="awFilterProcess" class="form-select form-select-sm border-0 shadow-sm fw-bold text-success" style="width: auto; min-width: 140px;">
+                        <option value="">⚙️ 모든 공정 전체</option>
+                    </select>
+                    <select id="awFilterCompany" class="form-select form-select-sm border-0 shadow-sm fw-bold text-info" style="width: auto; min-width: 140px;">
+                        <option value="">🏢 모든 회사 전체</option>
+                    </select>
+                    
+                    <div class="ms-auto d-flex gap-2">
+                        <button id="awResetBtn" class="btn btn-sm btn-white border shadow-sm text-muted fw-bold">
+                            <i class="bi bi-arrow-counterclockwise"></i> 리셋
+                        </button>
+                        <button id="awCopyBtn" class="btn btn-sm btn-warning shadow-sm fw-bold text-dark">
+                            <i class="bi bi-clipboard-check"></i> 수상자 복사
+                        </button>
+                    </div>
+                </div>
+
+                <div style="position: relative; height: 320px; width: 100%;">
+                    <canvas id="masterAwardChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
     <div class="master-grid-container">
         <table class="excel-table">
             <thead>
@@ -178,7 +229,7 @@
                         <th colspan="3" class="border-l-thick bg-light" style="background-color: #f8f9fa !important; min-width: 180px;">{{ q.title }}</th>
                     {% endfor %}
 
-                    <th colspan="4" class="border-l-thick" style="background-color: #fff3cd !important;">종합 점수 (Total)</th>
+                    <th colspan="5" class="border-l-thick" style="background-color: #fff3cd !important;">종합 점수 (Total)</th>
                     
                     <th colspan="4" class="border-l-thick" style="background-color: #e2e3e5 !important;">석차 정보</th>
                     
@@ -196,8 +247,8 @@
                     <th class="small fw-bold" style="min-width: 60px;">실습<br>(5%)</th>
                     <th class="small fw-bold" style="min-width: 70px;">수학태도<br>(10%)</th>
                     <th class="fw-bold bg-warning bg-opacity-25 small" style="min-width: 70px;">총점</th>
-
-                    <th class="border-l-thick rank-col" title="전체 인원 중 석차">전체</th>
+<th class="fw-bold bg-warning bg-opacity-50 small text-danger" style="min-width: 80px;">수상 내역</th>
+<th class="border-l-thick rank-col" title="전체 인원 중 석차">전체</th>
                     <th class="rank-col" title="같은 기수 내 석차">기수</th>
                     <th class="rank-col" title="같은 공정 내 석차">공정</th>
                     <th class="rank-col" title="같은 회사 내 석차">회사</th>
@@ -259,6 +310,14 @@
                             </span>
                         {% else %}
                             -
+                        {% endif %}
+                    </td>
+                    
+                    <td class="fw-bold" style="background-color: #fff3cd;">
+                        {% if row.award %}
+                            <span class="badge bg-danger text-white shadow-sm">{{ row.award }}</span>
+                        {% else %}
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
 
@@ -391,30 +450,30 @@
                             <div class="card-body p-3">
                                 
                                 <div style="max-height: 200px; overflow-y: auto; margin-bottom: 15px;">
-                                {% if row.checklist %}
+                                {% if row.pos_checklist or row.neg_checklist %}
                                     <div class="row g-2">
                                         <div class="col-6 border-end pe-2">
                                             <ul class="list-unstyled small mb-0">
-                                                {% for item in row.checklist %}
-                                                    {% if item.is_positive %}
+                                                {% for item in row.pos_checklist %}
                                                     <li class="d-flex align-items-start mb-2">
                                                         <i class="bi bi-plus-circle-fill text-success me-2 mt-1"></i>
                                                         <span class="text-dark">{{ item.description }}</span>
                                                     </li>
-                                                    {% endif %}
+                                                {% empty %}
+                                                    <li class="text-muted">긍정 체크 항목이 없습니다.</li>
                                                 {% endfor %}
                                             </ul>
                                         </div>
                                         
                                         <div class="col-6 ps-2">
                                             <ul class="list-unstyled small mb-0">
-                                                {% for item in row.checklist %}
-                                                    {% if not item.is_positive %}
+                                                {% for item in row.neg_checklist %}
                                                     <li class="d-flex align-items-start mb-2">
                                                         <i class="bi bi-dash-circle-fill text-danger me-2 mt-1"></i>
                                                         <span class="text-danger fw-bold">{{ item.description }}</span>
                                                     </li>
-                                                    {% endif %}
+                                                {% empty %}
+                                                    <li class="text-muted">보완 체크 항목이 없습니다.</li>
                                                 {% endfor %}
                                             </ul>
                                         </div>
@@ -442,42 +501,65 @@
                                     <span class="badge bg-danger border px-2 py-1 fs-6 shadow-sm">경고장 {{ row.letter_cnt }}</span>
                                 </div>
                             </div>
-                            <div class="card-body p-2" style="max-height: 250px; overflow-y: auto;">
-                                {% if row.logs %}
-                                    <div class="list-group list-group-flush">
-                                        {% for log in row.logs %}
-                                            <div class="list-group-item px-3 py-3 border-0 border-bottom {% if log.log_type == 'warning_letter' %}bg-danger bg-opacity-10 rounded mb-1{% endif %}">
-                                                <div class="d-flex w-100 justify-content-between align-items-center mb-2">
-                                                    <span class="badge {% if log.log_type == 'warning_letter' %}bg-danger px-2 py-1{% elif log.log_type == 'warning' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
-                                                        {{ log.get_log_type_display }}
-                                                    </span>
-                                                    <small class="text-muted" style="font-size: 0.75rem;"><i class="bi bi-clock"></i> {{ log.created_at|date:"Y-m-d H:i" }}</small>
+                            
+                            <div class="card-body p-3" style="max-height: 250px; overflow-y: auto;">
+                                {% if row.log_fail or row.log_warn or row.log_work %}
+                                    
+                                    {% if row.log_fail %}
+                                    <h6 class="fw-bold text-danger mb-2 small"><i class="bi bi-journal-x"></i> 시험 과락</h6>
+                                    <div class="list-group list-group-flush mb-3">
+                                        {% for log in row.log_fail %}
+                                            <div class="list-group-item px-3 py-2 border-0 border-bottom bg-danger bg-opacity-10 rounded mb-1">
+                                                <div class="d-flex justify-content-between mb-1">
+                                                    <span class="badge bg-danger">{{ log.get_log_type_display }}</span>
+                                                    <small class="text-muted" style="font-size: 0.7rem;"><i class="bi bi-clock"></i> {{ log.created_at|date:"y.m.d" }}</small>
                                                 </div>
-                                                <p class="mb-2 small text-dark" style="line-height: 1.4;">{{ log.reason|linebreaksbr }}</p>
-
-                                                {% if log.attached_file %}
-                                                <div class="mt-2 text-end">
-                                                    <a href="{{ log.attached_file.url }}" target="_blank" class="btn btn-sm btn-outline-dark" style="font-size: 0.75rem; padding: 2px 8px;">
-                                                        <i class="bi bi-paperclip"></i> 사본 열기
-                                                    </a>
-                                                </div>
-                                                {% endif %}
+                                                <p class="mb-0 small text-dark">{{ log.reason }}</p>
                                             </div>
                                         {% endfor %}
                                     </div>
+                                    {% endif %}
+
+                                    {% if row.log_warn %}
+                                    <h6 class="fw-bold text-warning text-dark mb-2 small"><i class="bi bi-exclamation-triangle"></i> 경고 및 면담</h6>
+                                    <div class="list-group list-group-flush mb-3">
+                                        {% for log in row.log_warn %}
+                                            <div class="list-group-item px-3 py-2 border-0 border-bottom {% if log.log_type == 'warning_letter' %}bg-danger bg-opacity-10{% else %}bg-light{% endif %} rounded mb-1">
+                                                <div class="d-flex justify-content-between mb-1">
+                                                    <span class="badge {% if log.log_type == 'warning_letter' %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ log.get_log_type_display }}</span>
+                                                    <small class="text-muted" style="font-size: 0.7rem;"><i class="bi bi-clock"></i> {{ log.created_at|date:"y.m.d" }}</small>
+                                                </div>
+                                                <p class="mb-0 small text-dark">{{ log.reason }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+
+                                    {% if row.log_work %}
+                                    <h6 class="fw-bold text-info text-dark mb-2 small"><i class="bi bi-calendar-check"></i> 근태 및 기타</h6>
+                                    <div class="list-group list-group-flush mb-1">
+                                        {% for log in row.log_work %}
+                                            <div class="list-group-item px-3 py-2 border-0 border-bottom bg-light rounded mb-1">
+                                                <div class="d-flex justify-content-between mb-1">
+                                                    <span class="badge bg-secondary">{{ log.get_log_type_display }}</span>
+                                                    <small class="text-muted" style="font-size: 0.7rem;"><i class="bi bi-clock"></i> {{ log.created_at|date:"y.m.d" }}</small>
+                                                </div>
+                                                <p class="mb-0 small text-dark">{{ log.reason }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+
                                 {% else %}
                                     <div class="text-center py-5 text-muted small">기록이 없습니다.</div>
                                 {% endif %}
                             </div>
-                        </div>
-
+                            </div>
                     </div>
+                </div> 
                 </div>
-            </div> 
-            
         </div>
     </div>
-</div>
 {% endfor %}
 
 
@@ -494,5 +576,238 @@
         }
         location.href = "{% url 'quiz:export_student_data' %}?" + params.toString();
     }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 1. 백엔드에서 넘겨준 원본 데이터 파싱
+    const rawData = JSON.parse('{{ award_stats_json|escapejs|safe }}');
+    let awardChart = null; // 차트 객체 그릇
+
+    const fCoh = document.getElementById('awFilterCohort');
+    const fPro = document.getElementById('awFilterProcess');
+    const fCom = document.getElementById('awFilterCompany');
+
+    // 2. 존재하는 데이터만 뽑아서 크로스 필터 드롭다운 채우기 (문자열 변환으로 오류 원천 차단)
+    const cohorts = [...new Set(rawData.map(d => String(d.cohort)))].sort();
+    const processes = [...new Set(rawData.map(d => String(d.process)))].sort();
+    const companies = [...new Set(rawData.map(d => String(d.company)))].sort();
+
+    cohorts.forEach(c => fCoh.add(new Option(c, c)));
+    processes.forEach(p => fPro.add(new Option(p, p)));
+    companies.forEach(c => fCom.add(new Option(c, c)));
+
+    // 3. 필터링 및 차트 렌더링 통합 엔진
+    function renderChart() {
+        // 현재 활성화된 X축 버튼 확인
+        const activeBtn = document.querySelector('.award-btn.active');
+        const xAxisCategory = activeBtn ? activeBtn.dataset.category : 'process';
+        
+        const valCoh = fCoh.value;
+        const valPro = fPro.value;
+        const valCom = fCom.value;
+
+        // [핵심 1] 드롭다운 검색 조건에 맞춰 데이터 1차 필터링
+        let filtered = rawData.filter(d => {
+            if (valCoh && String(d.cohort) !== valCoh) return false;
+            if (valPro && String(d.process) !== valPro) return false;
+            if (valCom && String(d.company) !== valCom) return false;
+            return true;
+        });
+
+        // [핵심 2] 선택된 X축(공정/기수/회사) 기준으로 데이터 그룹핑
+        let agg = {};
+        filtered.forEach(d => {
+            let key = String(d[xAxisCategory]);
+            if (!agg[key]) agg[key] = { '최우수': 0, '우수': 0, '장려': 0 };
+            agg[key][d.award_type]++;
+        });
+
+        const labels = Object.keys(agg);
+        if (labels.length === 0) labels.push("해당 조건 수상자 없음");
+
+        const dataChoi = labels.map(l => agg[l] ? agg[l]['최우수'] : 0);
+        const dataWoo = labels.map(l => agg[l] ? agg[l]['우수'] : 0);
+        const dataJang = labels.map(l => agg[l] ? agg[l]['장려'] : 0);
+
+        // ★ [버그 해결 핵심] 기존 차트가 있다면 완전히 파괴(Destroy) 후 새로 그리기 (2중 오류 완벽 해결)
+        if (awardChart) {
+            awardChart.destroy();
+        }
+
+        const ctx = document.getElementById('masterAwardChart').getContext('2d');
+        awardChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    { label: '🏆 최우수', data: dataChoi, backgroundColor: 'rgba(255, 184, 77, 0.9)', borderColor: '#ff9800', borderWidth: 2, borderRadius: 6, maxBarThickness: 45 },
+                    { label: '🥈 우수', data: dataWoo, backgroundColor: 'rgba(168, 177, 187, 0.9)', borderColor: '#8391a2', borderWidth: 2, borderRadius: 6, maxBarThickness: 45 },
+                    { label: '🥉 장려', data: dataJang, backgroundColor: 'rgba(205, 127, 50, 0.9)', borderColor: '#8c5a24', borderWidth: 2, borderRadius: 6, maxBarThickness: 45 }
+                ]
+            },
+            options: {
+                responsive: true, 
+                maintainAspectRatio: false,
+                categoryPercentage: 0.5, 
+                barPercentage: 0.8,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    x: { grid: { display: false }, ticks: { font: { weight: 'bold', size: 13 } } },
+                    y: { beginAtZero: true, border: { dash: [5, 5] }, ticks: { stepSize: 1, precision: 0 } }
+                },
+                plugins: {
+                    legend: { position: 'top', labels: { usePointStyle: true, padding: 20, font: { weight: 'bold', size: 13 } } },
+                    tooltip: { backgroundColor: 'rgba(33, 37, 41, 0.9)', titleFont: { size: 14, weight: 'bold' }, padding: 12, cornerRadius: 8 }
+                }
+            }
+        });
+    }
+
+    // 4. 초기 로딩 시 차트 그리기
+    renderChart();
+
+    // 5. X축 탭 버튼 클릭 이벤트
+    document.querySelectorAll('.award-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            // 다른 버튼들의 active 속성을 빼앗고
+            document.querySelectorAll('.award-btn').forEach(b => {
+                b.classList.remove('bg-white', 'text-dark', 'fw-bold', 'shadow-sm', 'active');
+                b.classList.add('text-white', 'border', 'border-white');
+            });
+            // 누른 버튼에 active 속성 부여
+            e.target.classList.add('bg-white', 'text-dark', 'fw-bold', 'shadow-sm', 'active');
+            e.target.classList.remove('text-white', 'border', 'border-white');
+            
+            renderChart(); // X축 변경 후 다시 그리기
+        });
+    });
+
+    // 6. 드롭다운 필터 변경 시 즉각 반영
+    if(fCoh) fCoh.addEventListener('change', renderChart);
+    if(fPro) fPro.addEventListener('change', renderChart);
+    if(fCom) fCom.addEventListener('change', renderChart);
+
+    // 7. 리셋 버튼
+    const resetBtn = document.getElementById('awResetBtn');
+    if(resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            fCoh.value = ''; 
+            fPro.value = ''; 
+            fCom.value = '';
+            renderChart();
+        });
+    }
+
+    // 🎯 8. [신규 추가] 수상자 명단 클립보드 복사 엔진
+    const copyBtn = document.getElementById('awCopyBtn');
+    if(copyBtn) {
+        copyBtn.addEventListener('click', function() {
+            const valCoh = fCoh.value;
+            const valPro = fPro.value;
+            const valCom = fCom.value;
+
+            // 현재 드롭다운 필터 조건에 맞는 데이터만 추출
+            let filtered = rawData.filter(d => {
+                if (valCoh && String(d.cohort) !== valCoh) return false;
+                if (valPro && String(d.process) !== valPro) return false;
+                if (valCom && String(d.company) !== valCom) return false;
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                alert("현재 필터 조건에 해당하는 수상자가 없습니다.");
+                return;
+            }
+
+            // 수상 등급별 정렬
+            const order = {'최우수': 1, '우수': 2, '장려': 3};
+            filtered.sort((a, b) => order[a.award_type] - order[b.award_type]);
+
+            // 필터 정보 텍스트 조립
+            let filterInfos = [];
+            if(valCoh) filterInfos.push(valCoh);
+            if(valPro) filterInfos.push(valPro);
+            if(valCom) filterInfos.push(valCom);
+            
+            let filterText = filterInfos.length > 0 
+                ? `<p style="margin: 4px 0;"><b>📌 조회 기준 :</b> ${filterInfos.join(' / ')}</p>` 
+                : "";
+
+            // ──────────────────────────────────────────────────────────
+            // 🎨 [HTML 표 생성] : 메일, 노션, 워드, 엑셀에 완벽하게 들어가는 표 디자인
+            let htmlString = `
+                <div style="font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; color: #333;">
+                    <h3 style="color: #000; margin-bottom: 10px;">🏆 [교육 우수 수료 수상자 명단] 🏆</h3>
+                    ${filterText}
+                    <p style="margin: 4px 0 15px 0;"><b>📌 총 수상 인원 :</b> ${filtered.length}명</p>
+                    
+                    <table border="1" style="border-collapse: collapse; text-align: center; width: 100%; max-width: 600px; border: 1px solid #bcbcbc;">
+                        <thead style="background-color: #f8f9fa;">
+                            <tr>
+                                <th style="padding: 8px; border: 1px solid #bcbcbc;">수상 등급</th>
+                                <th style="padding: 8px; border: 1px solid #bcbcbc;">기수</th>
+                                <th style="padding: 8px; border: 1px solid #bcbcbc;">소속 회사</th>
+                                <th style="padding: 8px; border: 1px solid #bcbcbc;">공정</th>
+                                <th style="padding: 8px; border: 1px solid #bcbcbc;">이름</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            const iconMap = {'최우수': '🥇', '우수': '🥈', '장려': '🥉'};
+
+            filtered.forEach(d => {
+                let cName = d.cohort;
+                if (!isNaN(cName) && cName.trim() !== '') cName = cName + '기';
+                let icon = iconMap[d.award_type] || '';
+                
+                htmlString += `
+                            <tr>
+                                <td style="padding: 6px; border: 1px solid #bcbcbc;"><b>${icon} ${d.award_type}</b></td>
+                                <td style="padding: 6px; border: 1px solid #bcbcbc;">${cName}</td>
+                                <td style="padding: 6px; border: 1px solid #bcbcbc;">${d.company}</td>
+                                <td style="padding: 6px; border: 1px solid #bcbcbc;">${d.process}</td>
+                                <td style="padding: 6px; border: 1px solid #bcbcbc;"><b>${d.name}</b></td>
+                            </tr>
+                `;
+            });
+
+            htmlString += `
+                        </tbody>
+                    </table>
+                    <p style="margin-top: 15px;">🎉 <i>수상자 여러분 모두 진심으로 축하드립니다!</i></p>
+                </div>
+            `;
+            // ──────────────────────────────────────────────────────────
+
+            // 화면 밖에 임시 투명 상자를 만들어서 표를 넣고 복사(Copy)하는 로직
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = htmlString;
+            tempDiv.style.position = 'absolute';
+            tempDiv.style.left = '-9999px';
+            document.body.appendChild(tempDiv);
+
+            // 해당 영역을 마우스로 드래그한 것처럼 '선택(Selection)' 처리
+            const selection = window.getSelection();
+            const range = document.createRange();
+            range.selectNodeContents(tempDiv);
+            selection.removeAllRanges();
+            selection.addRange(range);
+
+            // 클립보드 복사 실행
+            try {
+                document.execCommand('copy');
+                alert(`총 ${filtered.length}명의 수상자 명단이 '표(Table)' 형식으로 복사되었습니다!\\n(이메일에 붙여넣기 하세요)`);
+            } catch (err) {
+                alert("복사에 실패했습니다.");
+            }
+
+            // 임시 요소 및 선택 해제 (뒷정리)
+            selection.removeAllRanges();
+            document.body.removeChild(tempDiv);
+        });
+    }
+});
 </script>
 {% endblock %}

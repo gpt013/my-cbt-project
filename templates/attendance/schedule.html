@@ -167,6 +167,13 @@
             {% endif %}
             
             <div class="btn-group shadow-sm">
+    <button class="btn btn-success btn-sm fw-bold"
+            onclick="openExcelModal()">
+        <i class="bi bi-file-earmark-excel-fill"></i> 근무표 다운로드
+    </button>
+</div>
+
+            <div class="btn-group shadow-sm">
                 <a href="?year={{ prev_month|slice:':4' }}&month={{ prev_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}&view={{ view_scope|default:'' }}" class="btn btn-light border fw-bold btn-sm">◀</a>
                 <a href="?year={{ next_month|slice:':4' }}&month={{ next_month|slice:'5:' }}&role={{ sel_role|default:'' }}&cohort={{ sel_cohort|default:'' }}&process={{ sel_process|default:'' }}&view={{ view_scope|default:'' }}" class="btn btn-light border fw-bold btn-sm">▶</a>
             </div>
@@ -290,8 +297,10 @@
         </table>
     </div>
 
-    <!-- ★ 플로팅 액션 바 (수정 모드 진입 시 등장) -->
-    <div id="floating-action-bar">
+
+
+
+<div id="floating-action-bar">
         <span class="text-white me-4 fw-bold"><i class="bi bi-pencil-square text-warning me-1"></i> 근무 수정 중...</span>
         <button class="btn btn-secondary fw-bold px-4 me-2 rounded-pill" onclick="cancelEditMode()">취소</button>
         <button class="btn btn-primary fw-bold px-4 rounded-pill shadow" onclick="finishEditMode()">
@@ -300,6 +309,76 @@
     </div>
 </div>
 
+<div class="modal fade" id="excelDownloadModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered" style="max-width:380px;">
+        <div class="modal-content border-0 shadow-lg rounded-4">
+            <div class="modal-header bg-success text-white border-0 rounded-top-4 py-3">
+                <h6 class="modal-title fw-bold mb-0">
+                    <i class="bi bi-file-earmark-excel-fill me-1"></i> 고급 근무표 Excel 내보내기
+                </h6>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4 bg-light-subtle">
+                <div class="mb-3">
+                    <label class="form-label fw-bold small text-secondary"><i class="bi bi-people-fill"></i> 내보낼 대상 그룹</label>
+                    <select id="excelTargetGroup" class="form-select fw-bold">
+                        <option value="all" selected>👥 전체 인원 (공정 기준)</option>
+                        <option value="manager">👨‍🏫 교수진 </option>
+                        <option value="student">🎓 교육생 </option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold small text-secondary"><i class="bi bi-mortarboard-fill"></i> 1. 추출 방식 선택 (기수별)</label>
+                    <select id="excelCohort" class="form-select fw-bold border-primary text-primary" onchange="handleExcelScopeToggle()">
+                        <option value="" selected>✨ 기수 지정 없이 일반 기간별 다운로드</option>
+                        {% for c in cohorts %}
+                            <option value="{{ c.id }}">PMTC {{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="alert alert-info border-0 shadow-sm small mb-3 py-2" id="cohort-notice-box" style="display: none; background-color: #e0f2fe; color: #0369a1; border-radius: 8px;">
+                    <i class="bi bi-info-circle-fill me-1"></i> <span id="cohort-notice-text"></span>
+                </div>
+
+                <div id="time-select-group">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-secondary"><i class="bi bi-calendar-range-fill"></i> 2. 다운로드 시간 범위</label>
+                        <select id="excelScope" class="form-select fw-bold border-success text-success" onchange="toggleExcelMonthSelect(this.value)">
+                            <option value="month" selected>🗓️ 선택한 특정 월만 추출</option>
+                            <option value="year">📅 1년치 종합 리포트 (12개 시트)</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="excelPeriodContainer">
+                        <label class="form-label fw-bold small text-secondary"><i class="bi bi-clock-history"></i> 3. 상세 기점 세팅</label>
+                        <div class="d-flex gap-2">
+                            <select id="excelYear" class="form-select fw-bold">
+                                <option value="{{ year }}" selected>{{ year }}년</option>
+                                <option value="{{ year|add:'-1' }}">{{ year|add:'-1' }}년</option>
+                            </select>
+                            <select id="excelMonth" class="form-select fw-bold">
+                                {% for m in "123456789101112"|make_list %}
+                                    <option value="{{ forloop.counter }}" {% if forloop.counter == month %}selected{% endif %}>{{ forloop.counter }}월</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="alert alert-warning border small text-muted mb-0 py-2" style="font-size: 0.78rem; border-radius: 8px;">
+                    <i class="bi bi-info-circle-fill text-warning me-1"></i>
+                    <strong>[매트릭스 변환 규격]</strong> 다운로드 시 자동으로 이름이 가로 행으로 가고, 1일~말일까지 가로 격자로 칼정렬된 근무표가 생산됩니다.
+                </div>
+            </div>
+            <div class="modal-footer border-0 pt-0 pb-3 px-4">
+                <button class="btn btn-success w-100 fw-bold rounded-3 py-2 shadow" onclick="downloadExcel()">
+                    <i class="bi bi-download me-1"></i> Excel 캘린더 다운로드
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <div class="modal fade" id="approvalModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content" style="border-radius: 12px; overflow: hidden; border: none;">
@@ -819,5 +898,90 @@
             }, 300); // 달력 렌더링 후 0.3초 뒤에 스르륵 띄움
         }
     });
+
+    function openExcelModal() {
+        new bootstrap.Modal(document.getElementById('excelDownloadModal')).show();
+    }
+
+    function toggleExcelMonthSelect(scope) {
+        const mSelect = document.getElementById('excelMonth');
+        if (mSelect) {
+            mSelect.disabled = (scope === 'year');
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────
+    // ➕ [신규 추가]: 기수 선택 여부에 따라 하단 선택창을 숨기거나 보여주는 UX 엔진
+    // ──────────────────────────────────────────────────────────
+    function handleExcelScopeToggle() {
+        const cohortSelect = document.getElementById('excelCohort');
+        const timeGroup = document.getElementById('time-select-group');
+        const noticeBox = document.getElementById('cohort-notice-box');
+        const noticeText = document.getElementById('cohort-notice-text');
+        
+        if (!cohortSelect || !timeGroup || !noticeBox) return;
+
+        if (cohortSelect.value !== "") {
+            // 1. 특정 기수를 선택한 경우: 불필요한 기간/월 선택창을 숨김 (UX 혼선 차단)
+            timeGroup.style.display = 'none';
+            
+            // 2. 스마트 가이드 문구 매핑 및 활성화
+            const selectedText = cohortSelect.options[cohortSelect.selectedIndex].text;
+            noticeText.innerHTML = `<b>${selectedText}</b>를 선택하셨습니다. 해당 기수의 <b>전체 교육 운영 기간</b>을 시스템이 자동으로 계산하여 멀티 시트 리포트로 완성합니다.`;
+            noticeBox.style.display = 'block';
+        } else {
+            // 3. '기수 지정 없이'를 선택한 경우: 원래대로 월별/년별 수동 선택창 복구
+            timeGroup.style.display = 'block';
+            noticeBox.style.display = 'none';
+        }
+    }
+    // ──────────────────────────────────────────────────────────
+
+// ──────────────────────────────────────────────────────────
+// 🎯 [교정 스크립트 코드] 화면 상단 검색바의 필터 엘리먼트 값들을 실시간 패킹
+// ──────────────────────────────────────────────────────────
+    function downloadExcel() {
+        // 1. 고급 모달 내부 옵션 값 수집
+        const year        = document.getElementById('excelYear').value;
+        const month       = document.getElementById('excelMonth').value;
+        const targetGroup = document.getElementById('excelTargetGroup').value;
+        const scope       = document.getElementById('excelScope').value;
+        
+        // ===== [수정되는 코드: 이제 모달창 안에서 선택한 기수 값을 파라미터로 가져옵니다] =====
+        const cohort      = document.getElementById('excelCohort').value;
+        const process     = document.querySelector('select[name="process"]')?.value || '';
+        
+        // 3. 🎯 [추가] 만약 화면 상단에 회사 필터 셀렉터(예: id="filterCompany" 등)가 있다면 그 값도 가져옵니다.
+        // 현재 스크립트 상단 폼 구조에 맞춰 매핑을 지원합니다.
+        const company = document.getElementById('filterCompany')?.value || '';
+
+        // 백엔드로 안전하게 던질 전용 주소창 파라미터 세트 구성
+        const params = new URLSearchParams({ 
+            year: year, 
+            month: month, 
+            target_group: targetGroup, 
+            scope: scope,
+            cohort: cohort, 
+            process: process, 
+            company: company
+        });
+
+        let iframe = document.getElementById('excel-dl-frame');
+        if (!iframe) {
+            iframe = document.createElement('iframe');
+            iframe.id = 'excel-dl-frame';
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+        }
+        
+        // 데이터 누락 차단 검증부 연결 가동
+        iframe.src = "{% url 'attendance:export_schedule_excel' %}?" + params.toString();
+
+        // 모달 서랍장 닫기 마감
+        const modalEl = document.getElementById('excelDownloadModal');
+        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+        if (modalInstance) modalInstance.hide();
+    }
+// ──────────────────────────────────────────────────────────
 </script>
 {% endblock %}

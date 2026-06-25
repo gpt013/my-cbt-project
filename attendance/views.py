@@ -92,7 +92,7 @@ def process_attendance(request):
     """
     try:
         # 1. 오늘 이미 출근했는지 확인
-        today = timezone.now().date()
+        today = timezone.localdate()
         if Attendance.objects.filter(user=request.user, date=today).exists():
              return JsonResponse({'status': 'fail', 'message': '이미 오늘의 출근 기록이 존재합니다.'})
 
@@ -125,7 +125,7 @@ def mdm_status(request):
 # ------------------------------------------------------------------
 @login_required
 def schedule_index(request):
-    today = timezone.now().date()
+    today = timezone.localdate()
     try:
         year = int(request.GET.get('year', today.year))
         month = int(request.GET.get('month', today.month))
@@ -357,7 +357,7 @@ def update_schedule(request):
         target_profile = get_object_or_404(Profile, pk=profile_id)
         work_type      = get_object_or_404(WorkType, pk=work_type_id)
         target_date    = datetime.strptime(date_str, '%Y-%m-%d').date()
-        today          = timezone.now().date()
+        today          = timezone.localdate()
 
         from quiz.models import Notification
         from django.urls import reverse
@@ -712,7 +712,7 @@ def check_in_api(request):
             })
 
         # 3. 출근 기록 (★ 여기가 수정되었습니다 ★)
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         # daily_schedule 대신 user와 date로 중복 검사
         if Attendance.objects.filter(user=request.user, date=today).exists():
@@ -731,3 +731,299 @@ def check_in_api(request):
 
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+    
+
+@login_required
+def export_schedule_excel(request):
+    import openpyxl
+    import calendar
+    from django.http import HttpResponse
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from datetime import date
+
+    # 1. 고급 모달 전용 파라미터 수집
+    target_group = request.GET.get('target_group', 'all')  # manager, student, all
+    download_scope = request.GET.get('scope', 'month')    # month, year
+    
+    # 🎯 [추가] 대시보드 연동형 정밀 필터 파라미터 수집
+    req_cohort = request.GET.get('cohort', '')
+    req_process = request.GET.get('process', '')
+    req_company = request.GET.get('company', '')
+
+    try:
+        target_year = int(request.GET.get('year', timezone.now().year))
+        target_month = int(request.GET.get('month', timezone.now().month))
+    except ValueError:
+        target_year, target_month = timezone.now().year, timezone.now().month
+
+    # ── [★ 수정/추가]: 기수 선택 시 기수의 전체 운영 기간(예: 6월~7월)을 자동 추적하는 방어선 구축 ──
+    if req_cohort:
+        try:
+            cohort_obj = Cohort.objects.get(id=req_cohort)
+            start_date = cohort_obj.start_date
+            end_date = cohort_obj.end_date
+            target_year = start_date.year
+        except:
+            start_date = date(target_year, target_month, 1)
+            _, num_days = calendar.monthrange(target_year, target_month)
+            end_date = date(target_year, target_month, num_days)
+    else:
+        if download_scope == 'year':
+            start_date = date(target_year, 1, 1)
+            end_date = date(target_year, 12, 31)
+        else:
+            start_date = date(target_year, target_month, 1)
+            _, num_days = calendar.monthrange(target_year, target_month)
+            end_date = date(target_year, target_month, num_days)
+    # ───────────────────────────────────────────────────────────────────────────────────
+
+    # 2. 대상 프로필 셋 기본 필터링 (재직 중인 인원)
+    profiles = Profile.objects.filter(status='attending').exclude(name__isnull=True).exclude(name='')
+    
+    # ══════════════════════════════════════════════════════════
+    # 🔒 [보안 가드 소스] 최종관리자(Superuser)가 아니면 본인 공정 데이터만 강제 고정
+    # ══════════════════════════════════════════════════════════
+    if not request.user.is_superuser:
+        if hasattr(request.user, 'profile') and request.user.profile.process:
+            # 주소창 파라미터를 강제로 위조해도 백엔드에서 세션 유저의 공정 ID로 덮어써서 철저히 방어합니다.
+            req_process = str(request.user.profile.process.id)
+            profiles = profiles.filter(process_id=req_process)
+        else:
+            # 스태프 권한은 있으나 공정이 배정되지 않은 예외 케이스는 데이터 전면 차단
+            profiles = profiles.none()
+    else:
+        # 최종 관리자는 선택한 공정이 있을 때만 필터링 (빈값이면 전체 조회 존중)
+        if req_process:
+            profiles = profiles.filter(process_id=req_process)
+    # ══════════════════════════════════════════════════════════
+
+    # 🎯 [추가] 기수 및 회사 동적 필터 처리 (값이 존재할 때만 스캔 작동)
+    if req_cohort:
+        profiles = profiles.filter(cohort_id=req_cohort)
+    if req_company:
+        profiles = profiles.filter(company_id=req_company) # 만약 company가 외래키가 아니라 텍스트면 company=req_company로 변경
+
+    # 대상 그룹 필터 (교수용 / 교육생용 / 전체용)
+    if target_group == 'manager':
+        profiles = profiles.filter(Q(is_manager=True) | Q(is_pl=True) | Q(user__is_superuser=True) | Q(user__is_staff=True))
+    elif target_group == 'student':
+        profiles = profiles.filter(is_manager=False, is_pl=False, user__is_superuser=False, user__is_staff=False)
+    
+    profiles = profiles.order_by('name')
+
+    # 3. 엑셀 워크북 바인딩 가동
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active) # 기본 시트 제거
+
+    # ── [★ 수정/위치이동]: 아랫줄에 있던 스타일 사전 정의를 여기로 올립니다 ──
+    thin_border = Border(
+        left=Side(style='thin', color='D3D3D3'), right=Side(style='thin', color='D3D3D3'),
+        top=Side(style='thin', color='D3D3D3'), bottom=Side(style='thin', color='D3D3D3')
+    )
+    header_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+    sat_fill = PatternFill(start_color='E6F2FF', end_color='E6F2FF', fill_type='solid') # 토요일 하늘색
+    sun_fill = PatternFill(start_color='FFE6E6', end_color='FFE6E6', fill_type='solid') # 일요일 분홍색
+    # ──────────────────────────────────────────────────────────────────
+
+    # ──────────────────────────────────────────────────────────
+    # ➕ [신규 추가]: Sheet1 첫 번째 칸에 연차/공가 사용 목록리스트 생성
+    # ──────────────────────────────────────────────────────────
+    ws_summary = wb.create_sheet(title="연차사용 목록리스트")
+    ws_summary.column_dimensions['A'].width = 12
+    ws_summary.column_dimensions['B'].width = 15
+    ws_summary.column_dimensions['C'].width = 15
+    ws_summary.column_dimensions['D'].width = 15
+    ws_summary.column_dimensions['E'].width = 40
+
+    # 요약 리스트 시트 헤더 디자인
+    summary_headers = ["이름", "공정", "날짜", "근무 형태", "비고"]
+    for ci, h in enumerate(summary_headers, 1):
+        cell = ws_summary.cell(row=1, column=ci, value=h)
+        cell.font = Font(name='맑은 고딕', size=11, bold=True, color='FFFFFF')
+        cell.fill = PatternFill(start_color='1F3864', end_color='1F3864', fill_type='solid')
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+        cell.border = thin_border
+    ws_summary.row_dimensions[1].height = 26
+
+    # ── [★ 수정]: 전체 시작일과 종료일 연동 ──
+    all_start = start_date
+    all_end = end_date
+
+    # ──────────────────────────────────────────────────────────
+    # 🎯 [하드코딩 제거 1]: DB 설정값을 기준으로 휴가/연차류 자동 추출
+    # deduction(차감)이 0보다 크거나, 근무일이 아닌데 이름이 '휴무'나 '정상'이 아닌 특수 근무만 자동 필터링!
+    # ──────────────────────────────────────────────────────────
+    leave_work_types = WorkType.objects.filter(
+        Q(deduction__gt=0) | (Q(is_working_day=False) & ~Q(name__contains="휴무"))
+    ).exclude(name__contains="정상")
+
+    summary_schedules = DailySchedule.objects.filter(
+        profile__in=profiles, date__range=(all_start, all_end),
+        work_type__in=leave_work_types
+    ).select_related('profile__process', 'work_type').order_by('date', 'profile__name')
+
+    s_row = 2
+    for s in summary_schedules:
+        purpose_text = s.profile.user.reservation_set.filter(
+            start_time__date=s.date
+        ).first().title if s.profile.user.reservation_set.filter(start_time__date=s.date).exists() else "근무표 자동 연동"
+
+        ws_summary.cell(row=s_row, column=1, value=s.profile.name)
+        ws_summary.cell(row=s_row, column=2, value=s.profile.process.name if s.profile.process else "-")
+        ws_summary.cell(row=s_row, column=3, value=s.date.strftime('%Y-%m-%d'))
+        
+        # ★ "연차"라고 치는 대신 DB의 이름을 그대로 가져옵니다. (예: 반차, 예비군공가 등 자동 반영)
+        ws_summary.cell(row=s_row, column=4, value=s.work_type.name)
+        ws_summary.cell(row=s_row, column=5, value=purpose_text)
+        
+        for c_idx in range(1, 6):
+            c_cell = ws_summary.cell(row=s_row, column=c_idx)
+            c_cell.font = Font(name='맑은 고딕', size=10)
+            c_cell.border = thin_border
+            c_cell.alignment = Alignment(horizontal='center', vertical='center')
+        s_row += 1
+        
+    if s_row == 2:
+        ws_summary.cell(row=2, column=1, value="해당 기간 내 사용된 연차/공가 내역이 없습니다.")
+        ws_summary.merge_cells('A2:E2')
+        ws_summary.cell(row=2, column=1).alignment = Alignment(horizontal='center')
+    # ──────────────────────────────────────────────────────────
+
+    # ──────────────────────────────────────────────────────────
+    # 🎯 [하드코딩 제거 2]: DB의 근무 유형 색상을 그대로 읽어와 컬러맵 구성
+    # ──────────────────────────────────────────────────────────
+    wt_color_map = {}
+    for wt in WorkType.objects.all():
+        key_name = wt.short_name if wt.short_name else wt.name[:2]
+        # openpyxl은 색상 코드에 '#'이 들어가면 에러가 나므로 없애줍니다. 색상이 비어있으면 하얀색 부여.
+        bg_hex = wt.color.replace('#', '') if wt.color else 'FFFFFF'
+        wt_color_map[key_name] = bg_hex
+
+    # 시작월부터 종료월까지의 모든 (연도, 월) 쌍을 계산하여 리스트업
+    months_to_progress = []
+    cur_date = start_date.replace(day=1)
+    while cur_date <= end_date:
+        months_to_progress.append((cur_date.year, cur_date.month))
+        if cur_date.month == 12:
+            cur_date = cur_date.replace(year=cur_date.year + 1, month=1)
+        else:
+            cur_date = cur_date.replace(month=cur_date.month + 1)
+
+    for y, m in months_to_progress:
+        # 달력 일수 스캔 (루프 연도 y와 월 m 대입)
+        _, num_days = calendar.monthrange(y, m)
+        ws = wb.create_sheet(title=f"{y}년 {m}월 근무표")
+        
+        # 가로 타이틀 헤더 어펜드
+        headers = ["이름 / 공정"]
+        for day in range(1, num_days + 1):
+            headers.append(f"{day}일")
+        headers += ["출근", "휴무", "연차", "반차", "잔여 연차"]
+        ws.append(headers)
+        
+        # 헤더 스타일링
+        for col_num in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.font = Font(bold=True, size=10)
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+            cell.fill = header_fill
+            cell.border = thin_border
+            
+            # 주말 열 하이라이트 보정
+            if 1 < col_num <= (num_days + 1):
+                # ── [★ 수정]: target_year 대신 루프 연도 y 적용 ──
+                d_check = date(y, m, col_num - 1)
+                if d_check.weekday() == 5: cell.fill = sat_fill
+                elif d_check.weekday() == 6: cell.fill = sun_fill
+
+        # 해당 월의 모든 스케줄 셋 한방에 인메모리 로드 (쿼리 폭발 방지)
+        # ── [★ 수정]: 상위 변수명 충돌 방지 및 루프 전용 연도 y 바인딩 ──
+        start_month_date = date(y, m, 1)
+        end_month_date = date(y, m, num_days)
+        schedules = DailySchedule.objects.filter(
+            profile__in=profiles, date__range=(start_month_date, end_month_date)
+        ).select_related('work_type')
+
+        # [profile_id][date_str] = work_type 맵 생성
+        sched_map = {}
+        for s in schedules:
+            if s.profile_id not in sched_map: sched_map[s.profile_id] = {}
+            sched_map[s.profile_id][s.date.strftime('%Y-%m-%d')] = s.work_type
+
+        # 로우 데이터 채우기
+        for p in profiles:
+            row_cells = [f"{p.name}\n({p.process.name if p.process else '-'})"]
+            
+            # 카운팅 변수
+            work_cnt, rest_cnt, leave_cnt, half_cnt = 0, 0, 0, 0
+            
+            for day in range(1, num_days + 1):
+                # ── [★ 수정]: target_year 대신 y 적용 ──
+                d_str = date(y, m, day).strftime('%Y-%m-%d')
+                wt = sched_map.get(p.id, {}).get(d_str, None)
+                
+                if wt:
+                    short_name = wt.short_name if wt.short_name else wt.name[:2]
+                    row_cells.append(short_name)
+                    
+                    # 통계 누적
+                    if wt.deduction == 1.0: leave_cnt += 1
+                    elif 0 < wt.deduction < 1.0: half_cnt += 1
+                    elif wt.is_working_day and wt.deduction == 0: work_cnt += 1
+                    else:
+                        if not wt.is_working_day: rest_cnt += 1
+                else:
+                    # 기본값 지정 규칙 (주말은 휴무, 평일은 F)
+                    # ── [★ 수정]: target_year 대신 y 적용 ──
+                    d_obj = date(y, m, day)
+                    if d_obj.weekday() >= 5:
+                        row_cells.append("휴무")
+                        rest_cnt += 1
+                    else:
+                        row_cells.append("F")
+                        work_cnt += 1
+            
+            # 통계 데이터 및 잔여 연차 마감 결합
+            # ── [★ 수정]: target_year 대신 y 적용 ──
+            total_leave = calculate_annual_leave_total(p, y)
+            row_cells += [work_cnt, rest_cnt, leave_cnt, half_cnt, f"{total_leave - leave_cnt} / {total_leave}"]
+            ws.append(row_cells)
+            
+            # 방금 추가된 로우 서식 지정
+            curr_row = ws.max_row
+            for col_num in range(1, len(row_cells) + 1):
+                c = ws.cell(row=curr_row, column=col_num)
+                c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                c.border = thin_border
+                c.font = Font(size=10)
+                
+                # 가독성: 이름칸 왼쪽 정렬 보정
+                if col_num == 1: c.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+                
+                # 특정 근무 유형 폰트 색상 하이라이트 (휴무는 빨간색 등)
+                val = str(c.value)
+                if "휴무" in val: 
+                    c.font = Font(color="FF0000", size=10)
+                
+                # ──────────────────────────────────────────────────────────
+                # 🎯 [하드코딩 제거 3]: 미리 만들어둔 wt_color_map에서 색상을 꺼내 자동으로 칠합니다!
+                # ──────────────────────────────────────────────────────────
+                elif val in wt_color_map:
+                    dynamic_bg_hex = wt_color_map[val]
+                    c.fill = PatternFill(start_color=dynamic_bg_hex, end_color=dynamic_bg_hex, fill_type='solid')
+                    # 배경이 들어가면 글씨는 돋보이게 볼드(굵게) 처리
+                    c.font = Font(bold=True, size=10, color="222222")
+
+        # 셀 너비 자동 맞춤 최적화
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = openpyxl.utils.get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 7)
+        ws.column_dimensions['A'].width = 15 # 이름 컬럼은 좀 더 넓게
+
+    # 4. 파일 스트리밍 출력 반환
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    file_prefix = "year" if download_scope == "year" else f"{target_month}month"
+    response['Content-Disposition'] = f'attachment; filename=pmtc_schedule_{target_year}_{file_prefix}.xlsx'
+    wb.save(response)
+    return response

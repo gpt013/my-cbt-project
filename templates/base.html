@@ -53,7 +53,12 @@
             z-index: 99999; display: none; flex-direction: column; 
             align-items: center; justify-content: center; backdrop-filter: blur(3px);
         }
+
+        .hover-bg-danger:hover { background-color: #fdf2f2 !important; color: #dc3545 !important; transition: 0.2s; }
+        .hover-bg-primary:hover { background-color: #f0f7ff !important; color: #0d6efd !important; transition: 0.2s; }
     </style>
+
+    <link rel="manifest" href="/static/manifest.json">
 </head>
 <body>
 
@@ -163,43 +168,79 @@
                             {% endif %}
                         </ul>
 
-                        <div class="d-flex align-items-center text-white">
-                            
-                            <ul class="navbar-nav me-3">
+                        
+                                        <div class="d-flex align-items-center gap-2 flex-nowrap ms-auto">
+
+                            <ul class="navbar-nav">
                                 <li class="nav-item dropdown">
-                                    <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
+                                    <a class="nav-link nav-icon position-relative px-2" href="#"
+                                       data-bs-toggle="dropdown" onclick="openNotificationMenu()">
                                         <i id="bell-icon" class="bi bi-bell fs-5"></i>
-                                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-manager" style="display:none;">0</span>
+                                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
+                                              id="noti-badge-manager" style="display:none;">0</span>
                                     </a>
-                                    <ul class="dropdown-menu dropdown-menu-end shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
-                                        <li class="dropdown-header d-flex justify-content-between align-items-center">
-                                            <span class="small fw-bold">알림 <span id="noti-count-text-manager">0</span>개</span>
-                                            <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
+                                    <ul class="dropdown-menu dropdown-menu-end shadow notifications border-0 p-0"
+                                        style="width:320px; overflow:hidden; border-radius:12px;">
+                                        <li class="dropdown-header bg-light border-bottom py-3 d-flex justify-content-between align-items-center">
+                                            <span class="fw-bold text-dark fs-6" style="letter-spacing:-0.5px;">
+                                                <i class="bi bi-bell-fill text-warning me-1"></i> 알림 센터
+                                            </span>
+                                            <span class="badge bg-danger rounded-pill">
+                                                <span id="noti-count-text-manager">0</span>
+                                            </span>
                                         </li>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <div id="noti-list-container-manager">
+                                        <div id="noti-list-container-manager" class="custom-scroll"
+                                             style="max-height:320px; overflow-y:auto;">
                                             <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
                                         </div>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
+                                        <li class="d-flex border-top bg-white">
+                                            <button type="button"
+                                                    class="btn btn-light w-50 rounded-0 text-muted border-end py-2 hover-bg-danger"
+                                                    style="font-size:0.85rem; font-weight:500;"
+                                                    onclick="clearAllNotis()">
+                                                <i class="bi bi-trash3 me-1"></i> 모두 삭제
+                                            </button>
+                                            <a href="{% url 'quiz:notification_list' %}"
+                                               class="btn btn-light w-50 rounded-0 text-primary py-2 text-center text-decoration-none hover-bg-primary"
+                                               style="font-size:0.85rem; font-weight:600;">
+                                                전체 보기 <i class="bi bi-chevron-right"></i>
+                                            </a>
+                                        </li>
                                     </ul>
                                 </li>
-                            </ul>
+                            </ul><!-- /.navbar-nav (벨) -->
 
-                            <span class="me-3 d-none d-lg-inline">
-                                {% if user.profile.is_manager %} <span class="badge bg-warning text-dark me-1">Manager</span>
-                                {% elif user.profile.is_pl %} <span class="badge bg-info text-dark me-1">PL</span>
-                                {% else %} <span class="badge bg-secondary me-1">Staff</span>
+                            <span class="d-none d-xl-inline small text-white text-nowrap">
+                                {% if user.profile.is_manager %}
+                                    <span class="badge bg-warning text-dark me-1">Manager</span>
+                                {% elif user.profile.is_pl %}
+                                    <span class="badge bg-info text-dark me-1">PL</span>
+                                {% else %}
+                                    <span class="badge bg-secondary me-1">Staff</span>
                                 {% endif %}
-                                <strong>{{ user.profile.name|default:user.username }}</strong>
+                                <strong>{{ user.profile.name|default:user.username }}</strong> 님
                             </span>
-                            <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
+
+                            <span id="logout-timer" class="text-warning fw-bold text-nowrap"
+                                  style="font-family:'Courier New',monospace; font-size:0.95rem; min-width:70px; text-align:center;">
+                                03:00:00
+                            </span>
+
+                            <button id="extend-btn" class="btn btn-sm btn-outline-warning fw-bold text-nowrap"
+                                    onclick="extendSession()" style="font-size:0.75rem; padding:2px 8px;">
+                                연장
+                            </button>
+
+                            <form action="{% url 'accounts:logout' %}" method="post" class="m-0 p-0">
                                 {% csrf_token %}
-                                <button type="submit" class="btn btn-outline-light btn-sm">로그아웃</button>
+                                <button type="submit" class="btn btn-sm btn-danger fw-bold text-nowrap">
+                                    <i class="bi bi-box-arrow-right"></i> 로그아웃
+                                </button>
                             </form>
-                        </div>
-                    </div>
-                </div>
+
+                        </div><!-- /.d-flex 오른쪽 영역 -->
+                    </div><!-- /.navbar-collapse -->
+                </div><!-- /.container-fluid -->
             </nav>
         </header>
 
@@ -224,47 +265,41 @@
                                 <li class="nav-item"><a class="nav-link" href="{% url 'quiz:personal_dashboard' %}"><i class="bi bi-graph-up"></i> 대시보드</a></li>
                                 
                                 <li class="nav-item dropdown">
-                                    <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="loadNotifications()">
-                                        <i id="bell-icon" class="bi bi-bell"></i> 알림
+                                    <a class="nav-link nav-icon position-relative" href="#" data-bs-toggle="dropdown" onclick="openNotificationMenu()">
+                                        <i id="bell-icon" class="bi bi-bell fs-5"></i> 알림
                                         <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" id="noti-badge-student" style="display:none; left: 80% !important;">0</span>
                                     </a>
-                                    <ul class="dropdown-menu shadow notifications" style="width: 300px; max-height: 400px; overflow-y: auto;">
-                                        <li class="dropdown-header d-flex justify-content-between align-items-center">
-                                            <span class="small fw-bold">알림 <span id="noti-count-text-student">0</span>개</span>
-                                            <a href="#" onclick="clearAllNotis()" class="text-decoration-none small text-primary">모두 삭제</a>
+                                    <ul class="dropdown-menu shadow notifications border-0 p-0" style="width: 320px; overflow: hidden; border-radius: 12px;">
+                                        <li class="dropdown-header bg-light border-bottom py-3 d-flex justify-content-between align-items-center">
+                                            <span class="fw-bold text-dark fs-6" style="letter-spacing: -0.5px;">
+                                                <i class="bi bi-bell-fill text-primary me-1"></i> 알림 센터
+                                            </span>
+                                            <span class="badge bg-danger rounded-pill"><span id="noti-count-text-student">0</span></span>
                                         </li>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <div id="noti-list-container-student">
+                                        <div id="noti-list-container-student" class="custom-scroll" style="max-height: 320px; overflow-y: auto;">
                                             <li class="dropdown-item text-center text-muted small py-3">로딩 중...</li>
                                         </div>
-                                        <li><hr class="dropdown-divider"></li>
-                                        <li><a class="dropdown-item text-center small text-primary" href="{% url 'quiz:notification_list' %}">모든 알림 보기</a></li>
+                                        <li class="d-flex border-top bg-white">
+                                            <button type="button" class="btn btn-light w-50 rounded-0 text-muted border-end py-2 hover-bg-danger" style="font-size: 0.85rem; font-weight: 500;" onclick="clearAllNotis()">
+                                                <i class="bi bi-trash3 me-1"></i> 모두 삭제
+                                            </button>
+                                            <a href="{% url 'quiz:notification_list' %}" class="btn btn-light w-50 rounded-0 text-primary py-2 text-center text-decoration-none hover-bg-primary" style="font-size: 0.85rem; font-weight: 600;">
+                                                전체 보기 <i class="bi bi-chevron-right"></i>
+                                            </a>
+                                        </li>
                                     </ul>
                                 </li>
-                                
-                                <li class="nav-item border-start ms-lg-2 ps-lg-2">
-                                    <a class="nav-link" href="{% url 'attendance:check_in_page' %}"><i class="bi bi-camera"></i> MDM</a>
-                                </li>
-                                <li class="nav-item"><a class="nav-link" href="{% url 'attendance:schedule_index' %}"><i class="bi bi-calendar3"></i> 근무표</a></li>
                             {% endif %}
                         </ul>
-
-                        <div class="d-flex align-items-center">
-                            {% if user.is_authenticated %}
-                                <div class="me-3 text-end lh-1 d-none d-lg-block">
-                                    <span class="d-block fw-bold text-dark">{{ user.profile.name|default:user.username }}</span>
-                                    <small class="text-muted" style="font-size: 0.75rem;">
-                                        {{ user.profile.cohort.name|default:"-" }} / {{ user.profile.process.name|default:"-" }}
-                                    </small>
-                                </div>
-                                <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
-                                    {% csrf_token %}
-                                    <button type="submit" class="btn btn-outline-secondary btn-sm">로그아웃</button>
-                                </form>
-                            {% else %}
-                                <a href="{% url 'accounts:login' %}" class="btn btn-primary btn-sm me-2">로그인</a>
-                                <a href="{% url 'accounts:signup' %}" class="btn btn-outline-primary btn-sm">회원가입</a>
-                            {% endif %}
+                        
+                        <div class="d-flex align-items-center ms-auto">
+                            <span class="me-3 text-secondary d-none d-lg-inline fw-bold">
+                                🎓 {{ user.profile.name|default:user.username }} 교육생
+                            </span>
+                            <form action="{% url 'accounts:logout' %}" method="post" class="d-inline">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-danger fw-bold">로그아웃</button>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -411,10 +446,13 @@
                 let targetCount = countTextM || countTextS;
 
                 if (targetCount) targetCount.innerText = currentCount;
+                
                 if (targetList) {
                     targetList.innerHTML = '';
-                    if (currentCount === 0) {
-                        targetList.innerHTML = '<li class="dropdown-item text-center text-muted small py-3">새로운 알림이 없습니다.</li>';
+                    
+                    // ★ [수정되는 코드]: currentCount === 0 대신 실제 배열 길이를 체크합니다!
+                    if (data.notifications.length === 0) {
+                        targetList.innerHTML = '<li class="dropdown-item text-center text-muted small py-3">알림 내역이 없습니다.</li>';
                     } else {
                         data.notifications.forEach(n => {
                             targetList.innerHTML += `
@@ -437,7 +475,8 @@
 
         // [기능 1] 알림 클릭: 읽음 처리 후 페이지 이동
         function clickAndMove(id, link) {
-            fetch(`/quiz/notification/read/${id}/`)
+            // ★ [수정]: read 대신 delete API를 호출하여 직접 클릭한 알림이 목록에서 즉시 사라지게 만듭니다.
+            fetch(`/quiz/notification/delete/${id}/`)
             .then(res => res.json())
             .then(data => {
                 if (link && link !== 'null' && link !== 'None' && link !== '#') {
@@ -446,7 +485,7 @@
                     loadNotifications(false); 
                 }
             })
-            .catch(err => console.error('알림 읽음 처리 중 오류 발생:', err));
+            .catch(err => console.error('알림 처리 중 오류 발생:', err));
         }
 
         // [기능 2] X 버튼: 영구 삭제
@@ -851,11 +890,157 @@
                     
                     // 확인 팝업(confirm)이 있는 경우 취소하면 로딩창도 안 띄우기 위해 약간의 지연시간을 줌
                     setTimeout(() => {
-                        loader.style.display = 'flex';
+                        if (!e.defaultPrevented) {
+                            loader.style.display = 'flex';
+                        }
                     }, 50);
                 });
             });
         });
+    
+
+        function openNotificationMenu() {
+            // 1. 알림 리스트 먼저 불러오기 (기존 기능)
+            loadNotifications(false);
+            
+            // 2. 화면에서 빨간 뱃지 즉시 숨기기 (반응성 UX)
+            const badgeM = document.getElementById('noti-badge-manager');
+            const badgeS = document.getElementById('noti-badge-student');
+            if (badgeM) badgeM.style.display = 'none';
+            if (badgeS) badgeS.style.display = 'none';
+            
+            // 3. 서버 몰래 백그라운드에서 "전부 읽음 처리해 줘" 라고 요청 보내기
+            fetch('/quiz/api/notifications/mark-all-read/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    previousNotiCount = 0; // 다음번 폴링 때 숫자가 튀어오르지 않게 0으로 리셋!
+                }
+            })
+            .catch(err => console.error('읽음 처리 실패:', err));
+        }
+
+        let timeLeft = 10800; // 3시간 풀충전 (초 단위)
+        let lastActivityTime = Date.now(); // 디바운싱용 마지막 활동 기록 보관소
+
+        function updateTimer() {
+            let h = Math.floor(timeLeft / 3600);
+            let m = Math.floor((timeLeft % 3600) / 60);
+            let s = timeLeft % 60;
+            
+            const timerEl = document.getElementById('logout-timer');
+            if (timerEl) {
+                timerEl.innerText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+            }
+            
+            if (timeLeft <= 0) {
+                // 🎯 [수정] 3시간 무활동 종착 시, 단순 주소 이동 대신 안전하게 세션 파괴를 위해 로그아웃 폼을 강제 작동시킵니다.
+                const logoutForm = document.querySelector('form[action*="logout"]');
+                if (logoutForm) {
+                    logoutForm.submit();
+                } else {
+                    window.location.href = "{% url 'accounts:logout' %}";
+                }
+            }
+            timeLeft--;
+        }
+        
+        // 1초마다 타이머 계산 함수를 상시 강제 가동
+        setInterval(updateTimer, 1000);
+
+        // [핵심 패치 1] 유저가 마우스를 흔들거나 클릭, 타이핑하면 프론트 타이머를 자동으로 3시간 초기화합니다.
+        function resetFrontTimerOnly() {
+            timeLeft = 10800; // 타이머 시간 원상 복구
+            
+            // 💡 과도한 서버 통신 방지 (디바운싱): 1분 동안은 마우스를 아무리 흔들어도 
+            // 서버 백엔드 리프레시 API는 딱 1번만 호출하여 서버 부하를 완벽히 통제합니다.
+            if (Date.now() - lastActivityTime > 60000) { 
+                lastActivityTime = Date.now();
+                fetch("{% url 'quiz:refresh_session' %}").catch(e => console.log("백그라운드 세션 자동 연장중..."));
+            }
+        }
+
+        // 마우스 움직임, 클릭, 키보드 입력, 스크롤 발생 시 자동 리셋 트리거를 작동시킵니다.
+        window.addEventListener('mousemove', resetFrontTimerOnly);
+        window.addEventListener('click', resetFrontTimerOnly);
+        window.addEventListener('keydown', resetFrontTimerOnly);
+        window.addEventListener('scroll', resetFrontTimerOnly);
+
+        // [핵심 패치 2] 연장 버튼 수동 클릭 핸들러 (원클릭 즉시 동기화 및 즉시 팝업)
+        function extendSession() {
+            fetch("{% url 'quiz:refresh_session' %}")
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    timeLeft = 10800;  // 1. 카운트 변수 즉시 충전
+                    lastActivityTime = Date.now(); // 2. 활동 타임스탬프 최신화
+                    updateTimer();     // 3. 딜레이 없이 상단 메뉴 글자를 즉시 03:00:00 으로 가시화
+                    
+                    Swal.fire({
+                        title: '보안 세션 연장 완료',
+                        text: '자동 로그아웃 만료 시간이 다시 3시간으로 충전되었습니다.',
+                        icon: 'success',
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+                }
+            })
+            .catch(err => {
+                console.error("세션 연장 통신 실패:", err);
+                alert("서버 연결 실패: 세션 갱신 API 주소를 찾을 수 없습니다.");
+            });
+        }
+// ──────────────────────────────────────────────────────────
+
+// ─── [기존 아래쪽 코드 기준점 - PWA 서비스 워커 상시 가동 제어부] ───
+        // 🎯 PWA 서비스 워커 상시 가동 제어부
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('/static/service-worker.js')
+                .then(function(reg) {
+                    console.log('✅ PWA 서비스 워커가 성공적으로 가동되었습니다.', reg.scope);
+                }).catch(function(err) {
+                    console.log('❌ 서비스 워커 등록 실패:', err);
+                });
+            });
+        }
+
+        let deferredPrompt;
+
+        // 브라우저가 설치 가능 메커니즘을 감지하면 이벤트를 채갑니다.
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); // 기본 주소창 아이콘 활성화 방직을 차단하고
+            deferredPrompt = e;  // 변수에 설치 권한을 포획해 둡니다.
+            
+            // 메신저 헤더나 적당한 곳에 수동 설치 버튼이 있다면 활성화시키는 트리거
+            const pwaBtn = document.getElementById('pwa-install-btn');
+            if (pwaBtn) pwaBtn.style.display = 'inline-block';
+        });
+
+        // 이 함수를 호출하면 브라우저 주소창에 버튼이 없어도 설치 팝업이 강제로 열립니다!
+        window.triggerPWAInstall = function() {
+            if (!deferredPrompt) {
+                alert("✨ 이미 설치되어 바탕화면에 앱이 존재하거나, 브라우저가 아직 명세서(manifest.json)를 읽는 중입니다. 3초 후 다시 눌러보세요!");
+                return;
+            }
+            deferredPrompt.prompt(); // 강제 팝업 오픈
+            deferredPrompt.userChoice.then((choiceResult) => {
+                if (choiceResult.outcome === 'accepted') {
+                    console.log('User accepted the install prompt');
+                }
+                deferredPrompt = null;
+            });
+        };
     </script>
-    {% endif %} {% endif %} </body>
+    
+    {# 🎯 장고 조건문 분기점이 안전하게 닫힌 뒤 Body가 마감되는 스택 구조 확인 #}
+    {% endif %} 
+    {% endif %} 
+</body>
 </html>

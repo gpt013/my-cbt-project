@@ -166,3 +166,29 @@ class ConcurrentLoginMiddleware:
                 return redirect('accounts:login') 
 
         return self.get_response(request)
+
+class SessionIdleTimeoutMiddleware:
+    """
+    'last_activity' 값을 기준으로 실제 사용자 활동(마우스/클릭/키보드) 없이
+    3시간이 지나면 서버 측에서 강제로 로그아웃시키는 미들웨어.
+    """
+    def __init__(self, get_response):
+        self.get_response = get_response
+        from django.conf import settings
+        self.timeout_seconds = getattr(settings, 'SESSION_COOKIE_AGE', 10800)
+
+    def __call__(self, request):
+        if request.user.is_authenticated:
+            last_activity_str = request.session.get('last_activity')
+
+            if last_activity_str:
+                last_activity = timezone.datetime.fromisoformat(last_activity_str)
+                elapsed = (timezone.now() - last_activity).total_seconds()
+
+                if elapsed > self.timeout_seconds:
+                    logout(request)
+                    response = redirect('accounts:login')
+                    response['Location'] += '?session_expired=1'
+                    return response
+
+        return self.get_response(request)
