@@ -18,6 +18,7 @@ class Cohort(models.Model):
     end_date = models.DateField(verbose_name="교육 종료일", null=True, blank=True)
     is_registration_open = models.BooleanField(default=True, verbose_name="가입 활성화 여부")
     is_closed = models.BooleanField(default=False, verbose_name="평가 마감 완료")
+    is_process_manual_exam_allowed = models.BooleanField(default=False, verbose_name='공정시험 수기 채점 허용')
 
     # ★★★ 이 줄이 빠져서 에러가 났던 겁니다! 여기에 꼭 추가해 주세요! ★★★
     is_manual_exam_allowed = models.BooleanField(
@@ -166,7 +167,15 @@ class FinalAssessment(models.Model):
     
     # 점수 입력란
     exam_avg_score = models.FloatField(default=0, verbose_name="시험 평균(자동)")
-    practice_score = models.FloatField(default=0, verbose_name="실습 점수")
+    
+    # 🎯 [신규 추가] 실습 차수별 이력 추적용 필드 (빈칸 허용)
+    practice_score_1 = models.FloatField(null=True, blank=True, verbose_name="실습 1차 점수")
+    practice_score_2 = models.FloatField(null=True, blank=True, verbose_name="실습 2차 점수")
+    practice_score_3 = models.FloatField(null=True, blank=True, verbose_name="실습 3차 점수")
+    
+    # [기존 유지] 기존 데이터 보존 및 최종 환산용 대표 점수
+    practice_score = models.FloatField(default=0, verbose_name="최종 실습 점수")
+    
     note_score = models.FloatField(default=0, verbose_name="노트 점수")
     attitude_score = models.FloatField(default=0, verbose_name="인성/태도 점수")
     

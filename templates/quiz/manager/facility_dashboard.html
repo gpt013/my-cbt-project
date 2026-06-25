@@ -369,16 +369,16 @@
                 </div>
                 
                 <div class="row g-2 mb-3">
-                    <div class="col-7">
+                   <div class="col-7">
                         <label class="fw-bold">예약자 소속 회사 <span class="text-danger">*</span></label>
-                        <select id="company_select" class="form-select shadow-sm" onchange="toggleCompanyInput()" required>
+                        <select id="company_select" name="company_select_temp" class="form-select shadow-sm" onchange="toggleCompanyInput()" required>
                             <option value="" disabled selected>회사 선택</option>
                             {% for comp in companies %}
-                                <option value="{{ comp.name }}" {% if user.profile.company.name == comp.name %}selected{% endif %}>{{ comp.name }}</option>
+                                <option value="{{ comp.name }}">{{ comp.name }}</option>
                             {% endfor %}
                             <option value="direct" class="text-primary fw-bold">➕ 기타 (직접 입력)</option>
                         </select>
-                        <input type="text" name="company_name" id="reserve_company" class="form-control shadow-sm mt-2" placeholder="회사명 직접 입력" style="display: none;">
+                        <input type="text" name="company_name" id="reserve_company" class="form-control shadow-sm mt-2" placeholder="회사명 직접 입력" style="display: none;" required>
                     </div>
                     <div class="col-5">
                         <label class="fw-bold">사용 인원 <span class="text-danger">*</span></label>
@@ -641,34 +641,46 @@
         if(form) {
             form.onsubmit = function(e) {
                 e.preventDefault();
-                // ★ [버그 수정 1] 아래 줄을 지워야 직접 입력한 글자가 안 날아갑니다!
-                // toggleCompanyInput();  <-- 이 녀석이 범인이었습니다.
+                
+                // ★ 직접 입력이 아닌 경우, select 값을 숨겨진 input에 덮어써서 서버로 안전하게 보냄
+                const sel = document.getElementById('company_select');
+                const inp = document.getElementById('reserve_company');
+                if (sel.value !== 'direct') {
+                    inp.value = sel.value;
+                }
                 
                 const formData = new FormData(this);
+                
+                // 전역 로딩창이 있다면 켬
+                const loader = document.getElementById('global-loader');
+                if(loader) loader.style.display = 'flex';
+
                 fetch('{% url "quiz:facility_reserve" %}', { 
                     method: 'POST', 
-                    headers: {'X-CSRFToken': getCsrfToken()}, 
+                    // ★ CSRF 토큰을 안전하게 템플릿 태그로 직접 가져옴
+                    headers: {'X-CSRFToken': '{{ csrf_token }}'}, 
                     body: formData 
                 }).then(async r => {
                     if (!r.ok) throw new Error(`서버 통신 실패 (상태: ${r.status})`);
                     return r.json();
                 }).then(d => {
-                    const loader = document.getElementById('global-loader');
-                    if(loader) loader.style.display = 'none';
-
                     if(d.status === 'success') {
                         if(calendar) calendar.refetchEvents();
                         loadWeeklyMatrix();
-                        fetchMonthlyData(calendar.view.currentStart);
+                        if(calendar && calendar.view) {
+                            fetchMonthlyData(calendar.view.currentStart);
+                        }
                         bootstrap.Modal.getInstance(document.getElementById('reserveModal')).hide();
                         Swal.fire({ title: '완료!', text: d.message, icon: 'success', timer: 1500, showConfirmButton: false });
                     } else {
                         Swal.fire({ title: '오류', text: d.message, icon: 'error' });
                     }
                 }).catch(err => {
-                    const loader = document.getElementById('global-loader');
+                    console.error("예약 전송 에러:", err);
+                    Swal.fire({ title: '통신 오류', text: "네트워크 문제나 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", icon: 'error' });
+                }).finally(() => {
+                    // ★ [가장 중요] 무한 로딩 방어: 어떤 일이 있어도 로딩창은 끈다!
                     if(loader) loader.style.display = 'none';
-                    Swal.fire({ title: '통신 오류', text: "세션이 만료되었거나 권한이 없습니다. 새로고침 후 다시 시도해주세요.", icon: 'error' });
                 });
             };
         }
@@ -1670,7 +1682,7 @@
         const timeOpt = { hour: '2-digit', minute:'2-digit', hour12: false };
         const sTime = new Date(e.start).toLocaleTimeString('ko-KR', timeOpt);
         const eTime = new Date(e.end).toLocaleTimeString('ko-KR', timeOpt);
-        const dateStr = currentDailyDate.toISOString().split('T')[0];
+        const dateStr = getLocalYYYYMMDD(currentDailyDate);
 
         const roomName = roomList.find(r => r.id == e.room_id)?.name || '알수없음';
         
@@ -1934,6 +1946,33 @@ if (excelForm) {
         }, 1000); // 파일 생성될 시간을 감안해 1초(1000ms) 여유를 줍니다.
     });
 }
+function downloadExcelBypass() {
+    const form = document.getElementById('excelDownloadForm');
+    if (!form) return;
 
+    const startDate = document.getElementById('excel_start_date').value;
+    const endDate   = document.getElementById('excel_end_date').value;
+
+    if (!startDate || !endDate) {
+        Swal.fire('오류', '시작일과 종료일을 선택해주세요.', 'error');
+        return;
+    }
+
+    // 모달 닫기
+    const modalEl = document.getElementById('excelDownloadModal');
+    const modal = bootstrap.Modal.getInstance(modalEl);
+    if (modal) modal.hide();
+
+    // iframe 다운로드 (로딩 오버레이 없이 파일만 받음)
+    let iframe = document.getElementById('excel-dl-frame');
+    if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.id    = 'excel-dl-frame';
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+    }
+    const params = new URLSearchParams(new FormData(form)).toString();
+    iframe.src = form.action + '?' + params;
+}
 </script>
 {% endblock %}

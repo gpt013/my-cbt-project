@@ -1,0 +1,16 @@
+{
+  "short_name": "PMTC 톡",
+  "name": "PMTC 사내 메신저 시스템",
+  "icons": [
+    {
+      "src": "/static/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "start_url": "/quiz/chat/",
+  "background_color": "#ffffff",
+  "theme_color": "#ffc107",
+  "display": "standalone",
+  "orientation": "portrait"
+}

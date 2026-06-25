@@ -10,3 +10,7 @@ def get_item(dictionary, key):
     if not dictionary or not hasattr(dictionary, 'get'):
         return None
     return dictionary.get(key)
+
+@register.filter
+def times(n):
+    return range(n)

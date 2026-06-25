@@ -3,181 +3,542 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="card">
-        <div class="card-header">
-            <h1>나의 학습 대시보드</h1>
-        </div>
-        <div class="card-body p-4">
-            <h4>나의 학습 요약</h4>
-            <div class="row mt-3">
-                <div class="col-md-6 mb-3">
-                    <div class="card text-center h-100">
-                        <div class="card-body d-flex flex-column justify-content-center">
-                            <h5 class="card-title">총 응시 횟수</h5>
-                            <p class="card-text fs-2 fw-bold mb-0">{{ total_attempts }}</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6 mb-3">
-                    <div class="card text-center h-100">
-                        <div class="card-body d-flex flex-column justify-content-center">
-                            <h5 class="card-title">전체 평균 점수</h5>
-                            <p class="card-text fs-2 fw-bold mb-0">{{ overall_average_score|floatformat:1|default:"N/A" }}</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <hr class="my-4">
-
-            <div class="row">
-                <div class="col-lg-6 mb-4">
-                    <h4 class="text-center">과목별 1차 점수</h4>
-                    <div>
-                        <canvas id="radarChart"></canvas>
-                    </div>
-                </div>
-                <div class="col-lg-6 mb-4">
-                    <h4 class="text-center">과목별 전체 평균</h4>
-                    <div>
-                        <canvas id="barChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <hr class="my-4">
-
-            <h4>상세 성적표</h4>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle">
-                    <thead>
-                        <tr>
-                            <th scope="col">시험 종류</th>
-                            <th scope="col" class="text-center">1차 점수</th>
-                            <th scope="col" class="text-center">최고 점수</th>
-                            <th scope="col" class="text-center">전체 평균</th>
-                            <th scope="col" class="text-center">응시 횟수</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for summary in summary_data %}
-                        <tr>
-                            <td><strong>{{ summary.title }}</strong></td>
-                            <td class="text-center">{{ summary.first_score|floatformat:0|default:"-" }}점</td>
-                            <td class="text-center">{{ summary.max_score|floatformat:0|default:"-" }}점</td>
-                            <td class="text-center">{{ summary.avg_score|floatformat:1|default:"-" }}점</td>
-                            <td class="text-center">{{ summary.attempts }}회</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-
-            <hr class="my-4">
-            
-            <h4>나의 뱃지</h4>
-            <div class="row">
-                {% for badge in user_badges %}
-                    <div class="col-md-4 col-lg-3 mb-3 text-center">
-                        <div class="card h-100">
-                            {% if badge.image %}
-                                <img src="{{ badge.image.url }}" class="card-img-top p-3" alt="{{ badge.name }}" style="max-height: 150px; object-fit: contain;">
-                            {% else %}
-                                <div class="p-3 fs-1">🏆</div>
-                            {% endif %}
-                            <div class="card-body">
-                                <h6 class="card-title">{{ badge.name }}</h6>
-                                <p class="card-text small text-muted">{{ badge.description }}</p>
-                            </div>
-                        </div>
-                    </div>
-                {% empty %}
-                    <p class="text-muted">아직 획득한 뱃지가 없습니다. 첫 시험에 도전해보세요!</p>
-                {% endfor %}
-            </div>
-        </div>
+  <div class="card shadow-sm">
+    <div class="card-header bg-white py-3">
+      <h4 class="mb-0 fw-bold">🎓 나의 학습 대시보드</h4>
     </div>
-</div>
+    <div class="card-body p-4">
 
+
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      {# ① 요약 카드 4개                         #}
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      <h5 class="fw-bold mb-3">나의 학습 요약</h5>
+      <div class="row g-3 mb-4">
+
+        <div class="col-6 col-md-3">
+          <div class="card text-center h-100 border-0 bg-light">
+            <div class="card-body py-3">
+              <div class="fs-2 mb-1">📝</div>
+              <div class="small text-muted mb-1">총 응시 횟수</div>
+              <div class="fs-2 fw-bold">{{ total_attempts }}<small class="fs-6 text-muted">회</small></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+          <div class="card text-center h-100 border-0 bg-light">
+            <div class="card-body py-3">
+              <div class="fs-2 mb-1">📊</div>
+              <div class="small text-muted mb-1">전체 평균 점수</div>
+              <div class="fs-2 fw-bold">
+                {{ overall_average_score|floatformat:1|default:"N/A" }}<small class="fs-6 text-muted">점</small>
+              </div>
+              {% if overall_average_score %}
+                {% if overall_average_score < 80 %}
+                  <div class="small text-danger mt-1">⚠️ 평균 80점 미만</div>
+                {% else %}
+                  <div class="small text-success mt-1">✅ 평균 합격권</div>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+          <div class="card text-center h-100 border-0 bg-light">
+            <div class="card-body py-3">
+              <div class="fs-2 mb-1">🏅</div>
+              <div class="small text-muted mb-1">기수 내 등수</div>
+              {% if rank %}
+                <div class="fs-2 fw-bold">{{ rank }}<small class="fs-6 text-muted">위</small></div>
+                <div class="small text-muted">/ {{ cohort_total }}명</div>
+              {% else %}
+                <div class="fs-3 text-muted">-</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+          <div class="card text-center h-100 border-0 bg-light">
+            <div class="card-body py-3">
+              <div class="fs-2 mb-1">🎯</div>
+              <div class="small text-muted mb-1">백분위</div>
+              {% if percentile %}
+                <div class="fs-2 fw-bold">상위 {{ percentile }}<small class="fs-6 text-muted">%</small></div>
+              {% else %}
+                <div class="fs-3 text-muted">-</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+      </div>{# /요약 카드 #}
+
+
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      {# ② 합격 현황 진행바                                     #}
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      <hr class="my-4">
+      <h5 class="fw-bold mb-3">✅ 합격 현황</h5>
+
+      {# 퇴소 위험 배너 #}
+      {% if danger_subjects %}
+        <div class="alert alert-danger d-flex align-items-center py-2 mb-3" role="alert">
+          <span class="fs-5 me-2">🚨</span>
+          <div>
+            <strong>주의!</strong>
+            {% for d in danger_subjects %}
+              <strong>{{ d.title }}</strong> ({{ d.attempts }}회 응시 / 합격 미달)
+              {% if not forloop.last %}, {% endif %}
+            {% endfor %}
+            — 다음 시험이 마지막 기회입니다.
+          </div>
+        </div>
+      {% endif %}
+
+      {# 전체 진행바 #}
+      <div class="mb-3">
+        <div class="d-flex justify-content-between small text-muted mb-1">
+          <span>전체 합격 진행률</span>
+          <span>{{ total_passed }} / {{ TOTAL_QUIZZES }} 과목 합격</span>
+        </div>
+        <div class="progress" style="height:18px; border-radius:9px;">
+          <div class="progress-bar bg-success progress-bar-striped progress-bar-animated"
+               role="progressbar"
+               style="width: {{ progress_pct }}%;">
+            {{ progress_pct }}%
+          </div>
+        </div>
+      </div>
+
+      {# 공통 / 공정 분리 진행바 #}
+      <div class="row g-3 mt-1">
+        <div class="col-md-6">
+          <div class="card border-0 bg-light p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="fw-semibold">📘 공통 과목</span>
+              <span class="badge bg-success rounded-pill">{{ passed_common }} / 3 합격</span>
+            </div>
+            <div class="progress" style="height:12px; border-radius:6px;">
+              <div class="progress-bar bg-primary"
+                   style="width: {% widthratio passed_common 3 100 %}%"></div>
+            </div>
+            <div class="mt-2 d-flex flex-wrap gap-2">
+              {% for s in summary_data %}
+                {% if s.category == 'common' %}
+                  <span class="badge {% if s.is_pass %}bg-success{% else %}bg-secondary{% endif %}">
+                    {% if s.is_pass %}✅{% else %}⏳{% endif %} {{ s.title }}
+                  </span>
+                {% endif %}
+              {% endfor %}
+              {# 아직 미응시 과목 자리 표시 #}
+              {% with common_count=total_common %}
+                {% for i in "xxx" %}
+                  {% if forloop.counter > common_count %}
+                    <span class="badge bg-light text-muted border">미응시</span>
+                  {% endif %}
+                {% endfor %}
+              {% endwith %}
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-6">
+          <div class="card border-0 bg-light p-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <span class="fw-semibold">🔧 공정 과목</span>
+              <span class="badge bg-success rounded-pill">{{ passed_process }} / 3 합격</span>
+            </div>
+            <div class="progress" style="height:12px; border-radius:6px;">
+              <div class="progress-bar bg-warning"
+                   style="width: {% widthratio passed_process 3 100 %}%"></div>
+            </div>
+            <div class="mt-2 d-flex flex-wrap gap-2">
+              {% for s in summary_data %}
+                {% if s.category == 'process' %}
+                  <span class="badge {% if s.is_pass %}bg-success{% else %}bg-secondary{% endif %}">
+                    {% if s.is_pass %}✅{% else %}⏳{% endif %} {{ s.title }}
+                  </span>
+                {% endif %}
+              {% endfor %}
+              {% with process_count=total_process %}
+                {% for i in "xxx" %}
+                  {% if forloop.counter > process_count %}
+                    <span class="badge bg-light text-muted border">미응시</span>
+                  {% endif %}
+                {% endfor %}
+              {% endwith %}
+            </div>
+          </div>
+        </div>
+      </div>{# /공통·공정 #}
+
+
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      {# ③ 취약 과목 분석 카드                                   #}
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      <hr class="my-4">
+      <h5 class="fw-bold mb-3">📌 취약 과목 분석</h5>
+
+      {% if weakest %}
+        {% with s=weakest %}
+        <div class="card border-warning border-2 shadow-sm">
+          <div class="card-body">
+            <div class="row align-items-center">
+
+              <div class="col-md-4 text-center border-end">
+                <div class="text-muted small mb-1">집중 공략 과목</div>
+                <div class="fs-4 fw-bold text-warning">{{ s.title }}</div>
+                <div class="mt-1">
+                  {% if s.category == 'common' %}
+                    <span class="badge bg-primary">공통</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark">공정</span>
+                  {% endif %}
+                  {% if not s.is_pass %}
+                    <span class="badge bg-danger ms-1">미합격</span>
+                  {% endif %}
+                </div>
+              </div>
+
+              <div class="col-md-4 text-center border-end mt-3 mt-md-0">
+                <div class="row text-center">
+                  <div class="col-4">
+                    <div class="text-muted small">1차 점수</div>
+                    <div class="fw-bold {% if s.first_score >= 80 %}text-success{% else %}text-danger{% endif %}">
+                      {{ s.first_score|floatformat:0|default:"-" }}점
+                    </div>
+                  </div>
+                  <div class="col-4">
+                    <div class="text-muted small">최고 점수</div>
+                    <div class="fw-bold">{{ s.max_score|floatformat:0|default:"-" }}점</div>
+                  </div>
+                  <div class="col-4">
+                    <div class="text-muted small">응시 횟수</div>
+                    <div class="fw-bold">{{ s.attempts }}회</div>
+                  </div>
+                </div>
+                {# 점수 부족분 표시 #}
+                {% if s.first_score and s.first_score < 80 %}
+                  <div class="mt-2 small text-danger">
+                    합격까지 <strong>{{ 80|add:"-"|add:s.first_score }}점</strong> 부족
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="col-md-4 text-center mt-3 mt-md-0">
+                <div class="text-muted small mb-2">남은 응시 기회</div>
+                {% with remaining=3|add:"-"|add:s.attempts %}
+                <div class="d-flex justify-content-center gap-2">
+                  {% for i in "ooo" %}
+                    <span class="fs-4">
+                      {% if forloop.counter <= s.attempts %}🔴{% else %}⚪{% endif %}
+                    </span>
+                  {% endfor %}
+                </div>
+                <div class="small mt-1
+                  {% if s.attempts >= 2 %}text-danger fw-bold{% else %}text-muted{% endif %}">
+                  {% if s.attempts == 0 %}3번의 기회 남음
+                  {% elif s.attempts == 1 %}2번의 기회 남음
+                  {% elif s.attempts == 2 %}⚠️ 마지막 기회!
+                  {% else %}기회 소진{% endif %}
+                </div>
+                {% endwith %}
+              </div>
+
+            </div>{# /row #}
+          </div>
+        </div>
+        {% endwith %}
+      {% else %}
+        <div class="alert alert-success">
+          🎉 응시한 모든 과목이 합격권입니다! 수고하셨어요.
+        </div>
+      {% endif %}
+
+
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      {# ④ 차트: 레이더 + 꺾은선                      #}
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      <hr class="my-4">
+      <div class="row g-4">
+
+        <div class="col-lg-6">
+          <h5 class="text-center fw-bold">과목별 점수 비교</h5>
+          <p class="text-center text-muted small">
+            🟢 나의 1차 점수 &nbsp;|&nbsp; 🟡 기수 평균 ({{ cohort_name }}) &nbsp;|&nbsp; 🔵 공정 평균 ({{ process_name }})
+          </p>
+          <div style="max-width:420px; margin:0 auto;">
+            <canvas id="radarChart"></canvas>
+          </div>
+        </div>
+
+        <div class="col-lg-6">
+          <h5 class="text-center fw-bold">점수 추이</h5>
+          <p class="text-center text-muted small">과목을 선택하면 회차별 점수 변화를 볼 수 있어요</p>
+          <div class="d-flex flex-wrap gap-2 justify-content-center mb-3">
+            {% for summary in summary_data %}
+              <button class="btn btn-sm {% if forloop.first %}btn-primary{% else %}btn-outline-secondary{% endif %} quiz-tab-btn"
+                      data-index="{{ forloop.counter0 }}">
+                {{ summary.title }}
+              </button>
+            {% endfor %}
+          </div>
+          <canvas id="lineChart"></canvas>
+        </div>
+
+      </div>
+
+
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      {# ⑤ 상세 성적표                                  #}
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      <hr class="my-4">
+      <h5 class="fw-bold mb-3">📋 상세 성적표</h5>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle text-center">
+          <thead class="table-light">
+            <tr>
+              <th class="text-start">시험 종류</th>
+              <th>1차 점수</th>
+              <th>최고 점수</th>
+              <th>내 평균</th>
+              <th>기수 평균</th>
+              <th>공정 평균</th>
+              <th>응시 횟수</th>
+              <th>합격 여부</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in summary_data %}
+            <tr>
+              <td class="text-start">
+                <strong>{{ s.title }}</strong>
+                {% if s.category == 'common' %}
+                  <span class="badge bg-primary ms-1" style="font-size:.65rem;">공통</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark ms-1" style="font-size:.65rem;">공정</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if s.first_score is not None %}
+                  <span class="badge {% if s.first_score >= 80 %}bg-success{% else %}bg-danger{% endif %}">
+                    {{ s.first_score|floatformat:0 }}점
+                  </span>
+                {% else %}-{% endif %}
+              </td>
+              <td>{{ s.max_score|floatformat:0|default:"-" }}점</td>
+              <td>{{ s.avg_score|floatformat:1|default:"-" }}점</td>
+              <td class="text-warning-emphasis fw-semibold">{{ s.cohort_avg|default:"-" }}점</td>
+              <td class="text-primary fw-semibold">{{ s.process_avg|default:"-" }}점</td>
+              <td>
+                {{ s.attempts }}회
+                {% if s.attempts == 2 and not s.is_pass %}
+                  <span class="text-danger small">⚠️</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if s.is_pass %}
+                  <span class="badge bg-success">✅ 합격</span>
+                {% else %}
+                  <span class="badge bg-secondary">미합격</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="8" class="text-muted text-center py-4">아직 응시한 시험이 없습니다.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      {# ⑥ 최근 활동 타임라인                            #}
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      <hr class="my-4">
+      <h5 class="fw-bold mb-3">🕐 최근 활동</h5>
+
+      {% if timeline %}
+        <div class="position-relative" style="padding-left: 2rem;">
+          {# 세로 줄 #}
+          <div style="position:absolute; left:.75rem; top:0; bottom:0; width:2px; background:#dee2e6;"></div>
+
+          {% for t in timeline %}
+          <div class="d-flex align-items-start mb-3 position-relative">
+            {# 동그라미 점 #}
+            <div style="position:absolute; left:-.35rem; top:.2rem; width:1rem; height:1rem;
+                        border-radius:50%; border:2px solid white;
+                        background:{% if t.is_pass %}#198754{% else %}#6c757d{% endif %};">
+            </div>
+            <div class="card border-0 bg-light w-100 ms-3 py-2 px-3">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-1">
+                <div>
+                  <span class="fw-semibold">{{ t.quiz_title }}</span>
+                  <span class="text-muted small ms-1">{{ t.attempt_number }}차 응시</span>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="badge {% if t.score >= 80 %}bg-success{% else %}bg-danger{% endif %}">
+                    {{ t.score }}점
+                  </span>
+                  {% if t.is_pass %}
+                    <span class="badge bg-success">합격</span>
+                  {% else %}
+                    <span class="badge bg-secondary">미합격</span>
+                  {% endif %}
+                  <span class="text-muted small">{{ t.completed_at|date:"m/d H:i" }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-muted">아직 응시 기록이 없습니다.</p>
+      {% endif %}
+
+
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      {# ⑦ 뱃지                                         #}
+      {# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ #}
+      <hr class="my-4">
+      <h5 class="fw-bold mb-3">🏆 나의 뱃지</h5>
+      <div class="row">
+        {% for badge in user_badges %}
+          <div class="col-md-4 col-lg-3 mb-3">
+            <div class="card h-100 border-0 shadow-sm text-center">
+              {% if badge.image %}
+                <img src="{{ badge.image.url }}" class="card-img-top p-3"
+                     alt="{{ badge.name }}" style="max-height:100px;object-fit:contain;">
+              {% else %}
+                <div class="p-3 fs-1">🏆</div>
+              {% endif %}
+              <div class="card-body py-2">
+                <h6 class="card-title mb-1">{{ badge.name }}</h6>
+                <p class="card-text small text-muted">{{ badge.description }}</p>
+              </div>
+            </div>
+          </div>
+        {% empty %}
+          <p class="text-muted">아직 획득한 뱃지가 없습니다. 첫 시험에 도전해보세요!</p>
+        {% endfor %}
+      </div>
+
+
+    </div>{# /card-body #}
+  </div>{# /card #}
+</div>{# /container #}
+
+
+{# ━━━━ 스크립트 ━━━━ #}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
 {{ summary_data|json_script:"summary-data" }}
 
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // 데이터가 없으면 스크립트를 실행하지 않습니다.
-        const summaryDataElement = document.getElementById('summary-data');
-        if (!summaryDataElement) return;
+document.addEventListener('DOMContentLoaded', function () {
+  const el = document.getElementById('summary-data');
+  if (!el) return;
+  const summaryData = JSON.parse(el.textContent);
+  if (!summaryData.length) return;
 
-        const summaryData = JSON.parse(summaryDataElement.textContent);
-        if (summaryData.length === 0) return;
+  const COLOR_ME      = { border:'rgb(25,135,84)',  bg:'rgba(25,135,84,0.25)'  };
+  const COLOR_COHORT  = { border:'rgb(255,193,7)',  bg:'rgba(255,193,7,0.2)'   };
+  const COLOR_PROCESS = { border:'rgb(13,110,253)', bg:'rgba(13,110,253,0.1)'  };
+  const COLOR_PASS    = 'rgba(220,53,69,0.7)';
 
-        const radarCtx = document.getElementById('radarChart');
-        const barCtx = document.getElementById('barChart');
+  /* ── 레이더 ── */
+  const radarLabels = summaryData.map(item => {
+    const t = item.title;
+    return t.length > 6 ? [t.slice(0,6), t.slice(6)] : t;
+  });
 
-        // null 체크를 추가하여 데이터가 없을 때 0으로 처리
-        const labels = summaryData.map(item => item.title);
-        const firstScoreData = summaryData.map(item => item.first_score || 0);
-        const avgScoreData = summaryData.map(item => item.avg_score || 0);
+  new Chart(document.getElementById('radarChart'), {
+    type: 'radar',
+    data: {
+      labels: radarLabels,
+      datasets: [
+        { label:'나의 1차 점수', data:summaryData.map(d=>d.first_score??0),
+          fill:true, backgroundColor:COLOR_ME.bg, borderColor:COLOR_ME.border,
+          pointBackgroundColor:COLOR_ME.border, borderWidth:2, pointRadius:4 },
+        { label:'기수 평균', data:summaryData.map(d=>d.cohort_avg??0),
+          fill:true, backgroundColor:COLOR_COHORT.bg, borderColor:COLOR_COHORT.border,
+          pointBackgroundColor:COLOR_COHORT.border, borderWidth:2, pointRadius:4 },
+        { label:'공정 평균', data:summaryData.map(d=>d.process_avg??0),
+          fill:true, backgroundColor:COLOR_PROCESS.bg, borderColor:COLOR_PROCESS.border,
+          pointBackgroundColor:COLOR_PROCESS.border, borderWidth:2,
+          borderDash:[5,5], pointRadius:4 },
+      ]
+    },
+    options: {
+      responsive:true,
+      scales:{ r:{
+        angleLines:{display:true}, suggestedMin:0, suggestedMax:100,
+        ticks:{ stepSize:20, font:{size:11}, backdropColor:'transparent' },
+        pointLabels:{ font:{size:12, weight:'bold'} }
+      }},
+      plugins:{
+        legend:{ display:true, position:'bottom', labels:{font:{size:13}} },
+        tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${ctx.raw}점` } }
+      }
+    }
+  });
 
-        // 1. 방사형 차트 (1차 점수)
-        if (radarCtx) {
-            new Chart(radarCtx, {
-                type: 'radar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: '1차 점수',
-                        data: firstScoreData,
-                        fill: true,
-                        backgroundColor: 'rgba(25, 135, 84, 0.2)',
-                        borderColor: 'rgb(25, 135, 84)',
-                        pointBackgroundColor: 'rgb(25, 135, 84)',
-                    }]
-                },
-                options: { 
-                    scales: { 
-                        r: { 
-                            angleLines: { display: true },
-                            suggestedMin: 0,
-                            suggestedMax: 100,
-                            pointLabels: { font: { size: 14 } }
-                        } 
-                    }, 
-                    plugins: { 
-                        legend: { display: false } 
-                    } 
-                }
-            });
+  /* ── 꺾은선 ── */
+  const lineCtx = document.getElementById('lineChart');
+  let lineChart = null;
+
+  function renderLine(index) {
+    const quiz    = summaryData[index];
+    const history = quiz.score_history || [];
+    const lineLabels = history.map(h => `${h.attempt_number}차`);
+    const lineScores = history.map(h => h.score);
+    const passLine   = Array(lineLabels.length).fill(quiz.pass_score || 80);
+
+    if (lineChart) lineChart.destroy();
+
+    lineChart = new Chart(lineCtx, {
+      type: 'line',
+      data: {
+        labels: lineLabels,
+        datasets: [
+          { label: quiz.title + ' 점수',
+            data: lineScores,
+            borderColor: COLOR_ME.border,
+            backgroundColor: COLOR_ME.bg,
+            fill: true, tension: 0.3,
+            pointRadius: 6, pointHoverRadius: 8, borderWidth: 2 },
+          { label: `합격선 (${quiz.pass_score||80}점)`,
+            data: passLine,
+            borderColor: COLOR_PASS,
+            borderDash: [6,4], borderWidth: 1.5,
+            pointRadius: 0, fill: false },
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: { y:{ min:0, max:100, ticks:{ stepSize:20 } } },
+        plugins: {
+          legend:{ display:true, position:'bottom' },
+          tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${ctx.raw}점` } }
         }
-
-        // 2. 막대그래프 (전체 평균)
-        if (barCtx) {
-            new Chart(barCtx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: '전체 평균 점수',
-                        data: avgScoreData,
-                        backgroundColor: 'rgba(13, 110, 253, 0.5)',
-                        borderColor: 'rgb(13, 110, 253)',
-                        borderWidth: 1
-                    }]
-                },
-                options: { 
-                    scales: { 
-                        y: { 
-                            beginAtZero: true, 
-                            max: 100 
-                        } 
-                    }, 
-                    plugins: { 
-                        legend: { display: false } 
-                    } 
-                }
-            });
-        }
+      }
     });
+  }
+
+  renderLine(0);
+
+  document.querySelectorAll('.quiz-tab-btn').forEach(btn => {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.quiz-tab-btn').forEach(b => {
+        b.classList.replace('btn-primary','btn-outline-secondary');
+      });
+      this.classList.replace('btn-outline-secondary','btn-primary');
+      renderLine(parseInt(this.dataset.index));
+    });
+  });
+
+});
 </script>
 {% endblock %}

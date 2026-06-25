@@ -176,6 +176,45 @@
         </div>
     </div>
     
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom py-3">
+            <h6 class="fw-bold m-0 text-dark">
+                <i class="bi bi-grid-3x3-gap-fill text-primary me-2"></i>📊 전사 교육 성적 지표 모니터링 대시보드 (종합 요약)
+            </h6>
+        </div>
+        <div class="card-body bg-light bg-opacity-25 py-4">
+            <div class="row g-4">
+                <div class="col-lg-4 border-end">
+                    <div class="px-2 pb-3 text-center">
+                        <span class="badge bg-danger bg-opacity-10 text-danger mb-1" style="font-size:0.7rem;">Trend</span>
+                        <strong class="text-dark d-block small"><i class="bi bi-activity text-danger me-1"></i> 1. 전사 기수별 종합 성적 추이 (모든 시험 1차 평균)</strong>
+                    </div>
+                    <div style="height: 180px; position: relative;">
+                        <canvas id="macroExamChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-lg-4 border-end">
+                    <div class="px-2 pb-3 text-center">
+                        <span class="badge bg-primary bg-opacity-10 text-primary mb-1" style="font-size:0.7rem;">Ranking</span>
+                        <strong class="text-dark d-block small"><i class="bi bi-bar-chart-steps text-primary me-1"></i> 2. 전사 직무 공정별 누적 평균 비교</strong>
+                    </div>
+                    <div style="height: 180px; position: relative;">
+                        <canvas id="macroProcessChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-lg-4">
+                    <div class="px-2 pb-3 text-center">
+                        <span class="badge bg-success bg-opacity-10 text-success mb-1" style="font-size:0.7rem;">Common</span>
+                        <strong class="text-dark d-block small"><i class="bi bi-journal-check text-success me-1"></i> 3. 공통 필수 평가 과목 성적 현황</strong>
+                    </div>
+                    <div style="height: 180px; position: relative;">
+                        <canvas id="macroCommonChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
 
     <div class="accordion" id="analyticsAccordion">
         {% for cat_key, cat_data in grouped_data.items %}
@@ -191,6 +230,19 @@
             </h2>
             <div id="collapse{{ cat_key }}" class="accordion-collapse collapse {% if cat_key == 'process' %}show{% endif %}">
                 <div class="accordion-body p-0">
+                    
+                    <div class="p-4 bg-white border-bottom">
+                        <div class="mb-2">
+                            <strong class="text-dark" style="font-size: 0.95rem;">
+                                <i class="bi bi-graph-up-arrow text-{{ cat_data.color }} me-2"></i>📊 {{ cat_data.label }} 기수별 평균 성적 변화 추이 (종합)
+                            </strong>
+                            <span class="text-muted small ms-2">| 카테고리 내 모든 과목의 기수별 누적 성적 변화 흐름입니다.</span>
+                        </div>
+                        <div style="height: 180px; position: relative;" class="mt-2">
+                            <canvas id="catCohortChart_{{ cat_key }}"></canvas>
+                        </div>
+                    </div>
+
                     <div class="table-responsive">
                         <table class="table table-hover align-middle mb-0 text-center">
                             <thead class="bg-light text-secondary small">
@@ -205,13 +257,18 @@
                             </thead>
                             <tbody>
                                 {% for exam in cat_data.exams %}
-                                <tr>
+                                <!-- ⭕ 변경: tr에 고유한 examRow_ID값과 고정 상태를 나타내는 data-pinned 속성 부여 -->
+                                <tr id="examRow_{{ exam.id }}" data-pinned="false" style="cursor: pointer;" onclick="toggleInlineChart('{{ exam.id }}')">
                                     <td class="text-start ps-4 fw-bold text-dark">
-                                        {{ exam.title }}
+                                        <!-- ⭕ [신규 추가] 차트 개별 잠금용 핀 버튼 (행 클릭 전파 방지 처리) -->
+                                        <button type="button" class="btn btn-link p-0 me-2 text-decoration-none" onclick="toggleRowPin(event, '{{ exam.id }}')" title="이 차트 화면에 고정하기">
+                                            <i class="bi bi-pin-angle text-muted" id="pinIcon_{{ exam.id }}"></i>
+                                        </button>
+                                        <i class="bi bi-file-bar-graph text-muted me-2"></i>{{ exam.title }}
                                     </td>
                                     
                                     <td>
-                                        {% if exam.process_name == '전체' %}
+                                        {% if exam.process_name == '전체' or exam.process_name == '공통' %}
                                             <span class="badge bg-secondary bg-opacity-10 text-secondary border">전체 공통</span>
                                         {% else %}
                                             <span class="badge bg-primary bg-opacity-10 text-primary border border-primary-subtle">{{ exam.process_name }}</span>
@@ -232,20 +289,45 @@
                                     </td>
                                     
                                     <td>
-                                        <a href="{% url 'quiz:exam_analytics_detail' exam.id %}" class="pass-rate-link" title="클릭하여 상세 분석 및 난이도 관리">
-                                            <div class="d-flex align-items-center justify-content-center">
-                                                <div class="progress flex-grow-1 me-2" style="height: 6px; max-width: 80px;">
-                                                    <div class="progress-bar {% if exam.pass_rate >= 80 %}bg-success{% elif exam.pass_rate >= 50 %}bg-warning{% else %}bg-danger{% endif %}" 
-                                                         role="progressbar" 
-                                                         style="width: {{ exam.pass_rate }}%">
-                                                    </div>
+                                        <div class="d-flex align-items-center justify-content-center">
+                                            <div class="progress flex-grow-1 me-2" style="height: 6px; max-width: 80px;">
+                                                <div class="progress-bar {% if exam.pass_rate >= 80 %}bg-success{% elif exam.pass_rate >= 50 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                                     role="progressbar" 
+                                                     style="width: {{ exam.pass_rate }}%">
                                                 </div>
-                                                <span class="fw-bold small rate-text">{{ exam.pass_rate }}%</span>
-                                                <i class="bi bi-chevron-right ms-1 text-muted small"></i>
                                             </div>
-                                        </a>
+                                            <span class="fw-bold small text-dark me-2">{{ exam.pass_rate }}%</span>
+                                            <a href="{% url 'quiz:exam_analytics_detail' exam.id %}" class="btn btn-xs btn-outline-primary py-0 px-1 fw-bold" style="font-size:0.7rem;" onclick="event.stopPropagation();">문항관리 ></a>
+                                        </div>
                                     </td>
-                                    </tr>
+                                </tr>
+
+                                <tr id="chartRow_{{ exam.id }}" class="bg-light bg-opacity-50" style="display: none;">
+                                    <td colspan="6" class="p-0 border-0">
+                                        <div id="collapseChart_{{ exam.id }}" class="collapse">
+                                            <div class="p-4 border-bottom">
+                                                <div class="row g-3">
+                                            <div class="col-md-6 border-end">
+                                                <div class="px-2 pb-2 d-flex justify-content-between align-items-center">
+                                                    <strong class="text-dark small"><i class="bi bi-graph-up text-primary me-1"></i> 📈 기수별 평균 점수 변화 추이</strong>
+                                                    <span class="badge bg-dark text-white rounded" style="font-size:0.7rem;">전체 평균: {{ exam.avg_score }}점</span>
+                                                </div>
+                                                <div style="height: 180px; position: relative;">
+                                                    <canvas id="cohortCanvas_{{ exam.id }}"></canvas>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="px-2 pb-2 d-flex justify-content-between align-items-center">
+                                                    <strong class="text-dark small"><i class="bi bi-bar-chart-steps text-success me-1"></i> 🏭 전체 공정별 성적 랭킹 비교</strong>
+                                                    <span class="badge bg-primary text-white rounded" style="font-size:0.7rem;">내 공정 평균: {{ exam.my_process_avg }}점</span>
+                                                </div>
+                                                <div style="height: 180px; position: relative;">
+                                                    <canvas id="processCanvas_{{ exam.id }}"></canvas>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div> </div> </td>
+                        </tr>
                                 {% empty %}
                                 <tr>
                                     <td colspan="6" class="py-5 text-muted">
@@ -264,56 +346,339 @@
     </div>
 </div>
 
-<!-- ★ Chart.js 스크립트 추가 -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener("DOMContentLoaded", function() {
-        const tagNames = [{% for tag in tag_stats %} "{{ tag.name }}"{% if not forloop.last %}, {% endif %} {% endfor %}];
-        const tagAccuracies = [{% for tag in tag_stats %} {{ tag.accuracy|floatformat:1 }}{% if not forloop.last %}, {% endif %} {% endfor %}];
+        
+        // -------------------------------------------------------------
+        // 📊 A. 최상단 전사 교육 성적 지표 거시 대시보드 3종 데이터 렌더링 파이프라인
+        // -------------------------------------------------------------
+        const macroExamLabels = {{ overall_exam_labels|safe|default:"[]" }};
+        const macroExamData = {{ overall_exam_data|safe|default:"[]" }};
+        const macroProcessLabels = {{ global_process_labels|safe|default:"[]" }};
+        const macroProcessData = {{ global_process_data|safe|default:"[]" }};
+        const macroCommonLabels = {{ overall_common_labels|safe|default:"[]" }};
+        const macroCommonData = {{ overall_common_data|safe|default:"[]" }};
 
-        const ctx = document.getElementById('tagChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: tagNames,
-                datasets: [{
-                    label: '평균 정답률 (%)',
-                    data: tagAccuracies,
-                    // PMTC Danger(빨강)과 Warning(노랑) 느낌을 섞은 세련된 색상
-                    backgroundColor: 'rgba(220, 53, 69, 0.65)', 
-                    borderColor: 'rgba(220, 53, 69, 1)',
-                    borderWidth: 1,
-                    borderRadius: 6,      // 막대 모서리를 둥글게
-                    barPercentage: 0.5    // 막대기를 얇고 세련되게
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: { 
-                    y: { 
-                        beginAtZero: true, 
-                        max: 100,
-                        grid: { borderDash: [5, 5], color: '#e9ecef' } // 배경 선을 연한 점선으로
-                    },
-                    x: {
-                        grid: { display: false } // 세로 배경 선 숨김 (더 깔끔함)
-                    }
+        // (1) 전사 기수별 종합 성적 추이 (트렌드 라인 차트)
+        const ctxMacroExam = document.getElementById('macroExamChart');
+        if (ctxMacroExam) {
+            new Chart(ctxMacroExam.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: macroExamLabels,
+                    datasets: [{
+                        label: '1차 本시험 평균', 
+                        data: macroExamData,
+                        borderColor: '#dc3545',
+                        backgroundColor: 'rgba(220, 53, 69, 0.04)',
+                        tension: 0.35,
+                        fill: true,
+                        borderWidth: 2,
+                        pointRadius: 2
+                    }]
                 },
-                plugins: { 
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        padding: 12,
-                        titleFont: { size: 14 },
-                        bodyFont: { size: 14, weight: 'bold' },
-                        callbacks: {
-                            label: function(context) { return '정답률: ' + context.parsed.y + '%'; }
-                        }
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { 
+                        y: { min: 0, max: 100, grid: { color: '#f8f9fa' } }, 
+                        x: { display: true, grid: { display: false }, ticks: { font: { weight: 'bold' } } } // ⭕ 정정: # 주석을 // 자바스크립트 정식 주석으로 교체하여 문법 에러 원천 차단
                     }
                 }
+            });
+        }
+
+        // (2) 전사 직무 공정별 누적 평균 비교 (가로형 바 랭킹 차트)
+        const ctxMacroProcess = document.getElementById('macroProcessChart');
+        if (ctxMacroProcess) {
+            new Chart(ctxMacroProcess.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: macroProcessLabels,
+                    datasets: [{
+                        label: '공정 평균',
+                        data: macroProcessData,
+                        backgroundColor: '#0d6efd',
+                        borderRadius: 4,
+                        barPercentage: 0.45
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    indexAxis: 'y', 
+                    plugins: { legend: { display: false } },
+                    scales: { x: { min: 0, max: 100, grid: { color: '#f8f9fa' } }, y: { grid: { display: false } } }
+                }
+            });
+        }
+
+        // (3) 공통 필수 평가 과목 성적 현황 (세로형 바 차트)
+        const ctxMacroCommon = document.getElementById('macroCommonChart');
+        if (ctxMacroCommon) {
+            new Chart(ctxMacroCommon.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: macroCommonLabels,
+                    datasets: [{
+                        label: '과목 평균',
+                        data: macroCommonData,
+                        backgroundColor: '#20c997',
+                        borderRadius: 4,
+                        barPercentage: 0.45
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { min: 0, max: 100, grid: { color: '#f8f9fa' } }, x: { display: false } }
+                }
+            });
+        }
+
+        // -------------------------------------------------------------
+        // 📈 B. 아코디언 메인 카테고리별 종합 기수 차트 렌더링 엔진
+        // -------------------------------------------------------------
+        const catKeys = ['process', 'common', 'safety', 'etc'];
+        const catConfigs = {
+            'process': { labels: {{ grouped_data.process.cohort_labels|safe|default:"[]" }}, data: {{ grouped_data.process.cohort_data|safe|default:"[]" }}, color: '#0d6efd' },
+            'common':  { labels: {{ grouped_data.common.cohort_labels|safe|default:"[]" }}, data: {{ grouped_data.common.cohort_data|safe|default:"[]" }}, color: '#198754' },
+            'safety':  { labels: {{ grouped_data.safety.cohort_labels|safe|default:"[]" }}, data: {{ grouped_data.safety.cohort_data|safe|default:"[]" }}, color: '#dc3545' },
+            'etc':     { labels: {{ grouped_data.etc.cohort_labels|safe|default:"[]" }}, data: {{ grouped_data.etc.cohort_data|safe|default:"[]" }}, color: '#6c757d' }
+        };
+
+        catKeys.forEach(key => {
+            const config = catConfigs[key];
+            const canvas = document.getElementById(`catCohortChart_${key}`);
+            if (!canvas || !config.labels || !config.labels.length) return;
+
+            const ctx = canvas.getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: config.labels,
+                    datasets: [{
+                        label: '종합 평균 점수',
+                        data: config.data,
+                        borderColor: config.color,
+                        backgroundColor: config.color + '10',
+                        tension: 0.38,
+                        fill: true,
+                        borderWidth: 3,
+                        pointRadius: 5,
+                        pointBackgroundColor: config.color,
+                        pointHoverRadius: 7
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: { padding: 10, titleFont: { size: 13 }, bodyFont: { size: 13, weight: 'bold' } }
+                    },
+                    scales: {
+                        y: { min: 0, max: 100, grid: { color: '#f3f4f6' }, ticks: { font: { weight: 'bold' } } },
+                        x: { grid: { display: false }, ticks: { font: { weight: 'bold' } } }
+                    }
+                }
+            });
+        });
+
+        // -------------------------------------------------------------
+        // 🎯 C. 취약 개념 문제 은행 요약 tagChart 구역
+        // -------------------------------------------------------------
+        const tagNames = [{% for tag in tag_stats %} "{{ tag.name|escapejs }}"{% if not forloop.last %}, {% endif %} {% endfor %}];
+        // ==========================
+        const tagAccuracies = [{% for tag in tag_stats %} {{ tag.accuracy|floatformat:1 }}{% if not forloop.last %}, {% endif %} {% endfor %}];
+
+        const tagCanvas = document.getElementById('tagChart');
+        if (tagCanvas) {
+            const tagCtx = tagCanvas.getContext('2d');
+            new Chart(tagCtx, {
+                type: 'bar',
+                data: {
+                    labels: tagNames,
+                    datasets: [{
+                        label: '평균 정답률 (%)',
+                        data: tagAccuracies,
+                        backgroundColor: 'rgba(220, 53, 69, 0.65)', 
+                        borderColor: 'rgba(220, 53, 69, 1)',
+                        borderWidth: 1,
+                        borderRadius: 6,
+                        barPercentage: 0.5
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { 
+                        y: { beginAtZero: true, max: 100, grid: { borderDash: [5, 5], color: '#e9ecef' } },
+                        x: { grid: { display: false } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+    }); // DOMContentLoaded 마감선
+
+    // -------------------------------------------------------------
+    // 🛠️ D. 개별 시험지 클릭 시 작동하는 동적 입체 그래프 엔진 (오타 및 중복 제거 완료)
+    // -------------------------------------------------------------
+    const activeCharts = {}; 
+
+    function toggleInlineChart(examId) {
+        const mainRow = document.getElementById(`examRow_${examId}`);
+        const targetRow = document.getElementById(`chartRow_${examId}`); // ⭕ 정정: targetRowId 오타를 매개변수 examId 명칭으로 치환 완료
+        const targetDiv = document.getElementById(`collapseChart_${examId}`);
+        if (!targetRow || !targetDiv) return;
+
+        // ⭕ 자석 포커싱: 클릭한 행의 절대 Y축 좌표 스냅샷 저장 (멀미 튕김 방지용 핵심 가드)
+        const initialOffset = mainRow ? mainRow.getBoundingClientRect().top + window.pageYOffset : window.pageYOffset;
+
+        let bsCollapse = bootstrap.Collapse.getInstance(targetDiv);
+        if (!bsCollapse) {
+            bsCollapse = new bootstrap.Collapse(targetDiv, { toggle: false });
+        }
+
+        // 1. 이미 열려있다면 부드럽게 말려 올라가며 닫히도록 처리 후 즉시 조기 종료 리턴
+        if (targetRow.style.display !== 'none' && targetDiv.classList.contains('show')) {
+            bsCollapse.hide();
+            return;
+        }
+
+        // 2. [스마트 청소] 다른 핀 안 꽂힌 차트들 부드럽게 폐쇄 실행
+        document.querySelectorAll('tr[id^="chartRow_"]').forEach(row => {
+            const id = row.id.split('_')[1];
+            const mRow = document.getElementById(`examRow_${id}`);
+            const div = document.getElementById(`collapseChart_${id}`);
+            
+            if (id !== examId && mRow && mRow.getAttribute('data-pinned') !== 'true' && row.style.display !== 'none') {
+                let otherCollapse = bootstrap.Collapse.getInstance(div);
+                if (otherCollapse) otherCollapse.hide();
             }
         });
+
+        // <tr> 줄을 확보하고 슬라이드 다운 트리거 발동
+        targetRow.style.display = 'table-row';
+        bsCollapse.show();
+
+        // ⭕ 멀미 방지 장치: 다른 창이 수축 완료되어 시야가 날아가는 걸 잡고 본인 행 높이로 스크롤 홀딩
+        支配스크롤 = setTimeout(() => {
+            window.scrollTo({ top: initialOffset - 80, behavior: 'smooth' });
+        }, 80);
+
+        // 3. 이미 차트 캔버스가 빌드된 상태라면 중복 인스턴스 생성 스킵
+        if (activeCharts[examId]) return;
+
+        // Django M2M 루프를 타며 각 시험지에 맞는 세부 그래프 동적 조립
+        {% for cat_key, cat_data in grouped_data.items %}
+            {% for exam in cat_data.exams %}
+                if ("{{ exam.id }}" === examId) {
+                    const cLabels = {{ exam.cohort_labels|safe }};
+                    const cData = {{ exam.cohort_data|safe }};
+                    const pLabels = {{ exam.process_labels|safe }};
+                    const pData = {{ exam.process_data|safe }};
+                    const globalAvg = {{ exam.avg_score }};
+                    const myProcAvg = {{ exam.my_process_avg }};
+
+                    // (A) 기수별 선형 추이 차트
+                    const ctxCohort = document.getElementById(`cohortCanvas_${examId}`).getContext('2d');
+                    new Chart(ctxCohort, {
+                        type: 'line',
+                        data: {
+                            labels: cLabels,
+                            datasets: [{
+                                label: '기수 평균',
+                                data: cData,
+                                borderColor: '#0d6efd',
+                                backgroundColor: 'rgba(13, 110, 253, 0.08)',
+                                fill: true,
+                                tension: 0.35,
+                                borderWidth: 3,
+                                pointBackgroundColor: '#0d6efd',
+                                pointRadius: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: { y: { min: 0, max: 100, grid: { color: '#f1f1f1' } }, x: { grid: { display: false } } }
+                        }
+                    });
+
+                    // (B) 공정별 막대 비교 차트 (전체평균 회색 포함)
+                    const ctxProcess = document.getElementById(`processCanvas_${examId}`).getContext('2d');
+                    const extendedLabels = ['전체평균', ...pLabels];
+                    const extendedData = [globalAvg, ...pData];
+
+                    new Chart(ctxProcess, {
+                        type: 'bar',
+                        data: {
+                            labels: extendedLabels,
+                            datasets: [{
+                                label: '평균 점수 비교',
+                                data: extendedData,
+                                backgroundColor: extendedLabels.map(label => {
+                                    if (label === '전체평균') return '#6c757d';
+                                    // ===== [수정되는 코드] =====
+                                    return label === "{{ request.user.profile.process.name|escapejs }}" ? '#0d6efd' : '#20c997';
+                                    // ==========================
+                                }),
+                                borderRadius: 6,
+                                barPercentage: 0.5
+                            }]
+                        },
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: { y: { min: 0, max: 100, grid: { color: '#f1f1f1' } }, x: { grid: { display: false } } }
+                        }
+                    });
+                }
+            {% endfor %}
+        {% endfor %}
+
+        activeCharts[examId] = true; 
+    }
+
+    // -------------------------------------------------------------
+    // 🔒 E. 아코디언 메뉴 튕김 방지 및 핀 유틸리티
+    // -------------------------------------------------------------
+    document.querySelectorAll('.accordion-button').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            const currentOffset = this.getBoundingClientRect().top + window.pageYOffset;
+            setTimeout(() => {
+                window.scrollTo({ top: currentOffset - 20, behavior: 'smooth' });
+            }, 100);
+        });
     });
+
+    document.addEventListener('hidden.bs.collapse', function (e) {
+        if (e.target.id && e.target.id.startsWith('collapseChart_')) {
+            const examId = e.target.id.split('_')[1];
+            const row = document.getElementById(`chartRow_${examId}`);
+            if (row) row.style.display = 'none';
+        }
+    });
+
+    function toggleRowPin(event, examId) {
+        event.stopPropagation();
+        const mainRow = document.getElementById(`examRow_${examId}`);
+        const pinIcon = document.getElementById(`pinIcon_${examId}`);
+        const chartRow = document.getElementById(`chartRow_${examId}`);
+        if (!mainRow || !pinIcon) return;
+
+        const isPinned = mainRow.getAttribute('data-pinned') === 'true';
+        
+        if (!isPinned) {
+            mainRow.setAttribute('data-pinned', 'true');
+            pinIcon.className = 'bi bi-pin-fill text-primary';
+            if (chartRow && chartRow.style.display === 'none') {
+                toggleInlineChart(examId);
+            }
+        } else {
+            mainRow.setAttribute('data-pinned', 'false');
+            pinIcon.className = 'bi bi-pin-angle text-muted';
+        }
+    }
 </script>
 {% endblock %}

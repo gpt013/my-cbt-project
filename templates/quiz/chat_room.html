@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    <style>
+    
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<style>
         html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #b2c7d9; font-family: 'Noto Sans KR', sans-serif; }
         .chat-container { width: 100%; height: 100%; display: flex; flex-direction: column; }
         .chat-header { background-color: #3b1e1e; color: white; padding: 10px 15px; font-weight: 600; flex-shrink: 0; z-index: 10; border-bottom: 1px solid rgba(0,0,0,0.1); position: relative; }
@@ -18,6 +20,8 @@
         .msg-time { font-size: 0.65rem; color: #6c757d; white-space: text-nowrap; flex-shrink: 0; }
 
         .bubble { padding: 8px 12px; word-wrap: break-word; box-shadow: 0 1px 2px rgba(0,0,0,0.1); font-size: 0.9rem; line-height: 1.4; position: relative; cursor: pointer; }
+        
+        .msg-text { white-space: pre-wrap; } /* 소스코드 공백 무시, 실제 엔터만 줄바꿈 처리 */
         .bubble img { max-width: 100%; height: auto; max-height: 250px; object-fit: contain; border-radius: 8px; margin-top: 5px; cursor: pointer; border: 1px solid rgba(0,0,0,0.1); display: block; }
         .bubble a { color: inherit; text-decoration: underline; font-weight: bold; }
 
@@ -41,8 +45,30 @@
         #search-bar { display: none; background-color: #ffffff; padding: 10px; border-bottom: 1px solid #ddd; position: absolute; width: 100%; top: 100%; left: 0; z-index: 20; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .search-result-item { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 0.85rem; }
         .search-result-item:hover { background-color: #f8f9fa; }
+
+/* ────────────────────────────────────────────────────────── */
+/* ────────────────────────────────────────────────────────── */
+        @keyframes modernCollapse {
+            0% { opacity: 1; transform: scale(1); max-height: 150px; padding: 8px 12px; margin-bottom: 12px; margin-top: 0; }
+            50% { opacity: 0; transform: scale(0.95); max-height: 100px; padding: 4px 6px; }
+            100% { opacity: 0; transform: scale(0.9); max-height: 0; padding: 0; margin-bottom: 0; margin-top: 0; gap: 0; border: none; }
+        }
+        .msg-deleted-modern {
+            animation: modernCollapse 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+            overflow: hidden !important;
+        }
+        /* 답장 추적 시 원본 메시지가 순간적으로 반짝이는 효과 */
+        @keyframes flashTarget {
+            0% { background-color: rgba(255, 193, 7, 0.5); }
+            100% { background-color: transparent; }
+        }
+        .msg-flash-active .bubble {
+            animation: flashTarget 1.2s ease-out forwards !important;
+        }
+/* ────────────────────────────────────────────────────────── */
+
     </style>
-</head>  
+</head>
 <body>
 
 <div class="chat-container">
@@ -135,23 +161,19 @@
                 <div class="chat-message me chat-message-row" data-msg-id="{{ msg.id }}">
                     <div class="message-content align-items-end">
                         <div class="bubble-row">
-                            <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply({{ msg.id }}, '나', '{{ msg.content|default:'[파일/사진]'|escapejs }}')"></i>
-                            
                             {% if msg.unread_count > 0 %}
                                 <span class="unread-mark align-self-end mb-1 unread-mark-val" data-msg-id="{{ msg.id }}">{{ msg.unread_count }}</span>
                             {% endif %}
-                            
                             <span class="msg-time align-self-end">{{ msg.created_at|date:"H:i" }}</span>
                             
-                            <div class="bubble">
+<div class="bubble" onclick="openMsgOptions({{ msg.id }}, true, '나', this, event)">
                                 {% if msg.parent %}
-                                <div class="reply-box">
+                                <div class="reply-box" onclick="scrollToOriginalMessage({{ msg.parent.id }}, event)">
                                     <strong>{{ msg.parent.sender.profile.name|default:msg.parent.sender.username }}</strong>에게 답장<br>
                                     <span class="text-truncate d-inline-block" style="max-width: 150px; opacity:0.8;">{{ msg.parent.content|default:"[파일/사진]" }}</span>
                                 </div>
                                 {% endif %}
-                                
-                                {% if msg.file_url %}
+{% if msg.file_url %}
                                     {% if 'jpg' in msg.file_name|lower or 'png' in msg.file_name|lower or 'jpeg' in msg.file_name|lower or 'gif' in msg.file_name|lower %}
                                         <img src="{{ msg.file_url }}" alt="{{ msg.file_name }}" onclick="openImageViewer('{{ msg.file_url }}')"><br>
                                     {% else %}
@@ -168,28 +190,23 @@
                 </div>
             {% else %}
                 <div class="chat-message other chat-message-row" data-msg-id="{{ msg.id }}">
-        <div class="profile-icon" 
-             style="cursor:pointer;" 
-             onclick="showUserProfile({{ msg.sender.id }})">
-            <i class="bi bi-person-fill"></i>
-        </div>
-        <div class="message-content">
-            <div class="sender-name" 
-                 style="cursor:pointer;" 
-                 onclick="showUserProfile({{ msg.sender.id }})">
-                {{ msg.sender.profile.name|default:msg.sender.username }}
-            </div>
-                   
+                    <div class="profile-icon" style="cursor:pointer;" onclick="showUserProfile({{ msg.sender.id }})">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                    <div class="message-content">
+                        <div class="sender-name" style="cursor:pointer;" onclick="showUserProfile({{ msg.sender.id }})">
+                            {{ msg.sender.profile.name|default:msg.sender.username }}
+                        </div>
+                               
                         <div class="bubble-row">
-                            <div class="bubble">
+<div class="bubble" onclick="openMsgOptions({{ msg.id }}, false, '{{ msg.sender.profile.name|default:msg.sender.username }}', this, event)">
                                 {% if msg.parent %}
-                                <div class="reply-box">
+                                <div class="reply-box" onclick="scrollToOriginalMessage({{ msg.parent.id }}, event)">
                                     <strong>{{ msg.parent.sender.profile.name|default:msg.parent.sender.username }}</strong>에게 답장<br>
                                     <span class="text-truncate d-inline-block" style="max-width: 150px; opacity:0.8;">{{ msg.parent.content|default:"[파일/사진]" }}</span>
                                 </div>
                                 {% endif %}
-
-                                {% if msg.file_url %}
+{% if msg.file_url %}
                                     {% if 'jpg' in msg.file_name|lower or 'png' in msg.file_name|lower or 'jpeg' in msg.file_name|lower or 'gif' in msg.file_name|lower %}
                                         <img src="{{ msg.file_url }}" alt="{{ msg.file_name }}" onclick="openImageViewer('{{ msg.file_url }}')"><br>
                                     {% else %}
@@ -207,7 +224,6 @@
                             {% endif %}
                             
                             <span class="msg-time align-self-end">{{ msg.created_at|date:"H:i" }}</span>
-                            <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply({{ msg.id }}, '{{ msg.sender.profile.name|default:msg.sender.username }}', '{{ msg.content|default:'[파일/사진]'|escapejs }}')"></i>
                         </div>
                     </div>
                 </div>
@@ -227,12 +243,17 @@
             <button class="btn btn-sm text-danger p-0 position-absolute" style="top: 10px; right: 15px;" onclick="cancelReply()"><i class="bi bi-x-circle-fill fs-5"></i></button>
         </div>
 
-        <div class="d-flex gap-2 align-items-center py-2 px-3 bg-white">
-            <input type="file" id="chat-file-input" style="display: none;">
-            <button id="chat-file-btn" class="btn btn-outline-secondary border-0 bg-light rounded-circle" title="파일 첨부"><i class="bi bi-paperclip fs-5"></i></button>
-            <input id="chat-message-input" type="text" class="form-control bg-light border-0 rounded-pill px-3" placeholder="메시지, 파일, 캡처(Ctrl+V)..." autocomplete="off">
-            <button id="chat-message-submit" class="btn btn-warning rounded-circle text-dark border-0 shadow-sm"><i class="bi bi-send-fill"></i></button>
-        </div>
+       <div class="d-flex gap-2 align-items-center py-2 px-3 bg-white">
+    <input type="file" id="chat-file-input" style="display: none;">
+    <button id="chat-file-btn" class="btn btn-outline-secondary border-0 bg-light rounded-circle" title="파일 첨부"><i class="bi bi-paperclip fs-5"></i></button>
+    
+    <textarea id="chat-message-input" class="form-control bg-light border-0 rounded-4 px-3" 
+              rows="1" placeholder="메시지..." 
+              style="max-height: 100px; resize: none; line-height: 1.4; font-size: 0.95rem; padding: 10px;"
+              oninput="this.style.height='auto'; this.style.height=(this.scrollHeight)+'px';"></textarea>
+    
+    <button id="chat-message-submit" class="btn btn-warning rounded-circle text-dark border-0 shadow-sm"><i class="bi bi-send-fill"></i></button>
+</div>
     </div>
 </div>
 
@@ -502,10 +523,9 @@
             <div class="chat-message me chat-message-row" ${msgIdAttr}>
                 <div class="message-content align-items-end">
                     <div class="bubble-row">
-                        <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply(${data.msg_id}, '나', '${(data.message||'[파일]').replace(/'/g, "\\'")}')"></i>
                         ${unreadHtml}
                         <span class="msg-time align-self-end">${data.time_str}</span>
-                        <div class="bubble">${parentHtml}${contentHtml}</div>
+                        <div class="bubble" onclick="openMsgOptions(${data.msg_id}, true, '나', this)">${parentHtml}${contentHtml}</div>
                     </div>
                 </div>
             </div>`;
@@ -516,9 +536,8 @@
                 <div class="message-content">
                     <div class="sender-name">${data.username}</div>
                     <div class="bubble-row">
-                        <div class="bubble">${parentHtml}${contentHtml}</div>
+                        <div class="bubble" onclick="openMsgOptions(${data.msg_id}, false, '${data.username}', this)">${parentHtml}${contentHtml}</div>
                         ${unreadHtml} <span class="msg-time align-self-end">${data.time_str}</span>
-                        <i class="bi bi-reply-fill reply-btn" title="답장" onclick="startReply(${data.msg_id}, '${data.username}', '${(data.message||'[파일]').replace(/'/g, "\\'")}')"></i>
                     </div>
                 </div>
             </div>`;
@@ -650,24 +669,8 @@
         }
     }
 
-    document.querySelector('#chat-message-input').focus();
-    document.querySelector('#chat-message-input').onkeyup = function(e) {
-        if (e.keyCode === 13) document.querySelector('#chat-message-submit').click();
-    };
-    document.querySelector('#chat-message-submit').onclick = function() {
-        const inputDom = document.querySelector('#chat-message-input');
-        if (inputDom.value.trim() !== "") {
-            chatSocket.send(JSON.stringify({ 
-                'type': 'chat_message', 
-                'message': inputDom.value, 
-                'username': myName,
-                'parent_id': pendingReplyId 
-            }));
-            inputDom.value = ''; 
-            cancelReply(); 
-        }
-    };
 
+// ─── [수정할 위치 주변 코드 (아래)] ───
     let pendingFile = null;
     function formatBytes(bytes) {
         if (bytes === 0) return '0 Bytes';
@@ -1003,6 +1006,205 @@ function closeProfileCard(e) {
     }
 }
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeProfileCard(); });
+
+
+// ──────────────────────────────────────────────────────────
+// 🎯 [완전 재빌드] 튕김 방지 가드 인수 주입 및 원본 답장 고속 추적 내비게이터 결합
+// ──────────────────────────────────────────────────────────
+
+// 복구 가드: 답장 박스 클릭 시 부모 메뉴 호출 신호를 완벽 차단하고 원본 메시지로 화면을 부드럽게 무빙합니다.
+function scrollToOriginalMessage(parentId, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation(); // 💥 [원인 2번 박멸] 클릭 신호가 상위 bubble로 전달되어 메뉴가 겹쳐 뜨던 카오스를 철저히 끊어냅니다.
+    }
+    
+    const targetRow = document.querySelector(`.chat-message-row[data-msg-id="${parentId}"]`);
+    if (targetRow) {
+        // 대화창 내에서 원본 타겟의 위치로 스크롤 활공 무빙
+        targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // 원본 글의 위치에 도달했을 때 노란색 배경 밴드로 1초간 깜빡여주어 추적 시인성 대폭 확보
+        targetRow.style.backgroundColor = 'rgba(254, 225, 0, 0.35)';
+        targetRow.style.transition = 'background-color 0.4s';
+        setTimeout(() => { targetRow.style.backgroundColor = ''; }, 1200);
+    } else {
+        Swal.fire({ toast: true, position: 'top-end', icon: 'warning', title: '이전 대화 내역(원본 메시지)을 찾을 수 없습니다.', showConfirmButton: false, timer: 2000 });
+    }
+}
+
+// 교정 가드: event 매개변수를 누락 없이 5번째 인자로 가로채어 브라우저 동작 제어를 가동합니다.
+function openMsgOptions(msgId, isMe, senderName, element, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation(); // 💥 [원인 1번 박멸] 호출 시 스크롤 위치가 흔들리며 꼭대기로 순간 점프하던 버그 차단
+    }
+
+    const msgTextEl = element.querySelector('.msg-text');
+    const rawText = msgTextEl ? msgTextEl.innerText : '[파일/사진]';
+    const safeText = rawText.replace(/'/g, "\\'").replace(/"/g, '\\"');
+
+    let html = `
+        <div class="list-group list-group-flush text-start fw-bold">
+            <button class="list-group-item list-group-item-action py-3 border-bottom" onclick="Swal.close(); startReply(${msgId}, '${senderName}', '${safeText}')">
+                <i class="bi bi-reply-fill text-primary me-2 fs-5 align-middle"></i> 답장하기
+            </button>
+            <button class="list-group-item list-group-item-action py-3 border-bottom" onclick="Swal.close(); pinFromMenu(${msgId})">
+                <i class="bi bi-pin-angle-fill text-warning me-2 fs-5 align-middle"></i> 공지로 등록
+            </button>
+            ${isMe ? `
+            <button class="list-group-item list-group-item-action py-3 text-danger" onclick="Swal.close(); deleteMyMessage(${msgId})">
+                <i class="bi bi-trash3-fill text-danger me-2 fs-5 align-middle"></i> 메시지 삭제
+            </button>` : ''}
+        </div>
+    `;
+
+    Swal.fire({
+        title: '<span style="font-size: 1rem; color: #6c757d;">메시지 옵션</span>',
+        html: html,
+        showConfirmButton: false,
+        showCloseButton: true,
+        width: '320px',
+        padding: '0',
+        heightAuto: false,     // 전체 HTML 높이 변조 차단 락
+        focusConfirm: false,   // 확인창 강제 포커싱 이동 해제
+        returnFocus: false,    // 최상단 튕김 최종 박멸
+        customClass: { popup: 'rounded-4 shadow-lg border-0' }
+    });
+}
+
+// ──────────────────────────────────────────────────────────
+// 🎯 [교정 코드] 백엔드 리턴 타입 호환성을 위해 res.ok 검증 시 즉시 드라이브 새로고침을 감행합니다.
+// ──────────────────────────────────────────────────────────
+function pinFromMenu(msgId) {
+    Swal.fire({
+        title: '📢 공지사항 고정',
+        text: '이 메시지를 대화방 상단 공지 배너로 등록하시겠습니까?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#fae100',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '등록',
+        cancelButtonText: '취소',
+        heightAuto: false,
+        focusCancel: true
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+
+        const formData = new FormData();
+        formData.append('msg_id', msgId);
+        
+        fetch(`/quiz/chat/api/room/${roomId}/pin/`, {
+            method: 'POST', 
+            body: formData,
+            headers: {'X-CSRFToken': '{{ csrf_token }}'} // 💡 교정 완료: 직접 바인딩으로 변환
+        })
+        .then(async res => {
+            const responseText = await res.text();
+            if (!res.ok) {
+                throw new Error(`서버 응답 실패 (HTTP ${res.status})\n내용: ${responseText.substring(0, 80)}`);
+            }
+            try {
+                const data = JSON.parse(responseText);
+                if (data.status === 'success' || data.success) {
+                    window.location.reload();
+                } else {
+                    Swal.fire({ icon: 'error', title: '공지 등록 거부', text: data.message || '서버에서 등록을 거부했습니다.', heightAuto: false });
+                }
+            } catch (e) {
+                window.location.reload();
+            }
+        })
+        .catch(err => {
+            console.error("공지 처리 실패:", err);
+            Swal.fire({ 
+                icon: 'error', 
+                title: '라우팅/통신 오류 발생', 
+                text: err.message, 
+                heightAuto: false 
+            });
+        });
+    });
+}
+// ──────────────────────────────────────────────────────────
+
+/* ─── [기존 아래쪽 코드 기준점 - deleteMyMessage 시작부] ─── */
+function deleteMyMessage(messageId) {
+    Swal.fire({
+        title: '메시지 삭제',
+        text: '이 메시지를 정말 삭제하시겠습니까?\n(상대방의 화면에서도 즉시 사라집니다)',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: '삭제',
+        cancelButtonText: '취소',
+        heightAuto: false,     // 💥 [핵심 패치] 삭제 확인 모달창 렌더링 시에도 본문 높이 고정 보호막 가동
+        focusCancel: true
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+
+        fetch(`/quiz/chat/message/delete/${messageId}/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const msgRow = document.querySelector(`.chat-message-row[data-msg-id="${messageId}"]`);
+                if (msgRow) {
+                    msgRow.style.transition = "opacity 0.3s, transform 0.3s";
+                    msgRow.style.opacity = '0';
+                    msgRow.style.transform = 'scale(0.9)';
+                    setTimeout(() => msgRow.remove(), 300);
+                }
+            } else {
+                alert(data.message);
+            }
+        })
+        .catch(err => console.error("메시지 제적 실패:", err));
+    });
+}
+// ─── [인풋 핸들러 파트 완전 패치] ───
+const msgInputBox = document.querySelector('#chat-message-input');
+if (msgInputBox) {
+    msgInputBox.focus();
+    
+    msgInputBox.addEventListener('keydown', function(e) {
+        // 1. 그냥 엔터(Enter)만 누르면 기존처럼 즉시 메시지가 전송됩니다 (보내기 유지)
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault(); // 엔터 자체의 줄바꿈 개행문자 삽입 방지
+            document.querySelector('#chat-message-submit').click(); // 전송 버튼 강제 클릭
+        }
+        
+        // 2. Shift + Enter를 누르면 전송되지 않고 아래로 줄 바꿈이 되며 인풋창이 카톡처럼 확장됩니다
+        if (e.key === 'Enter' && e.shiftKey) {
+            // 글자가 아래로 떨어지는 타이밍에 맞춰 입력창 높이를 실시간 동적 확장 계산
+            setTimeout(() => {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight) + 'px';
+            }, 10);
+        }
+    });
+}
+
+document.querySelector('#chat-message-submit').onclick = function() {
+    const inputDom = document.querySelector('#chat-message-input');
+    if (inputDom.value.trim() !== "") {
+        chatSocket.send(JSON.stringify({ 
+            'type': 'chat_message', 
+            'message': inputDom.value, 
+            'username': myName,
+            'parent_id': pendingReplyId 
+        }));
+        inputDom.value = ''; 
+        
+        // 전송 처리가 끝나면 늘어났던 입력창을 다시 깔끔하게 1줄 크기로 압축 리셋
+        inputDom.style.height = 'auto';
+        
+        cancelReply(); 
+    }
+};
 </script>
 </body>
 </html>

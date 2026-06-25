@@ -211,9 +211,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // --------------------------------------------------------
     var input = document.querySelector('input[name=tags]');
     if (input) {
+        // 백엔드 views.py에서 템플릿 context로 보낸 all_tags_json 안전 파싱
+        var whitelistTags = {{ all_tags_json|safe|default:"[]" }};
+        
         new Tagify(input, {
             maxTags: 10,
-            dropdown: { maxItems: 20, classname: "tags-look", enabled: 0, closeOnSelect: false }
+            whitelist: whitelistTags,  // 🌟 마스터 태그 풀 연동
+            dropdown: { 
+                maxItems: 20, 
+                classname: "tags-look", 
+                enabled: 0,            // 🌟 0: 인풋창 마우스 클릭하자마자 전체 리스트 즉시 표출
+                closeOnSelect: false   // 🌟 연속 선택이 편하도록 메뉴 열림 유지
+            }
         });
     }
 
@@ -304,8 +313,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // --------------------------------------------------------
     // 4. 폼 제출 시 데이터 동기화 (UI -> Hidden Fields)
     // --------------------------------------------------------
-    document.getElementById('questionForm').addEventListener('submit', function(e) {
+   document.getElementById('questionForm').addEventListener('submit', function(e) {
         const type = typeSelect.value;
+
+        // ── 검증 실패 시 base.html 로더 차단용 헬퍼 ──────────────────
+        function blockAndAlert(msg) {
+            e.preventDefault();
+           
+            Swal.fire({ icon: 'warning', title: '입력 확인', text: msg, confirmButtonColor: '#0d6efd' });
+        }
         
         // [초기화] 기존 숨겨진 필드들 일단 비우기
         document.getElementById('real_short_answer').value = '';
@@ -316,46 +332,52 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (type === 'short_answer') {
-            // 빈 칸 체크
             const inputs = document.querySelectorAll('input[name="short_answers[]"]');
             let hasValue = false;
             inputs.forEach(inp => { if (inp.value.trim() !== '') hasValue = true; });
             
-            if (!hasValue) { 
-                alert('최소 1개 이상의 정답 단어를 입력하세요!'); 
-                e.preventDefault(); 
-                return; 
+            if (!hasValue) {
+                blockAndAlert('최소 1개 이상의 정답 단어를 입력하세요!');
+                return;
             }
-            // (숨김 필드 동기화는 필요 없습니다. 폼이 통째로 날아갑니다!)
 
         } else if (type === 'true_false') {
-            // [OX 수정됨] O/X 선택 -> ox_answer 로 저장
             const o = document.getElementById('ui_ox_o').checked;
             const x = document.getElementById('ui_ox_x').checked;
-            if (!o && !x) { alert('O 또는 X 중 정답을 선택하세요!'); e.preventDefault(); return; }
-
-            // ★ 여기가 핵심 변경점!
+            if (!o && !x) {
+                blockAndAlert('O 또는 X 중 정답을 선택하세요!');
+                return;
+            }
             document.getElementById('real_ox_answer').value = o ? 'O' : 'X';
 
         } else {
-            // [객관식/다중] 기존 로직 유지 (1~4번 보기에 저장)
-            const texts = document.querySelectorAll('.ui-choice-text');
+            const texts  = document.querySelectorAll('.ui-choice-text');
             const checks = document.querySelectorAll('.ui-choice-correct');
             let checkedCount = 0;
 
             texts.forEach((input, idx) => {
-                const hiddenText = document.getElementById(`h_text_${idx+1}`);
+                const hiddenText  = document.getElementById(`h_text_${idx+1}`);
                 const hiddenCheck = document.getElementById(`h_correct_${idx+1}`);
-                
-                hiddenText.value = input.value.trim();
+                hiddenText.value    = input.value.trim();
                 hiddenCheck.checked = checks[idx].checked;
-                
                 if (checks[idx].checked) checkedCount++;
             });
 
-            if (checkedCount === 0) { alert('정답을 최소 1개 이상 선택해야 합니다.'); e.preventDefault(); return; }
-            if (type === 'multiple_choice' && checkedCount > 1) { alert('객관식(단일)은 정답이 1개여야 합니다.'); e.preventDefault(); return; }
+            if (checkedCount === 0) {
+                blockAndAlert('정답을 최소 1개 이상 선택해야 합니다.');
+                return;
+            }
+            if (type === 'multiple_choice' && checkedCount > 1) {
+                blockAndAlert('객관식(단일)은 정답이 1개여야 합니다.');
+                return;
+            }
         }
+
+        // ★ 정상 제출 시 로더를 직접 띄움 (base.html과 타이밍 충돌 방지)
+        e.stopImmediatePropagation();
+        const loader = document.getElementById('global-loader');
+        if (loader) loader.style.display = 'flex';
+        // 이후 form이 정상 submit → 페이지 이동 → 로더 자동 소멸
     });
 
     // 이벤트 리스너 시작

@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="fw-bold mb-0"><i class="bi bi-clipboard-check text-success me-2"></i>수학태도 및 점수 평가 관리</h4>
+            <span class="text-muted small">태도 점수, 체크리스트, 강사 코멘트가 모두 작성되어야 '평가 완료'로 처리됩니다.</span>
+        </div>
+    </div>
+
+    <div class="card mb-4 border-0 shadow-sm bg-light">
+        <div class="card-body py-3">
+            <form method="get" class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-1 text-secondary">🏢 소속 회사</label>
+                    <select name="company" class="form-select form-select-sm">
+                        <option value="">전체</option>
+                        {% for c in companies %}
+                            <option value="{{ c.id }}" {% if sel_company == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                {% if request.user.is_superuser %}
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-1 text-secondary">⚙️ 공정</label>
+                    <select name="process" class="form-select form-select-sm">
+                        <option value="">전체</option>
+                        {% for p in processes %}
+                            <option value="{{ p.id }}" {% if sel_process == p.id %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-1 text-secondary">🎓 기수</label>
+                    <select name="cohort" class="form-select form-select-sm">
+                        <option value="">전체</option>
+                        {% for c in cohorts %}
+                            <option value="{{ c.id }}" {% if sel_cohort == c.id %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="col-auto">
+                    <label class="form-label small fw-bold mb-1 text-secondary">🔍 검색 (이름/사번)</label>
+                    <input type="text" name="q" class="form-control form-control-sm" placeholder="검색어 입력" value="{{ search_query }}">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-primary btn-sm fw-bold px-3">조회</button>
+                    <a href="{% url 'quiz:attitude_evaluation_list' %}" class="btn btn-outline-secondary btn-sm">초기화</a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle text-center mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th style="width: 10%;">기수</th>
+                        <th style="width: 15%;">소속 / 공정</th>
+                        <th style="width: 10%;">이름</th>
+                        <th style="width: 10%;">수학태도 점수</th>
+                        <th style="width: 15%;">체크리스트 (항목 수)</th>
+                        <th style="width: 15%;">강사 평가 (코멘트)</th>
+                        <th style="width: 15%;">평가 상태</th>
+                        <th style="width: 10%;">관리</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in eval_data %}
+                    <tr>
+                        <td class="fw-bold">{{ item.profile.cohort.name|default:"미지정" }}</td>
+                        <td>
+                            <div style="font-size: 0.8rem;" class="text-muted">{{ item.profile.company.name|default:"-" }}</div>
+                            <span class="badge bg-secondary">{{ item.profile.process.name|default:"공통" }}</span>
+                        </td>
+                        <td class="fw-bold text-dark fs-6">{{ item.profile.name }}</td>
+                        
+                        <td>
+                            {% if item.has_attitude_score %}
+                                <span class="fw-bold text-primary">{{ item.attitude_score }}점</span>
+                            {% else %}
+                                <span class="text-danger small"><i class="bi bi-x-circle"></i> 미입력</span>
+                            {% endif %}
+                        </td>
+                        
+                        <td>
+                            {% if item.has_checklist %}
+                                <span class="badge bg-info text-dark">{{ item.checklist_count }}개 선택됨</span>
+                            {% else %}
+                                <span class="text-danger small"><i class="bi bi-x-circle"></i> 미체크</span>
+                            {% endif %}
+                        </td>
+                        
+                        <td>
+                            {% if item.has_comment %}
+                                <span class="badge bg-success bg-opacity-25 text-success border border-success"><i class="bi bi-check-lg"></i> 작성완료</span>
+                            {% else %}
+                                <span class="text-danger small"><i class="bi bi-x-circle"></i> 미작성</span>
+                            {% endif %}
+                        </td>
+
+                        <td class="bg-light">
+                            {% if item.is_eval_completed %}
+                                <span class="badge bg-success shadow-sm fs-6 px-3 py-2"><i class="bi bi-check-circle-fill me-1"></i>평가 완료</span>
+                            {% else %}
+                                <span class="badge bg-secondary shadow-sm fs-6 px-3 py-2">평가 대기</span>
+                                <div class="text-danger mt-1 fw-bold" style="font-size: 0.7rem;">
+                                    {% if not item.has_attitude_score %}[점수 누락] {% endif %}
+                                    {% if not item.has_checklist %}[체크리스트 누락] {% endif %}
+                                    {% if not item.has_comment %}[코멘트 누락]{% endif %}
+                                </div>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <a href="{% url 'quiz:evaluate_trainee' item.profile.id %}" class="btn btn-sm btn-outline-dark fw-bold">
+                                평가하기 <i class="bi bi-arrow-right"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center py-5 text-muted">
+                            <i class="bi bi-inbox fs-1 d-block mb-3 text-light"></i>
+                            조회할 교육생 데이터가 없습니다.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

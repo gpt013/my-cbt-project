@@ -3,6 +3,7 @@ from . import views
 from . import views_facility
 from django.conf import settings
 from django.conf.urls.static import static
+from attendance import views as attendance_views
 
 app_name = 'quiz'
 
@@ -197,6 +198,13 @@ urlpatterns = [
     path('logs/warning-letter/<int:log_id>/print/', views.print_warning_letter, name='print_warning_letter'),
     path('manager/exception-completion/<int:req_id>/<str:action>/', views.process_exception_completion, name='process_exception_completion'),
     path('chat/api/user/<int:user_id>/profile/', views.chat_user_quick_profile, name='chat_user_quick_profile'),
+    path('api/notifications/mark-all-read/', views.mark_all_notifications_read, name='mark_all_notis_read'),
+    path('api/refresh-session/', views.refresh_session, name='refresh_session'),
+    path('chat/message/delete/<int:message_id>/', views.delete_chat_message, name='delete_chat_message'),
+    path('manager/quick-attitude-score/', views.quick_update_attitude_score, name='quick_update_attitude_score'),
+    path('api/practice-targets/', views.get_practice_targets, name='get_practice_targets'),
+    
+    
     
 ]
 

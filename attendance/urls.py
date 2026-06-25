@@ -19,5 +19,5 @@ urlpatterns = [
     path('check-in/', views.check_in_page, name='check_in_page'), # 출근 페이지
     path('api/check-in/', views.check_in_api, name='check_in_api'), # 실제 처리(AJAX)
     path('request/<int:request_id>/<str:action>/', views.process_request, name='process_request'),
-    
+    path('schedule/export/', views.export_schedule_excel, name='export_schedule_excel'),
 ]
