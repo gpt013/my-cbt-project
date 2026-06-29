@@ -7366,8 +7366,12 @@ def student_log_create(request, student_id):
     3. 핵심기능: '잠금 해제' 체크 시, 해당 학생의 'exam_fail' 로그를 찾아 해결 처리함.
     """
     if request.method == 'POST':
-        student = get_object_or_404(User, pk=student_id) # 또는 Profile 모델
+        student = get_object_or_404(User, pk=student_id)
         profile = getattr(student, 'profile', None)
+
+        # [보안] 관리자/담당 공정 매니저만 로그 작성 가능 (권한 상승 차단)
+        if not request.user.is_staff and not (profile and is_process_manager(request.user, profile)):
+            return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
 
         # 폼 데이터 가져오기
         log_type = request.POST.get('log_type', 'counseling') # 기본값 면담

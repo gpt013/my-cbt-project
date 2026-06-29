@@ -32,16 +32,42 @@ class NotificationConsumer(AsyncWebsocketConsumer):
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        # 인증된 사용자만 연결 허용
+        if not self.scope['user'].is_authenticated:
+            await self.close()
+            return
+
         self.room_id = self.scope['url_route']['kwargs']['room_id']
         self.room_group_name = f'chat_{self.room_id}'
 
+        # 해당 채팅방 참가자인지 확인 (IDOR 방지)
+        is_participant = await self.check_room_participant()
+        if not is_participant:
+            await self.close()
+            return
+
+        self.user = self.scope['user']
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
+
+    @database_sync_to_async
+    def check_room_participant(self):
+        user = self.scope['user']
+        try:
+            room = ChatRoom.objects.get(id=self.room_id)
+            return room.participants.filter(id=user.id).exists() or user.is_superuser
+        except ChatRoom.DoesNotExist:
+            return False
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
     async def receive(self, text_data):
+        # 인증 재확인 (연결 후 세션 만료 방지)
+        if not self.scope['user'].is_authenticated:
+            await self.close()
+            return
+
         text_data_json = json.loads(text_data)
         msg_type = text_data_json.get('type', 'chat_message')
 

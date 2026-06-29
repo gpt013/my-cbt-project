@@ -13,15 +13,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# [보안] Render 환경변수에 SECRET_KEY가 있으면 그걸 쓰고, 없으면 개발용 키 사용
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-dev-key-for-testing-only-do-not-use-in-production')
+# 환경변수에 SECRET_KEY가 없으면 명시적으로 오류 발생 (하드코딩 방지)
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    import sys
+    if 'runserver' in sys.argv or 'gunicorn' in ' '.join(sys.argv) or os.environ.get('DATABASE_URL'):
+        raise RuntimeError(
+            "SECRET_KEY 환경변수가 설정되지 않았습니다. "
+            "프로덕션 서버 실행 전 반드시 설정해주세요."
+        )
+    _secret_key = 'local-dev-only-do-not-use-in-production-' + os.urandom(16).hex()
+SECRET_KEY = _secret_key
 
-# [보안] Render에서는 DEBUG를 False로 하는 것이 원칙이지만, 
-# 에러 확인을 위해 당분간 True로 두시거나, 환경변수로 제어하세요.
-# (현재는 요청하신 대로 True 유지)
-DEBUG = True
+# 환경변수로 DEBUG 제어 (기본값 False — 프로덕션 안전)
+DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 'yes')
 
-ALLOWED_HOSTS = ['*']
+# 와일드카드 허용 금지: 환경변수로 명시적으로 지정
+_allowed_hosts = os.environ.get('ALLOWED_HOSTS', '')
+if _allowed_hosts:
+    ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
+else:
+    # 환경변수 미설정 시 로컬 개발용으로만 허용
+    ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '.github.dev', '.app.github.dev']
 
 
 # Application definition
@@ -272,8 +285,12 @@ IS_PRODUCTION = 'DATABASE_URL' in os.environ
 
 CSRF_COOKIE_SECURE = IS_PRODUCTION        # 배포: True / 로컬: False
 SESSION_COOKIE_SECURE = IS_PRODUCTION     # 배포: True / 로컬: False
-CSRF_COOKIE_SAMESITE = 'None' if IS_PRODUCTION else 'Lax'
-SESSION_COOKIE_SAMESITE = 'None' if IS_PRODUCTION else 'Lax'
+# SameSite=None은 CSRF 방어를 약화시키므로 'Lax' 사용
+CSRF_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'Lax'
+# 세션 쿠키에 HttpOnly 플래그 강제 (JS 접근 차단)
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
 
 DATA_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 104857600  # 100 * 1024 * 1024

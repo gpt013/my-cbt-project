@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from django.db.models import Sum, Count, Q
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth import login as auth_login
+from django.core.cache import cache
 
 # forms.py에서 정의한 폼들 import
 from .forms import CustomUserCreationForm, ProfileForm, ProfileUpdateForm
@@ -174,8 +175,17 @@ def load_part_leaders(request):
         pls = PartLeader.objects.filter(company_id=company_id, process=process_id).order_by('name')
         return JsonResponse({'pls': [{"id": p.id, "name": p.name} for p in pls]})
     except Exception as e:
-        print(f"❌ AJAX Error: {e}")
+        import logging
+        logging.getLogger(__name__).error("AJAX load_part_leaders error: %s", e, exc_info=True)
         return JsonResponse({'error': '데이터 로드 중 오류 발생'}, status=500)
+
+_LOGIN_MAX_ATTEMPTS = 5       # 최대 실패 횟수
+_LOGIN_LOCKOUT_SECONDS = 300 # 잠금 시간 5분
+
+def _get_login_cache_key(request):
+    ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', 'unknown'))
+    ip = ip.split(',')[0].strip()
+    return f'login_attempts_{ip}'
 
 def custom_login(request):
     """
@@ -189,13 +199,23 @@ def custom_login(request):
        - 상태가 'counseling' -> counseling_required.html (로그인 안됨)
        - 정상(attending) -> 로그인 성공
     """
+    # 브루트포스 방어: IP별 로그인 실패 횟수 제한
+    cache_key = _get_login_cache_key(request)
+    attempts = cache.get(cache_key, 0)
+    if attempts >= _LOGIN_MAX_ATTEMPTS:
+        messages.error(request, f"⛔ 로그인 시도가 너무 많습니다. {_LOGIN_LOCKOUT_SECONDS // 60}분 후 다시 시도해주세요.")
+        return render(request, 'accounts/login.html', {'form': AuthenticationForm()})
+
     if request.method == 'POST':
         form = AuthenticationForm(request, data=request.POST)
-        
+
         if form.is_valid():
             user = form.get_user()
-            
+
             try:
+                # 로그인 성공 시 실패 카운터 초기화
+                cache.delete(cache_key)
+
                 # 프로필 가져오기 (없으면 생성 - 안전장치)
                 profile, created = Profile.objects.get_or_create(user=user)
                 
@@ -272,12 +292,17 @@ def custom_login(request):
                 return redirect('quiz:my_page')
 
             except Exception as e:
-                print(f"Login Logic Error: {e}")
+                import logging
+                logging.getLogger(__name__).error("Login Logic Error: %s", e, exc_info=True)
                 messages.error(request, "로그인 처리 중 오류가 발생했습니다.")
                 return render(request, 'accounts/login.html', {'form': form})
                 
         else:
-            # 아이디/비번 틀림
+            # 아이디/비번 틀림 → 실패 횟수 증가
+            cache.set(cache_key, attempts + 1, _LOGIN_LOCKOUT_SECONDS)
+            remaining = _LOGIN_MAX_ATTEMPTS - (attempts + 1)
+            if remaining > 0:
+                messages.warning(request, f"아이디 또는 비밀번호가 틀렸습니다. (남은 시도: {remaining}회)")
             return render(request, 'accounts/login.html', {'form': form})
             
     else:
