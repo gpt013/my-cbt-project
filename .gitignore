@@ -24,3 +24,7 @@ venv/
 # OS / Editor
 .DS_Store
 .vscode/
+
+# Git bundles / patch files
+*.bundle
+*.patch
