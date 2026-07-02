@@ -82,6 +82,15 @@ def is_process_manager(user, target_profile):
             
     return False
 
+def is_quiz_manager(user, quiz):
+    """
+    요청자(user)가 관리자(Superuser)이거나,
+    해당 시험(quiz)의 '지정 담당자'인지 확인합니다.
+    """
+    if user.is_superuser:
+        return True
+    return quiz.managers.filter(id=user.id).exists()
+
 # 1. '마이 페이지'
 @login_required
 def my_page(request):
@@ -2497,43 +2506,1071 @@ def start_group_quiz(request, quiz_id):
 # ──────────────────────────────────────────────────────────
 # 🎯 [전면 개편] 그리드 필터 전원 연동 + 종합 이력 누락 방지 엑셀 추출 엔진
 # ──────────────────────────────────────────────────────────
-@login_required
-def export_student_data(request):
-    if not request.user.is_staff:
-        return redirect('quiz:index')
+# -*- coding: utf-8 -*-
+"""
+═══════════════════════════════════════════════════════════════════════════
+ PMTC 종합 보고서 엔진 v2  —  4종 리포트 (full / company / process / cohort)
+───────────────────────────────────────────────────────────────────────────
+ · build_report_dataframe(request)  : 그리드 필터를 그대로 받아 df, df_c, quiz_titles 생성
+ · build_workbook(view, df, df_c, quiz_titles, meta) : 선택된 view 의 xlsx 바이트 반환
+ · export_report(request)           : Django 뷰 (디스패처).  ?view=full|company|process|cohort
+───────────────────────────────────────────────────────────────────────────
+ 시트 빌더는 전부 "df → 워크북" 순수 함수라 단독 테스트 가능.
+═══════════════════════════════════════════════════════════════════════════
+"""
+import re
+import json
+import urllib.parse
+from io import BytesIO
+from collections import defaultdict
 
-    import pandas as pd
-    from io import BytesIO
-    import urllib.parse
-    from collections import defaultdict
+import pandas as pd
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  팔레트 / 등급 색
+# ══════════════════════════════════════════════════════════════════════════
+NAVY  = '#1F3864'; BLUE = '#2E5496'; SKY = '#5B9BD5'; LIGHT = '#EBF3FB'
+GOLD  = '#C9A84C'; GREEN = '#548235'; LIME = '#70AD47'; ORANGE = '#ED7D31'
+RED   = '#C0392B'; DRED = '#6F0000'; GRAY = '#808080'; WHITE = '#FFFFFF'
+INK   = '#333333'; SOFT = '#F2F6FB'
+
+GRADE_BG = {'S': '#D6EAF8', 'A': '#D5F5E3', 'B': '#F5EEF8',
+            'C': '#FEF9E7', 'D': '#FDEDEC', 'F': '#6F0000'}
+GRADE_FG = {'S': '#154360', 'A': '#145A32', 'B': '#4A235A',
+            'C': '#7D6608', 'D': '#922B21', 'F': '#FFFFFF'}
+GRADE_ORDER = list('SABCDF')
+
+# 회사/공정/기수 탭에 돌려쓸 강조색
+ACCENTS = ['#2E5496', '#548235', '#9E480E', '#7030A0', '#0E7C7B', '#C00000',
+           '#1F6FB2', '#806000', '#3B6E22', '#5B2C6F']
+
+
+def _safe_sheet(name, used):
+    """엑셀 시트명 규칙(31자, 금칙문자 제거, 중복 회피)."""
+    name = re.sub(r'[:\\/?*\[\]]', '', str(name)).strip() or 'sheet'
+    name = name[:31]
+    base, i = name, 1
+    while name.lower() in used:
+        suf = f'_{i}'
+        name = base[:31 - len(suf)] + suf
+        i += 1
+    used.add(name.lower())
+    return name
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  포맷 팩토리
+# ══════════════════════════════════════════════════════════════════════════
+def make_formats(wb):
+    f = lambda **kw: wb.add_format(kw)
+    fm = {
+        'title':   f(bold=True, font_size=18, font_color=NAVY, bottom=2, bottom_color=GOLD),
+        'subtitle':f(font_size=10, font_color='#7F8C8D', italic=True),
+        'sec':     f(bold=True, font_size=12, bg_color=NAVY, font_color=WHITE, border=1,
+                     align='center', valign='vcenter'),
+        'sec2':    f(bold=True, font_size=11, bg_color=BLUE, font_color=WHITE, border=1,
+                     align='center', valign='vcenter'),
+        'hdr':     f(bold=True, bg_color=NAVY, font_color=WHITE, border=1, align='center',
+                     valign='vcenter', text_wrap=True, font_size=10),
+        'hdr2':    f(bold=True, bg_color='#34495E', font_color=WHITE, border=1, align='center',
+                     valign='vcenter', text_wrap=True, font_size=10),
+        'cell':    f(border=1, align='center', valign='vcenter', text_wrap=True, font_size=10),
+        'wrap':    f(border=1, align='left',   valign='vcenter', text_wrap=True, font_size=9),
+        'num':     f(border=1, align='center', valign='vcenter', num_format='0.0', font_size=10),
+        'int':     f(border=1, align='center', valign='vcenter', num_format='0', font_size=10),
+        'pct':     f(border=1, align='center', valign='vcenter', num_format='0.0"%"', font_size=10),
+        'name':    f(border=1, align='left',   valign='vcenter', font_size=10, indent=1),
+        'kpi_lab': f(bold=True, font_size=10, bg_color=LIGHT, border=1, align='center',
+                     valign='vcenter', font_color=NAVY),
+        'kpi_val': f(bold=True, font_size=20, border=1, align='center', valign='vcenter'),
+        'kpi_sub': f(font_size=8, font_color='#95A5A6', align='center', valign='vcenter', border=1),
+        'good':    f(border=1, align='center', valign='vcenter', num_format='0.0', font_color=GREEN, bold=True, font_size=10),
+        'bad':     f(border=1, align='center', valign='vcenter', num_format='0.0', font_color=RED, bold=True, font_size=10),
+        'delta_up':  f(border=1, align='center', valign='vcenter', num_format='+0.0;-0.0', bg_color='#E8F6EF', font_color=GREEN, bold=True, font_size=10),
+        'delta_dn':  f(border=1, align='center', valign='vcenter', num_format='+0.0;-0.0', bg_color='#FDEDEC', font_color=RED, bold=True, font_size=10),
+        'delta_flat':f(border=1, align='center', valign='vcenter', num_format='0.0', bg_color=SOFT, font_color=GRAY, font_size=10),
+    }
+    for g in GRADE_ORDER:
+        fm[f'g_{g}'] = f(bg_color=GRADE_BG[g], font_color=GRADE_FG[g], bold=True,
+                         border=1, align='center', valign='vcenter', font_size=12)
+    return fm
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  공용 그리기 헬퍼
+# ══════════════════════════════════════════════════════════════════════════
+def auto_col(ws, frame, start=0, wrap_cols=None, max_w=58, fmt=None):
+    wrap_cols = wrap_cols or []
+    for ci, col in enumerate(frame.columns):
+        lens = [len(f"{x}") for x in frame[col]] if not frame.empty else [0]
+        w = min(max(max([len(f"{col}")] + lens) + 2, 9), max_w)
+        if col in wrap_cols:
+            ws.set_column(start + ci, start + ci, max(w, 34))
+        else:
+            ws.set_column(start + ci, start + ci, w)
+
+
+def write_hdr(ws, frame, fmt, row=1, start=0):
+    for ci, col in enumerate(frame.columns):
+        ws.write(row, start + ci, col, fmt)
+
+
+def grade_cond(ws, wb, frame, col, r0, r1, start=0):
+    if col not in frame.columns:
+        return
+    ci = start + frame.columns.get_loc(col)
+    for g in GRADE_ORDER:
+        ws.conditional_format(r0, ci, r1, ci, {
+            'type': 'cell', 'criteria': '==', 'value': f'"{g}"',
+            'format': wb.add_format({'bg_color': GRADE_BG[g], 'font_color': GRADE_FG[g],
+                                     'bold': True, 'align': 'center', 'border': 1})})
+
+
+def heat(ws, wb, r0, c0, r1, c1, rev=False):
+    """3색 스케일 히트맵(평균점수/인원 등)."""
+    lo, hi = ('#F8696B', '#63BE7B') if not rev else ('#63BE7B', '#F8696B')
+    ws.conditional_format(r0, c0, r1, c1, {
+        'type': '3_color_scale',
+        'min_color': lo, 'mid_color': '#FFEB84', 'max_color': hi})
+
+
+def data_bar(ws, r0, c0, r1, c1, color=SKY):
+    ws.conditional_format(r0, c0, r1, c1, {
+        'type': 'data_bar', 'bar_color': color, 'bar_solid': True})
+
+
+def kpi_band(wb, ws, fmt, kpis, row, start_col=1, span=2, gap=0):
+    """KPI 카드 한 줄.  kpis = [(label, value, color, sublabel?), ...]"""
+    ws.set_row(row, 22)
+    ws.set_row(row + 1, 38)
+    if any(len(k) > 3 for k in kpis):
+        ws.set_row(row + 2, 14)
+    c = start_col
+    for k in kpis:
+        label, value, color = k[0], k[1], k[2]
+        sub = k[3] if len(k) > 3 else None
+        ws.merge_range(row, c, row, c + span - 1, label, fmt['kpi_lab'])
+        vfmt = wb.add_format({'bold': True, 'font_size': 20, 'border': 1,
+                              'align': 'center', 'valign': 'vcenter', 'font_color': color})
+        ws.merge_range(row + 1, c, row + 1, c + span - 1, value, vfmt)
+        if sub is not None:
+            ws.merge_range(row + 2, c, row + 2, c + span - 1, sub, fmt['kpi_sub'])
+        c += span + gap
+
+
+def mini_table(ws, wb, fmt, frame, top, left, title=None, accent=NAVY,
+               grade_cols=None, heat_cols=None, pct_cols=None, bar_cols=None,
+               col_w=None, name_col=None):
+    """제목 + 헤더 + 본문을 갖춘 작은 표를 (top,left) 에 그린다. 다음 빈 행 index 반환."""
+    grade_cols = grade_cols or []; heat_cols = heat_cols or []
+    pct_cols = pct_cols or [];     bar_cols = bar_cols or []
+    ncol = len(frame.columns)
+    r = top
+    if title:
+        tfmt = wb.add_format({'bold': True, 'font_size': 11, 'bg_color': accent,
+                              'font_color': WHITE, 'border': 1, 'align': 'center',
+                              'valign': 'vcenter'})
+        if ncol > 1:
+            ws.merge_range(r, left, r, left + ncol - 1, title, tfmt)
+        else:
+            ws.write(r, left, title, tfmt)
+        r += 1
+    for ci, col in enumerate(frame.columns):
+        ws.write(r, left + ci, col, fmt['hdr2'])
+    r += 1
+    body0 = r
+    for _, rowdata in frame.iterrows():
+        for ci, col in enumerate(frame.columns):
+            v = rowdata[col]
+            if col in grade_cols and v in GRADE_BG:
+                ws.write(r, left + ci, v, fmt[f'g_{v}'])
+            elif col in pct_cols:
+                ws.write(r, left + ci, v, fmt['pct'])
+            elif col == name_col:
+                ws.write(r, left + ci, v, fmt['name'])
+            elif isinstance(v, float):
+                ws.write(r, left + ci, v, fmt['num'])
+            elif isinstance(v, int):
+                ws.write(r, left + ci, v, fmt['int'])
+            else:
+                ws.write(r, left + ci, v, fmt['cell'])
+        r += 1
+    body1 = r - 1
+    if col_w:
+        for ci, w in enumerate(col_w):
+            ws.set_column(left + ci, left + ci, w)
+    for hc in heat_cols:
+        if hc in frame.columns:
+            ci = left + frame.columns.get_loc(hc)
+            if body1 >= body0:
+                heat(ws, wb, body0, ci, body1, ci)
+    for bc in bar_cols:
+        if bc in frame.columns:
+            ci = left + frame.columns.get_loc(bc)
+            if body1 >= body0:
+                data_bar(ws, body0, ci, body1, ci)
+    return r + 1, body0, body1
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  집계 유틸
+# ══════════════════════════════════════════════════════════════════════════
+def _mean_pos(s):
+    s = pd.to_numeric(s, errors='coerce')
+    s = s[s > 0]
+    return round(float(s.mean()), 1) if len(s) else 0.0
+
+
+def summarize(df, df_c, gcol):
+    """그룹(회사/공정/기수)별 표준 종합 지표 프레임."""
+    idx = sorted(df[gcol].dropna().unique().tolist())
+    rows = []
+    for key in idx:
+        m  = df[gcol] == key
+        mc = df_c[gcol] == key
+        n  = int(m.sum())
+        comp = int((df.loc[m, '최종 상태'] == '수료').sum())
+        drop = int((df.loc[m, '최종 상태'] == '퇴소').sum())
+        sa   = int(df.loc[m, '🏆 종합 등급'].isin(['S', 'A']).sum())
+        dfg  = int(df.loc[m, '🏆 종합 등급'].isin(['D', 'F']).sum())
+        rows.append({
+            gcol: key, '인원': n,
+            '수료': comp, '퇴소': drop,
+            '수료율(%)': round(comp / n * 100, 1) if n else 0.0,
+            '우수(SA)': sa, '우수율(%)': round(sa / n * 100, 1) if n else 0.0,
+            '위험(DF)': dfg,
+            '평균점수': _mean_pos(df_c.loc[mc, '최종 환산 점수']),
+            '과목평균': _mean_pos(df_c.loc[mc, '과목 평균점수']),
+            '태도평균': _mean_pos(df_c.loc[mc, '태도 점수']),
+            '평균재시험': round(float(df_c.loc[mc, '재시험 횟수'].mean()), 1) if n else 0.0,
+            '평균지각': round(float(df_c.loc[mc, '지각 수'].mean()), 1) if n else 0.0,
+            '평균경고': round(float(df_c.loc[mc, '경고 수'].mean()), 1) if n else 0.0,
+            '평균경고장': round(float(df_c.loc[mc, '경고장 수'].mean()), 1) if n else 0.0,
+        })
+    return pd.DataFrame(rows)
+
+
+def grade_dist(df, gcol):
+    """그룹 × 종합등급 인원 crosstab (SABCDF 순서 보장)."""
+    ct = pd.crosstab(df[gcol], df['🏆 종합 등급'])
+    for g in GRADE_ORDER:
+        if g not in ct.columns:
+            ct[g] = 0
+    ct = ct[GRADE_ORDER]
+    return ct.reset_index()
+
+
+def exam_stats(df, quiz_titles, subset_mask=None):
+    """시험별 1/2/3차 평균·합격률 (미응시 '-' 제외)."""
+    sub = df if subset_mask is None else df[subset_mask]
+    rows = []
+    for q in quiz_titles:
+        s1 = pd.to_numeric(sub.get(f'{q} 1차', pd.Series(dtype=float)), errors='coerce').dropna()
+        s2 = pd.to_numeric(sub.get(f'{q} 2차', pd.Series(dtype=float)), errors='coerce').dropna()
+        s3 = pd.to_numeric(sub.get(f'{q} 3차', pd.Series(dtype=float)), errors='coerce').dropna()
+        alls = pd.concat([s1, s2, s3])
+        rows.append({
+            '시험명': q, '응시자': int(len(s1)),
+            '1차평균': round(float(s1.mean()), 1) if len(s1) else 0.0,
+            '재시험평균': round(float(pd.concat([s2, s3]).mean()), 1) if len(s2) + len(s3) else 0.0,
+            '전체평균': round(float(alls.mean()), 1) if len(alls) else 0.0,
+            '1차합격률(%)': round(float((s1 >= 80).mean()) * 100, 1) if len(s1) else 0.0,
+            '최고': int(s1.max()) if len(s1) else 0,
+            '최저': int(s1.min()) if len(s1) else 0,
+        })
+    return pd.DataFrame(rows)
+
+
+ROSTER_COLS = ['이름', '사번', '기수', '공정', '소속회사', '🏆 종합 등급',
+               '최종 환산 점수', '과목 평균점수', '태도 점수',
+               '재시험 횟수', '지각 수', '경고장 수', '✨ 수상 내역', '최종 상태']
+
+
+def roster(df, drop_col=None):
+    cols = [c for c in ROSTER_COLS if c in df.columns and c != drop_col]
+    out = df[cols].copy()
+    if '최종 환산 점수' in out.columns:
+        out = out.sort_values('최종 환산 점수', ascending=False)
+    return out.reset_index(drop=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  차트 헬퍼
+# ══════════════════════════════════════════════════════════════════════════
+def col_chart(wb, sheet, title, cat, series, size=(470, 300), stacked=False,
+              ymax=None, horiz=False, legend='bottom', y2_series=None):
+    """
+    cat    = (r0, r1, col)  카테고리 세로 범위
+    series = [{'name':str|(r,c), 'col':vc, 'color':hex, 'labels':bool}]
+    y2_series = 위와 동일하나 보조축 라인
+    """
+    ctype = 'bar' if horiz else 'column'
+    opts = {'type': ctype}
+    if stacked:
+        opts['subtype'] = 'stacked'
+    ch = wb.add_chart(opts)
+    r0, r1, ccol = cat
+
+    def _name(nm):
+        return [sheet, nm[0], nm[1]] if isinstance(nm, tuple) else nm
+
+    for s in series:
+        spec = {
+            'name': _name(s['name']),
+            'categories': [sheet, r0, ccol, r1, ccol],
+            'values': [sheet, r0, s['col'], r1, s['col']],
+        }
+        if s.get('color'):
+            spec['fill'] = {'color': s['color']}
+        if s.get('labels'):
+            spec['data_labels'] = {'value': True, 'font': {'bold': True, 'size': 8}}
+        ch.add_series(spec)
+
+    if y2_series:
+        line = wb.add_chart({'type': 'line'})
+        for s in y2_series:
+            line.add_series({
+                'name': _name(s['name']),
+                'categories': [sheet, r0, ccol, r1, ccol],
+                'values': [sheet, r0, s['col'], r1, s['col']],
+                'y2_axis': True,
+                'line': {'color': s.get('color', NAVY), 'width': 2.25},
+                'marker': {'type': 'circle', 'size': 6,
+                           'border': {'color': s.get('color', NAVY)}, 'fill': {'color': WHITE}},
+                'data_labels': {'value': True, 'position': 'top', 'font': {'bold': True, 'size': 8}},
+            })
+        ch.combine(line)
+        ch.set_y2_axis({'min': 0, 'max': 100, 'name': '%'})
+
+    ch.set_title({'name': title, 'name_font': {'bold': True, 'size': 11}})
+    ch.set_legend({'position': legend} if legend else {'none': True})
+    ch.set_size({'width': size[0], 'height': size[1]})
+    if ymax is not None:
+        ch.set_y_axis({'min': 0, 'max': ymax})
+    ch.set_chartarea({'border': {'color': '#D9D9D9'}})
+    return ch
+
+
+def pie_chart(wb, sheet, title, cat, val, colors=None, size=(320, 260)):
+    ch = wb.add_chart({'type': 'doughnut'})
+    r0, r1, ccol = cat
+    spec = {
+        'categories': [sheet, r0, ccol, r1, ccol],
+        'values': [sheet, r0, val, r1, val],
+        'data_labels': {'percentage': True, 'category': True, 'separator': '\n',
+                        'font': {'bold': True, 'size': 9}},
+    }
+    if colors:
+        spec['points'] = [{'fill': {'color': c}} for c in colors]
+    ch.add_series(spec)
+    ch.set_title({'name': title, 'name_font': {'bold': True, 'size': 11}})
+    ch.set_legend({'position': 'right', 'font': {'size': 8}})
+    ch.set_size({'width': size[0], 'height': size[1]})
+    ch.set_hole_size(52)
+    return ch
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  표지(Cover)  — 4종 공통
+# ══════════════════════════════════════════════════════════════════════════
+def build_cover(wb, writer, fmt, df, df_c, title, subtitle, gen_time):
+    cov = wb.add_worksheet('📋 표지')
+    writer.sheets['📋 표지'] = cov
+    cov.hide_gridlines(2)
+    cov.set_column('A:A', 3)
+    cov.set_column('B:M', 15)
+
+    cov.merge_range('B2:M2', title, wb.add_format(
+        {'bold': True, 'font_size': 24, 'font_color': NAVY, 'align': 'center',
+         'valign': 'vcenter', 'bottom': 3, 'bottom_color': GOLD}))
+    cov.set_row(1, 52)
+    cov.merge_range('B3:M3', subtitle, wb.add_format(
+        {'font_size': 12, 'font_color': BLUE, 'align': 'center', 'valign': 'vcenter', 'bold': True}))
+    cov.merge_range('B4:M4', f'생성일시  {gen_time}', wb.add_format(
+        {'font_size': 10, 'font_color': '#95A5A6', 'align': 'center', 'italic': True}))
+
+    total = len(df)
+    comp  = int((df['최종 상태'] == '수료').sum())
+    drop  = int((df['최종 상태'] == '퇴소').sum())
+    fcnt  = int((df['🏆 종합 등급'] == 'F').sum())
+    scnt  = int((df['🏆 종합 등급'] == 'S').sum())
+    avg   = _mean_pos(df_c['최종 환산 점수'])
+    rate  = round(comp / total * 100, 1) if total else 0.0
+
+    kpis = [
+        ('총 교육생', total, NAVY, '명'),
+        ('수료', comp, GREEN, f'{rate}%'),
+        ('퇴소 / F', drop, RED, f'F {fcnt}명'),
+        ('S 등급', scnt, '#154360', '최우수'),
+        ('평균 환산점수', avg, '#5D6D7E', '점'),
+        ('수료율', f'{rate}%', GREEN, f'{comp}/{total}'),
+    ]
+    kpi_band(wb, cov, fmt, kpis, row=6, start_col=1, span=2)
+
+    # 종합 등급 분포 (표 + 인원)
+    cov.merge_range('B11:M11', '종합 등급 분포', fmt['sec'])
+    for i, g in enumerate('SABCDF'):
+        cnt = int((df['🏆 종합 등급'] == g).sum())
+        pct = round(cnt / total * 100, 1) if total else 0
+        cov.merge_range(12, 1 + i * 2, 12, 2 + i * 2, g, fmt[f'g_{g}'])
+        cov.merge_range(13, 1 + i * 2, 13, 2 + i * 2, f'{cnt}명 · {pct}%', fmt['cell'])
+    cov.set_row(11, 26)
+    cov.set_row(12, 30)
+    cov.set_row(13, 22)
+
+    # 구성 요약
+    cov.merge_range('B16:D16', '데이터 구성', fmt['sec2'])
+    comp_tbl = pd.DataFrame({
+        '구분': ['참여 회사', '운영 공정', '진행 기수'],
+        '수': [df['소속회사'].nunique(), df['공정'].nunique(), df['기수'].nunique()],
+    })
+    mini_table(cov, wb, fmt, comp_tbl, top=17, left=1, col_w=[14, 8])
+
+    cov.merge_range('F16:M16', '리포트 구성 안내', fmt['sec2'])
+    notes = [
+        '· 표지 · 경영요약 대시보드 · 원본 데이터',
+        '· 시험별 성적 · 회사/공정/기수 요약',
+        '· 등급 교차표 · 우수/위험/퇴소 명단',
+        '· 회사·공정·기수별 개별 상세 탭 포함',
+    ]
+    for i, n in enumerate(notes):
+        cov.merge_range(17 + i, 5, 17 + i, 12, n,
+                        wb.add_format({'font_size': 10, 'align': 'left', 'valign': 'vcenter',
+                                       'font_color': INK, 'border': 1, 'bg_color': SOFT}))
+    cov.set_tab_color(NAVY)
+    return dict(total=total, comp=comp, drop=drop, fcnt=fcnt, scnt=scnt, avg=avg, rate=rate)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  등급 분포 long-form (단일 그룹용)
+# ══════════════════════════════════════════════════════════════════════════
+def _grade_long(sub):
+    n = len(sub)
+    rows = []
+    for g in GRADE_ORDER:
+        c = int((sub['🏆 종합 등급'] == g).sum())
+        rows.append({'등급': g, '인원': c, '비율(%)': round(c / n * 100, 1) if n else 0.0})
+    return pd.DataFrame(rows)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  개별 상세 탭 (회사 / 공정 / 기수 공용)
+# ══════════════════════════════════════════════════════════════════════════
+def group_tab(wb, writer, fmt, used, emoji, group_val, sub, sub_c, accent,
+              drop_col, breakdown, bench=None):
+    """
+    breakdown = {'title':str, 'frame':DataFrame, 'cat':colname, 'vals':[(colname,color,label)],
+                 'stacked':bool, 'grade_cols':[...], 'pct_cols':[...], 'heat_cols':[...]}
+    bench     = optional DataFrame (그룹 vs 전체 벤치마크)
+    """
+    name = _safe_sheet(f'{emoji} {group_val}', used)
+    ws = wb.add_worksheet(name)
+    writer.sheets[name] = ws
+    ws.hide_gridlines(2)
+    ws.set_column('A:A', 2)
+    ws.set_column('B:R', 13)
+
+    n = len(sub)
+    comp = int((sub['최종 상태'] == '수료').sum())
+    drop = int((sub['최종 상태'] == '퇴소').sum())
+    sa = int(sub['🏆 종합 등급'].isin(['S', 'A']).sum())
+    dfg = int(sub['🏆 종합 등급'].isin(['D', 'F']).sum())
+    rate = round(comp / n * 100, 1) if n else 0.0
+
+    ws.merge_range(0, 1, 0, 12, f'{emoji}  {group_val}  상세 리포트', wb.add_format(
+        {'bold': True, 'font_size': 17, 'font_color': WHITE, 'bg_color': accent,
+         'align': 'center', 'valign': 'vcenter'}))
+    ws.set_row(0, 34)
+
+    kpis = [
+        ('인원', n, accent, '명'),
+        ('수료율', f'{rate}%', GREEN, f'{comp}/{n}'),
+        ('평균점수', _mean_pos(sub_c['최종 환산 점수']), NAVY, '점'),
+        ('우수(SA)', sa, '#154360', f'{round(sa/n*100,1) if n else 0}%'),
+        ('위험(DF)', dfg, RED, f'{dfg}명'),
+        ('평균경고', round(float(sub_c['경고 수'].mean()), 1) if n else 0.0, ORANGE, '건'),
+    ]
+    kpi_band(wb, ws, fmt, kpis, row=2, start_col=1, span=2)
+
+    row = 6
+    # ── 등급 분포 + 도넛
+    gl = _grade_long(sub)
+    ws.merge_range(row, 1, row, 3, '종합 등급 분포', fmt['sec2'])
+    nxt, b0, b1 = mini_table(ws, wb, fmt, gl, top=row + 1, left=1,
+                             grade_cols=['등급'], pct_cols=['비율(%)'], col_w=[8, 8, 10])
+    ws.insert_chart(row + 1, 5, pie_chart(
+        wb, ws.name, '등급 비율', cat=(b0, b1, 1), val=2,
+        colors=[GRADE_BG[g] for g in GRADE_ORDER], size=(300, 240)))
+
+    # ── 벤치마크(회사 공유용) : 있으면 등급표 아래
+    row2 = nxt + 1
+    if bench is not None:
+        ws.merge_range(row2, 1, row2, 1 + len(bench.columns) - 1, '전체 평균 대비', fmt['sec2'])
+        nxt2, _, _ = mini_table(ws, wb, fmt, bench, top=row2 + 1, left=1,
+                                col_w=[16, 12, 12, 12], name_col='지표')
+        row2 = nxt2 + 1
+
+    # ── breakdown 표 + 차트 (도넛 높이만큼 내려서 배치)
+    row3 = max(row2, row + 14)
+    bf = breakdown['frame']
+    ws.merge_range(row3, 1, row3, 1 + len(bf.columns) - 1, breakdown['title'], fmt['sec'])
+    nxt3, bb0, bb1 = mini_table(
+        ws, wb, fmt, bf, top=row3 + 1, left=1,
+        grade_cols=breakdown.get('grade_cols'), pct_cols=breakdown.get('pct_cols'),
+        heat_cols=breakdown.get('heat_cols'), name_col=breakdown.get('name_col'))
+    catcol = 1 + bf.columns.get_loc(breakdown['cat'])
+    series = [{'name': (row3 + 1, 1 + bf.columns.get_loc(c)), 'col': 1 + bf.columns.get_loc(c),
+               'color': col, 'labels': lab} for (c, col, lab) in breakdown['vals']]
+    ws.insert_chart(row3 + 1, 1 + len(bf.columns) + 1, col_chart(
+        wb, ws.name, breakdown['title'], cat=(bb0, bb1, catcol), series=series,
+        stacked=breakdown.get('stacked', False), size=breakdown.get('size', (480, 300)),
+        legend='bottom' if len(series) > 1 else None,
+        y2_series=([{'name': (row3 + 1, 1 + bf.columns.get_loc(breakdown['y2'][0])),
+                     'col': 1 + bf.columns.get_loc(breakdown['y2'][0]),
+                     'color': breakdown['y2'][1]}] if breakdown.get('y2') else None)))
+
+    # ── 명단 (전체 폭, 아래)
+    rost = roster(sub, drop_col=drop_col)
+    rstart = max(nxt3 + 1, row3 + 16)
+    ws.merge_range(rstart, 1, rstart, 1 + len(rost.columns) - 1,
+                   f'{group_val} 교육생 명단 ({len(rost)}명)', fmt['sec'])
+    rost.to_excel(writer, sheet_name=name, startrow=rstart + 1, startcol=1, index=False)
+    write_hdr(ws, rost, fmt['hdr'], row=rstart + 1, start=1)
+    auto_col(ws, rost, start=1)
+    ws.set_column(1, 1, 14)  # 이름
+    grade_cond(ws, wb, rost, '🏆 종합 등급', rstart + 2, rstart + 1 + len(rost), start=1)
+    ws.autofilter(rstart + 1, 1, rstart + 1 + len(rost), len(rost.columns))
+    ws.set_tab_color(accent)
+    return name
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  전체 폭 표 헬퍼 (원본/명단/요약 시트)
+# ══════════════════════════════════════════════════════════════════════════
+def full_table(wb, writer, fmt, frame, sheet, title, accent, used,
+               wrap_cols=None, grade_cols=None, freeze_col=1, title_fmt=None):
+    sheet = _safe_sheet(sheet, used)
+    frame.to_excel(writer, sheet_name=sheet, index=False, startrow=1)
+    ws = writer.sheets[sheet]
+    ws.hide_gridlines(2)
+    ws.write(0, 0, title, title_fmt or fmt['title'])
+    write_hdr(ws, frame, fmt['hdr'], row=1)
+    auto_col(ws, frame, wrap_cols=wrap_cols)
+    for gc in (grade_cols or []):
+        grade_cond(ws, wb, frame, gc, 2, 1 + len(frame))
+    ws.freeze_panes(2, freeze_col)
+    ws.autofilter(1, 0, 1 + len(frame), len(frame.columns) - 1)
+    ws.set_tab_color(accent)
+    return ws, sheet
+
+
+def _summary_sheet(wb, writer, fmt, used, df, df_c, gcol, emoji, sheet, title, accent):
+    """회사/공정/기수 요약 시트 = 종합지표표 + 등급분포 + 대표 차트."""
+    summ = summarize(df, df_c, gcol)
+    gd = grade_dist(df, gcol)
+    merged = summ.merge(gd, on=gcol, how='left')
+    ws, sheet = full_table(wb, writer, fmt, merged, sheet, title, accent, used, freeze_col=1)
+
+    n = len(merged)
+    r0, r1 = 2, 1 + n
+    cat = (r0, r1, 0)
+    gloc = {c: merged.columns.get_loc(c) for c in merged.columns}
+
+    # 차트 1: 인원 vs 수료 (막대)
+    ch1 = col_chart(wb, sheet, f'{gcol}별 인원 · 수료', cat, [
+        {'name': (1, gloc['인원']), 'col': gloc['인원'], 'color': SKY, 'labels': True},
+        {'name': (1, gloc['수료']), 'col': gloc['수료'], 'color': LIME, 'labels': True},
+    ], size=(520, 300))
+    ws.insert_chart(1, len(merged.columns) + 1, ch1)
+
+    # 차트 2: 등급 분포 누적 막대
+    gseries = [{'name': (1, gloc[g]), 'col': gloc[g], 'color': GRADE_BG[g], 'labels': False}
+               for g in GRADE_ORDER]
+    ch2 = col_chart(wb, sheet, f'{gcol}별 종합 등급 분포', cat, gseries,
+                    stacked=True, size=(520, 300))
+    ws.insert_chart(18, len(merged.columns) + 1, ch2)
+
+    # 차트 3: 평균점수 + 수료율(보조축) 콤보
+    ch3 = col_chart(wb, sheet, f'{gcol}별 평균점수 · 수료율', cat, [
+        {'name': (1, gloc['평균점수']), 'col': gloc['평균점수'], 'color': NAVY, 'labels': True},
+    ], size=(520, 300), y2_series=[
+        {'name': (1, gloc['수료율(%)']), 'col': gloc['수료율(%)'], 'color': ORANGE}])
+    ws.insert_chart(35, len(merged.columns) + 1, ch3)
+
+    # 조건부 서식: 지표 히트
+    for hc in ['수료율(%)', '우수율(%)', '평균점수', '과목평균']:
+        if hc in merged.columns:
+            heat(ws, wb, r0, gloc[hc], r1, gloc[hc])
+    for hc in ['위험(DF)', '평균재시험', '평균지각', '평균경고', '평균경고장']:
+        if hc in merged.columns:
+            heat(ws, wb, r0, gloc[hc], r1, gloc[hc], rev=True)
+    return ws
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  VERSION 1 — 전체 (Full Master)
+# ══════════════════════════════════════════════════════════════════════════
+def sheet_full(wb, writer, fmt, df, df_c, quiz_titles, gen_time, target='전체'):
+    used = set()
+    meta = build_cover(wb, writer, fmt, df, df_c,
+                       'PMTC 교육생 종합 분석 보고서',
+                       f'전체 교육기관 통합본  ·  대상: {target}', gen_time)
+
+    # ── 경영 요약 대시보드 ────────────────────────────────────────────
+    dash = wb.add_worksheet('📊 경영 요약')
+    writer.sheets['📊 경영 요약'] = dash
+    used.add('📊 경영 요약'.lower())
+    dash.hide_gridlines(2)
+    dash.set_column('A:A', 2); dash.set_column('B:T', 13)
+    dash.merge_range('B1:T1', 'PMTC 교육 운영 경영 요약', wb.add_format(
+        {'bold': True, 'font_size': 16, 'font_color': WHITE, 'bg_color': NAVY,
+         'align': 'center', 'valign': 'vcenter'}))
+    dash.set_row(0, 34)
+    kpi_band(wb, dash, fmt, [
+        ('총 인원', meta['total'], NAVY, '명'),
+        ('수료', meta['comp'], GREEN, f"{meta['rate']}%"),
+        ('퇴소/F', meta['drop'], RED, f"F {meta['fcnt']}"),
+        ('평균점수', meta['avg'], '#5D6D7E', '점'),
+        ('S등급', meta['scnt'], '#154360', '최우수'),
+        ('수료율', f"{meta['rate']}%", GREEN, ''),
+    ], row=2, start_col=1, span=3)
+
+    # 등급 분포 + 도넛
+    gl = _grade_long(df)
+    dash.merge_range(6, 1, 6, 3, '종합 등급 분포', fmt['sec2'])
+    _, gb0, gb1 = mini_table(dash, wb, fmt, gl, top=7, left=1,
+                             grade_cols=['등급'], pct_cols=['비율(%)'], col_w=[8, 8, 10])
+    dash.insert_chart(6, 5, pie_chart(wb, '📊 경영 요약', '종합 등급 비율',
+                                      cat=(gb0, gb1, 1), val=2,
+                                      colors=[GRADE_BG[g] for g in GRADE_ORDER], size=(320, 250)))
+
+    # 상태 분포
+    stv = df['최종 상태'].value_counts()
+    st = pd.DataFrame({'상태': stv.index.tolist(),
+                       '인원': stv.values.tolist(),
+                       '비율(%)': [round(v / meta['total'] * 100, 1) for v in stv.values]})
+    dash.merge_range(15, 1, 15, 3, '교육생 상태', fmt['sec2'])
+    mini_table(dash, wb, fmt, st, top=16, left=1, pct_cols=['비율(%)'], col_w=[10, 8, 10])
+
+    # 회사 compact + 막대
+    csum = summarize(df, df_c, '소속회사')[['소속회사', '인원', '수료율(%)', '평균점수']]
+    dash.merge_range(6, 10, 6, 13, '회사별 핵심 지표', fmt['sec2'])
+    _, cb0, cb1 = mini_table(dash, wb, fmt, csum, top=7, left=10,
+                             pct_cols=['수료율(%)'], heat_cols=['평균점수'],
+                             bar_cols=['인원'], col_w=[10, 7, 9, 9])
+    dash.insert_chart(cb1 + 2, 10, col_chart(
+        wb, '📊 경영 요약', '회사별 평균점수·수료율', cat=(cb0, cb1, 10),
+        series=[{'name': '평균점수', 'col': 13, 'color': NAVY, 'labels': True}],
+        y2_series=[{'name': '수료율(%)', 'col': 12, 'color': ORANGE}], size=(520, 280)))
+
+    # 기수 추이 라인
+    hsum = summarize(df, df_c, '기수').sort_values('기수')[['기수', '인원', '수료율(%)', '평균점수']]
+    base = cb1 + 2 + 15
+    dash.merge_range(base, 10, base, 13, '기수별 추이', fmt['sec2'])
+    _, hb0, hb1 = mini_table(dash, wb, fmt, hsum, top=base + 1, left=10,
+                             pct_cols=['수료율(%)'], col_w=[10, 7, 9, 9])
+    dash.insert_chart(hb1 + 2, 10, col_chart(
+        wb, '📊 경영 요약', '기수별 수료율·평균점수 추이', cat=(hb0, hb1, 10),
+        series=[{'name': '평균점수', 'col': 13, 'color': SKY, 'labels': True}],
+        y2_series=[{'name': '수료율(%)', 'col': 12, 'color': GREEN}], size=(520, 280)))
+    dash.set_tab_color(LIME)
+
+    # ── 원본 데이터 ───────────────────────────────────────────────────
+    wrap = ['긍정 체크리스트', '부정 체크리스트', '매니저 의견',
+            '특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)']
+    full_table(wb, writer, fmt, df, '📄 원본 데이터',
+               f'PMTC 교육생 원본 데이터 — 총 {meta["total"]}명', NAVY, used,
+               wrap_cols=[c for c in wrap if c in df.columns], freeze_col=6,
+               grade_cols=['이론 등급', '근태 등급', '태도 등급', '평가 등급', '규율 등급', '🏆 종합 등급'])
+
+    # ── 시험별 성적 ───────────────────────────────────────────────────
+    ex = exam_stats(df, quiz_titles)
+    wsx, sx = full_table(wb, writer, fmt, ex, '📚 시험별 성적', '시험별 성적 분석', SKY, used, freeze_col=1)
+    gloc = {c: ex.columns.get_loc(c) for c in ex.columns}
+    wsx.insert_chart(1, len(ex.columns) + 1, col_chart(
+        wb, sx, '시험별 1차 평균 · 합격률', cat=(2, 1 + len(ex), gloc['시험명']),
+        series=[{'name': '1차평균', 'col': gloc['1차평균'], 'color': SKY, 'labels': True}],
+        y2_series=[{'name': '1차합격률(%)', 'col': gloc['1차합격률(%)'], 'color': ORANGE}],
+        ymax=100, size=(560, 300)))
+    heat(wsx, wb, 2, gloc['1차합격률(%)'], 1 + len(ex), gloc['1차합격률(%)'])
+
+    # ── 회사/공정/기수 요약 ──────────────────────────────────────────
+    _summary_sheet(wb, writer, fmt, used, df, df_c, '소속회사', '🏢', '🏢 회사별 요약',
+                   '회사별 종합 성과 요약', ORANGE)
+    _summary_sheet(wb, writer, fmt, used, df, df_c, '공정', '⚙️', '⚙️ 공정별 요약',
+                   '공정별 종합 성과 요약', SKY)
+    _summary_sheet(wb, writer, fmt, used, df, df_c, '기수', '📅', '📅 기수별 요약',
+                   '기수별 종합 성과 요약', GRAY)
+
+    # ── 등급 교차표 ───────────────────────────────────────────────────
+    _grade_matrix_sheet(wb, writer, fmt, used, df)
+
+    # ── 우수 / 위험 / 퇴소 명단 ──────────────────────────────────────
+    top = df[df['🏆 종합 등급'].isin(['S', 'A'])].sort_values('최종 환산 점수', ascending=False)
+    top_cols = ['이름', '기수', '공정', '소속회사', '🏆 종합 등급', '이론 등급', '근태 등급',
+                '태도 등급', '평가 등급', '규율 등급', '최종 환산 점수', '✨ 수상 내역',
+                '공정 내 석차', '기수 내 석차']
+    full_table(wb, writer, fmt, top[[c for c in top_cols if c in top.columns]].reset_index(drop=True),
+               '🏆 우수 인원', f'우수 인원 (S/A) — {len(top)}명', GREEN, used, freeze_col=1,
+               grade_cols=['🏆 종합 등급', '이론 등급', '근태 등급', '태도 등급', '평가 등급', '규율 등급'],
+               title_fmt=wb.add_format({'bold': True, 'font_size': 14, 'font_color': '#154360'}))
+
+    risk = df[df['🏆 종합 등급'].isin(['D', 'F'])]
+    risk_cols = ['이름', '기수', '공정', '소속회사', '🏆 종합 등급', '이론 등급', '근태 등급',
+                 '태도 등급', '평가 등급', '규율 등급', '최종 환산 점수', '재시험 횟수',
+                 '지각 수', '경고장 수', '조기퇴소', '특이사항(불합격)', '특이사항(경고/면담)',
+                 '특이사항(근무/기타)']
+    full_table(wb, writer, fmt, risk[[c for c in risk_cols if c in risk.columns]].reset_index(drop=True),
+               '⚠️ 위험 인원', f'위험/관찰 대상 (D/F) — {len(risk)}명', RED, used, freeze_col=1,
+               grade_cols=['🏆 종합 등급', '이론 등급', '근태 등급', '태도 등급', '평가 등급', '규율 등급'],
+               wrap_cols=['특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)'],
+               title_fmt=wb.add_format({'bold': True, 'font_size': 14, 'font_color': RED}))
+
+    dropf = df[df['최종 상태'].astype(str).str.contains('퇴소', na=False)]
+    drop_cols = ['이름', '사번', '기수', '공정', '소속회사', '퇴소 사유', '🏆 종합 등급',
+                 '이론 등급', '근태 등급', '규율 등급', '재시험 횟수', '지각 수', '경고장 수',
+                 '조기퇴소', '특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)']
+    full_table(wb, writer, fmt, dropf[[c for c in drop_cols if c in dropf.columns]].reset_index(drop=True),
+               '🚨 퇴소 인원', f'퇴소 인원 (조기퇴소 포함) — {len(dropf)}명', DRED, used, freeze_col=6,
+               grade_cols=['🏆 종합 등급', '이론 등급', '근태 등급', '규율 등급'],
+               wrap_cols=['퇴소 사유', '특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)'],
+               title_fmt=wb.add_format({'bold': True, 'font_size': 14, 'font_color': DRED}))
+
+
+def _grade_matrix_sheet(wb, writer, fmt, used, df):
+    sheet = _safe_sheet('🧮 등급 교차표', used)
+    ws = wb.add_worksheet(sheet)
+    writer.sheets[sheet] = ws
+    ws.hide_gridlines(2)
+    ws.set_column('A:A', 2); ws.set_column('B:P', 11)
+    ws.write(0, 0, '등급 교차 분석 (공정 · 회사 · 기수 × 종합등급)', fmt['title'])
+
+    row = 2
+    for gcol, emoji in [('공정', '⚙️'), ('소속회사', '🏢'), ('기수', '📅')]:
+        ct = pd.crosstab(df[gcol], df['🏆 종합 등급'])
+        for g in GRADE_ORDER:
+            if g not in ct.columns:
+                ct[g] = 0
+        ct = ct[GRADE_ORDER]
+        ct['합계'] = ct.sum(axis=1)
+        frame = ct.reset_index()
+        ws.merge_range(row, 1, row, 1 + len(frame.columns) - 1,
+                       f'{emoji} {gcol} × 종합등급', fmt['sec'])
+        nxt, b0, b1 = mini_table(ws, wb, fmt, frame, top=row + 1, left=1,
+                                 grade_cols=[], col_w=[12] + [7] * 7)
+        # 등급별 인원 히트맵
+        for g in GRADE_ORDER:
+            ci = 1 + frame.columns.get_loc(g)
+            heat(ws, wb, b0, ci, b1, ci)
+        row = nxt + 1
+    ws.set_tab_color('#7030A0')
+    return ws
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  그룹 내부(within) 분해 + 벤치마크 + 매트릭스 헬퍼
+# ══════════════════════════════════════════════════════════════════════════
+def _within(df, df_c, outer_col, outer_val, inner_col, cols):
+    sub = df[df[outer_col] == outer_val]
+    subc = df_c[df_c[outer_col] == outer_val]
+    s = summarize(sub, subc, inner_col)
+    keep = [inner_col] + [c for c in cols if c in s.columns]
+    out = s[keep].copy()
+    if inner_col == '기수':
+        out = out.sort_values('기수')
+    else:
+        out = out.sort_values('평균점수', ascending=False)
+    return out.reset_index(drop=True)
+
+
+def _bench(df, df_c, co, self_label='우리 회사'):
+    m = df['소속회사'] == co
+
+    def rate(mask):
+        n = int(mask.sum())
+        return round(int((df.loc[mask, '최종 상태'] == '수료').sum()) / n * 100, 1) if n else 0.0
+
+    allmask = pd.Series(True, index=df.index)
+    return pd.DataFrame({
+        '지표': ['평균 환산점수', '수료율(%)', '평균 재시험', '평균 경고'],
+        self_label: [_mean_pos(df_c.loc[m, '최종 환산 점수']), rate(m),
+                     round(float(df_c.loc[m, '재시험 횟수'].mean()), 1),
+                     round(float(df_c.loc[m, '경고 수'].mean()), 1)],
+        '전체 평균': [_mean_pos(df_c['최종 환산 점수']), rate(allmask),
+                    round(float(df_c['재시험 횟수'].mean()), 1),
+                    round(float(df_c['경고 수'].mean()), 1)],
+    }).assign(차이=lambda d: (d[self_label] - d['전체 평균']).round(1))
+
+
+def _matrix_sheet(wb, writer, fmt, used, df, df_c, row_col, col_col, sheet, title, accent):
+    sheet = _safe_sheet(sheet, used)
+    ws = wb.add_worksheet(sheet)
+    writer.sheets[sheet] = ws
+    ws.hide_gridlines(2)
+    ws.set_column('A:A', 2); ws.set_column('B:R', 11)
+    ws.write(0, 0, title, fmt['title'])
+
+    # (1) 인원 매트릭스
+    cnt = pd.crosstab(df[row_col], df[col_col], margins=True, margins_name='합계').reset_index()
+    ws.merge_range(2, 1, 2, 1 + len(cnt.columns) - 1, f'{row_col} × {col_col}  인원(명)', fmt['sec'])
+    nxt, b0, b1 = mini_table(ws, wb, fmt, cnt, top=3, left=1, col_w=[12] + [9] * (len(cnt.columns) - 1))
+    for j in range(1, len(cnt.columns) - 1):  # 합계열 제외 히트
+        ci = 1 + j
+        heat(ws, wb, b0, ci, b1 - 1, ci)
+
+    # (2) 평균점수 매트릭스
+    piv = df_c.pivot_table(index=row_col, columns=col_col, values='최종 환산 점수',
+                           aggfunc=_mean_pos).round(1)
+    piv = piv.reset_index()
+    row2 = nxt + 1
+    ws.merge_range(row2, 1, row2, 1 + len(piv.columns) - 1,
+                   f'{row_col} × {col_col}  평균 환산점수(점)', fmt['sec'])
+    nxt2, c0, c1 = mini_table(ws, wb, fmt, piv, top=row2 + 1, left=1,
+                              col_w=[12] + [9] * (len(piv.columns) - 1))
+    for j in range(1, len(piv.columns)):
+        ci = 1 + j
+        heat(ws, wb, c0, ci, c1, ci)
+    ws.set_tab_color(accent)
+    return ws
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  VERSION 2 — 회사별 (회사 공유용)
+# ══════════════════════════════════════════════════════════════════════════
+def sheet_company(wb, writer, fmt, df, df_c, quiz_titles, gen_time, target='전체'):
+    used = set()
+    single = df['소속회사'].nunique() == 1
+    sub_note = f"대상: {df['소속회사'].iloc[0]}" if single else '회사 공유용 · 전사 비교 포함'
+    build_cover(wb, writer, fmt, df, df_c, 'PMTC 회사별 성과 리포트',
+                f'각 사(社) 공유용  ·  {sub_note}', gen_time)
+
+    if not single:
+        _summary_sheet(wb, writer, fmt, used, df, df_c, '소속회사', '🏢',
+                       '🏢 회사 비교', '회사별 종합 비교 (전사 벤치마크)', ORANGE)
+
+    for i, co in enumerate(sorted(df['소속회사'].dropna().unique())):
+        sub = df[df['소속회사'] == co]
+        subc = df_c[df_c['소속회사'] == co]
+        accent = ACCENTS[i % len(ACCENTS)]
+        bd = _within(df, df_c, '소속회사', co, '기수',
+                     ['인원', '수료율(%)', '평균점수', '위험(DF)'])
+        breakdown = {
+            'title': f'{co} · 기수별 추이', 'frame': bd, 'cat': '기수',
+            'vals': [{'평균점수'}], 'pct_cols': ['수료율(%)'],
+            'heat_cols': ['평균점수'], 'size': (500, 300),
+            'y2': ('수료율(%)', ORANGE),
+        }
+        breakdown['vals'] = [('평균점수', accent, True)]
+        group_tab(wb, writer, fmt, used, '🏢', co, sub, subc, accent,
+                  drop_col='소속회사', breakdown=breakdown,
+                  bench=_bench(df, df_c, co, self_label=co))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  VERSION 3 — 공정별 (교육기관 비교용)
+# ══════════════════════════════════════════════════════════════════════════
+def sheet_process(wb, writer, fmt, df, df_c, quiz_titles, gen_time, target='전체'):
+    used = set()
+    build_cover(wb, writer, fmt, df, df_c, 'PMTC 공정별 비교 분석',
+                '공정별 · 교육기관(회사) 성과 비교용', gen_time)
+
+    _summary_sheet(wb, writer, fmt, used, df, df_c, '공정', '⚙️',
+                   '⚙️ 공정 비교', '공정별 종합 비교', SKY)
+    _matrix_sheet(wb, writer, fmt, used, df, df_c, '공정', '소속회사',
+                  '🧮 공정×회사 매트릭스', '공정 × 회사(교육기관) 교차 분석', '#0E7C7B')
+
+    for i, proc in enumerate(sorted(df['공정'].dropna().unique())):
+        sub = df[df['공정'] == proc]
+        subc = df_c[df_c['공정'] == proc]
+        accent = ACCENTS[i % len(ACCENTS)]
+        bd = _within(df, df_c, '공정', proc, '소속회사',
+                     ['인원', '수료율(%)', '평균점수', '위험(DF)'])
+        breakdown = {
+            'title': f'{proc} · 회사(교육기관)별 성과', 'frame': bd, 'cat': '소속회사',
+            'vals': [('평균점수', accent, True)], 'pct_cols': ['수료율(%)'],
+            'heat_cols': ['평균점수'], 'size': (500, 300),
+            'y2': ('수료율(%)', ORANGE),
+        }
+        group_tab(wb, writer, fmt, used, '⚙️', proc, sub, subc, accent,
+                  drop_col='공정', breakdown=breakdown)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  기수 추이 · 변화(Delta) 시트  (Version 4 핵심)
+# ══════════════════════════════════════════════════════════════════════════
+def _cohort_trend_sheet(wb, writer, fmt, used, df, df_c):
+    sheet = _safe_sheet('📈 기수 변화 추이', used)
+    ws = wb.add_worksheet(sheet)
+    writer.sheets[sheet] = ws
+    ws.hide_gridlines(2)
+    ws.set_column('A:A', 2); ws.set_column('B:M', 12)
+    ws.write(0, 0, '기수별 변화 추이 · 직전 기수 대비 증감', fmt['title'])
+
+    cohorts = sorted(df['기수'].dropna().unique())
+    trend = []
+    for coh in cohorts:
+        m = df['기수'] == coh; mc = df_c['기수'] == coh
+        n = int(m.sum())
+        comp = int((df.loc[m, '최종 상태'] == '수료').sum())
+        drop = int((df.loc[m, '최종 상태'] == '퇴소').sum())
+        vol = int((df.loc[m, '조기퇴소'] == 'Y').sum())
+        trend.append({
+            '기수': coh, '인원': n, '수료': comp,
+            '수료율(%)': round(comp / n * 100, 1) if n else 0.0,
+            '평균점수': _mean_pos(df_c.loc[mc, '최종 환산 점수']),
+            '평균재시험': round(float(df_c.loc[mc, '재시험 횟수'].mean()), 1) if n else 0.0,
+            '퇴소': drop, '퇴소율(%)': round(drop / n * 100, 1) if n else 0.0,
+            '자진퇴사': vol,
+        })
+    tf = pd.DataFrame(trend)
+
+    ws.merge_range(2, 1, 2, 1 + len(tf.columns) - 1, '기수별 핵심 추이', fmt['sec'])
+    nxt, b0, b1 = mini_table(ws, wb, fmt, tf, top=3, left=1,
+                             pct_cols=['수료율(%)', '퇴소율(%)'], heat_cols=['평균점수'],
+                             col_w=[8, 7, 7, 9, 9, 10, 7, 9, 9])
+    gl = {c: 1 + tf.columns.get_loc(c) for c in tf.columns}
+    catcol = 1 + tf.columns.get_loc('기수')
+
+    # 콤보: 평균점수(막대) + 수료율(선)
+    ws.insert_chart(2, len(tf.columns) + 2, col_chart(
+        wb, sheet, '평균점수 · 수료율 추이', cat=(b0, b1, catcol),
+        series=[{'name': '평균점수', 'col': gl['평균점수'], 'color': NAVY, 'labels': True}],
+        y2_series=[{'name': '수료율(%)', 'col': gl['수료율(%)'], 'color': GREEN}], size=(560, 280)))
+    # 라인: 퇴소율 + 재시험
+    ws.insert_chart(17, len(tf.columns) + 2, col_chart(
+        wb, sheet, '퇴소율 · 평균 재시험 추이', cat=(b0, b1, catcol),
+        series=[{'name': '퇴소율(%)', 'col': gl['퇴소율(%)'], 'color': RED, 'labels': True},
+                {'name': '자진퇴사', 'col': gl['자진퇴사'], 'color': ORANGE, 'labels': True}],
+        size=(560, 280)))
+
+    # ── Delta 표 (직전 기수 대비) ─────────────────────────────────────
+    drow = nxt + 1
+    ws.merge_range(drow, 1, drow, 5, '기수 간 변화 (직전 기수 대비 · ▲개선 ▼악화)', fmt['sec'])
+    dhdr = ['기수', 'Δ 수료율', 'Δ 평균점수', 'Δ 퇴소율', 'Δ 재시험']
+    for j, h in enumerate(dhdr):
+        ws.write(drow + 1, 1 + j, h, fmt['hdr2'])
+    # 방향: 수료율↑좋음, 평균점수↑좋음, 퇴소율↑나쁨, 재시험↑나쁨
+    dirs = [None, 'up', 'up', 'down', 'down']
+    keys = [None, '수료율(%)', '평균점수', '퇴소율(%)', '평균재시험']
+    for i, coh in enumerate(cohorts):
+        rr = drow + 2 + i
+        ws.write(rr, 1, coh, fmt['cell'])
+        if i == 0:
+            for j in range(1, 5):
+                ws.write(rr, 1 + j, '기준', fmt['delta_flat'])
+            continue
+        for j in range(1, 5):
+            cur = tf.iloc[i][keys[j]]; prev = tf.iloc[i - 1][keys[j]]
+            d = round(cur - prev, 1)
+            good = dirs[j]
+            if d == 0:
+                f = fmt['delta_flat']
+            elif (good == 'up' and d > 0) or (good == 'down' and d < 0):
+                f = fmt['delta_up']
+            else:
+                f = fmt['delta_dn']
+            ws.write(rr, 1 + j, d, f)
+    ws.set_column(1, 1, 8); ws.set_column(2, 5, 11)
+
+    # ── 기수 × 종합등급 (누적 막대) ───────────────────────────────────
+    gd = grade_dist(df, '기수')
+    gd = gd.set_index('기수').reindex(cohorts).reset_index()
+    grow = drow + 3 + len(cohorts)
+    ws.merge_range(grow, 1, grow, 1 + len(gd.columns) - 1, '기수별 종합 등급 분포', fmt['sec'])
+    _, gb0, gb1 = mini_table(ws, wb, fmt, gd, top=grow + 1, left=1, col_w=[8] + [7] * 6)
+    gcat = 1 + gd.columns.get_loc('기수')
+    gseries = [{'name': (grow + 1, 1 + gd.columns.get_loc(g)),
+                'col': 1 + gd.columns.get_loc(g), 'color': GRADE_BG[g]} for g in GRADE_ORDER]
+    ws.insert_chart(grow, len(gd.columns) + 2, col_chart(
+        wb, sheet, '기수별 등급 분포', cat=(gb0, gb1, gcat), series=gseries,
+        stacked=True, size=(560, 300)))
+    ws.set_tab_color('#A5A5A5')
+    return ws
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  VERSION 4 — 기수별 (변경점 비교)
+# ══════════════════════════════════════════════════════════════════════════
+def sheet_cohort(wb, writer, fmt, df, df_c, quiz_titles, gen_time, target='전체'):
+    used = set()
+    build_cover(wb, writer, fmt, df, df_c, 'PMTC 기수별 변화 분석',
+                '기수별 · 기수 간 변경점 비교용', gen_time)
+
+    _summary_sheet(wb, writer, fmt, used, df, df_c, '기수', '📅',
+                   '📅 기수 비교', '기수별 종합 비교', GRAY)
+    _cohort_trend_sheet(wb, writer, fmt, used, df, df_c)
+    _matrix_sheet(wb, writer, fmt, used, df, df_c, '기수', '공정',
+                  '🧮 기수×공정', '기수 × 공정 교차 분석', '#3B6E22')
+    _matrix_sheet(wb, writer, fmt, used, df, df_c, '기수', '소속회사',
+                  '🧮 기수×회사', '기수 × 회사 교차 분석', '#9E480E')
+
+    for i, coh in enumerate(sorted(df['기수'].dropna().unique())):
+        sub = df[df['기수'] == coh]
+        subc = df_c[df_c['기수'] == coh]
+        accent = ACCENTS[i % len(ACCENTS)]
+        bd = _within(df, df_c, '기수', coh, '공정',
+                     ['인원', '수료율(%)', '평균점수', '위험(DF)'])
+        breakdown = {
+            'title': f'{coh} · 공정별 분포', 'frame': bd, 'cat': '공정',
+            'vals': [('인원', accent, True), ('평균점수', SKY, True)],
+            'pct_cols': ['수료율(%)'], 'heat_cols': ['평균점수'], 'size': (520, 300),
+        }
+        group_tab(wb, writer, fmt, used, '📅', coh, sub, subc, accent,
+                  drop_col='기수', breakdown=breakdown)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  오케스트레이터
+# ══════════════════════════════════════════════════════════════════════════
+VIEW_BUILDERS = {
+    'full':    sheet_full,
+    'company': sheet_company,
+    'process': sheet_process,
+    'cohort':  sheet_cohort,
+}
+VIEW_LABEL = {'full': '전체종합', 'company': '회사별', 'process': '공정별', 'cohort': '기수별'}
+
+
+def build_workbook(view, df, df_c, quiz_titles, gen_time, target='전체'):
+    view = view if view in VIEW_BUILDERS else 'full'
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+        wb = writer.book
+        wb.set_properties({'title': f'PMTC {VIEW_LABEL[view]} 보고서', 'author': 'PMTC'})
+        fmt = make_formats(wb)
+        VIEW_BUILDERS[view](wb, writer, fmt, df, df_c, quiz_titles, gen_time, target)
+    buf.seek(0)
+    return buf.read()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  Django 연동 — 데이터 빌더 + 디스패처 뷰
+#  (기존 export_student_data 의 데이터 조립 로직을 그대로 이식 → 동일 결과 보장)
+# ══════════════════════════════════════════════════════════════════════════
+def build_report_dataframe(request):
+    """
+    그리드 필터(cohort/process/company/q/start_date/end_date)를 그대로 받아
+    (df, df_c, quiz_titles, target_name) 반환. 반환 df 가 비면 df=None.
+    """
     from django.db.models import Q
-    from django.http import HttpResponse
     from django.utils import timezone
-
-    from accounts.models import Profile, Process, DropOutRequest
+    from accounts.models import Profile, Process, Company, Cohort, FinalAssessment, DropOutRequest
     from quiz.models import Quiz, StudentLog
 
-    # ── 필터 ─────────────────────────────────────────────────────────
-    sel_cohort      = request.GET.get('cohort', '')
-    sel_process     = request.GET.get('process', '')
-    sel_company     = request.GET.get('company', '')
-    search_query    = request.GET.get('q', '')
-    start_date_param= request.GET.get('start_date', '')
-    end_date_param  = request.GET.get('end_date', '')
+    sel_cohort  = request.GET.get('cohort', '')
+    sel_process = request.GET.get('process', '')
+    sel_company = request.GET.get('company', '')
+    search_query = request.GET.get('q', '')
+    start_date_param = request.GET.get('start_date', '')
+    end_date_param   = request.GET.get('end_date', '')
 
-    # ── 쿼리셋 ───────────────────────────────────────────────────────
     profiles = Profile.objects.exclude(
         Q(user__is_staff=True) | Q(user__is_superuser=True) | Q(is_manager=True) | Q(is_pl=True)
-    ).select_related(
-        'user', 'cohort', 'company', 'process', 'pl', 'final_assessment'
-    ).prefetch_related(
-        'user__testresult_set',
-        'user__testresult_set__quiz',
-        'badges',
-        'managerevaluation_set__selected_items',
-        'student_logs',
-        'dailyschedule_set__work_type'
-    )
+    ).select_related('user', 'cohort', 'company', 'process', 'pl', 'final_assessment') \
+     .prefetch_related('user__testresult_set', 'user__testresult_set__quiz', 'badges',
+                       'managerevaluation_set__selected_items', 'student_logs',
+                       'dailyschedule_set__work_type')
 
     try:
         my_process = request.user.profile.process
@@ -2544,930 +3581,242 @@ def export_student_data(request):
         if my_process:
             profiles = profiles.filter(process=my_process)
         else:
-            from django.contrib import messages
-            messages.error(request, "본인 공정 정보가 없어 다운로드할 수 없습니다.")
-            return redirect('quiz:dashboard')
-    else:
-        if sel_process:
-            profiles = profiles.filter(process_id=sel_process)
+            return None, None, [], '전체'
+    elif sel_process:
+        profiles = profiles.filter(process_id=sel_process)
 
-    if sel_cohort:      profiles = profiles.filter(cohort_id=sel_cohort)
-    if sel_company:     profiles = profiles.filter(company_id=sel_company)
-    if start_date_param:profiles = profiles.filter(joined_at__gte=start_date_param)
-    if end_date_param:  profiles = profiles.filter(joined_at__lte=end_date_param)
+    if sel_cohort:  profiles = profiles.filter(cohort_id=sel_cohort)
+    if sel_company: profiles = profiles.filter(company_id=sel_company)
+    if start_date_param: profiles = profiles.filter(joined_at__gte=start_date_param)
+    if end_date_param:   profiles = profiles.filter(joined_at__lte=end_date_param)
     if search_query:
         profiles = profiles.filter(
-            Q(name__icontains=search_query) |
-            Q(employee_id__icontains=search_query) |
-            Q(user__username__icontains=search_query)
-        )
-
+            Q(name__icontains=search_query) | Q(employee_id__icontains=search_query) |
+            Q(user__username__icontains=search_query))
     profiles = profiles.order_by('-cohort__start_date', 'process__name', 'name')
 
-    # ── 퀴즈 목록 ────────────────────────────────────────────────────
     all_quizzes = Quiz.objects.all().order_by('title')
 
-# ──────────────────────────────────────────────────────────
-# 🎯 [교정 코드 1] 엑셀용 수상 내역 산출 엔진 (석차 & T/O 계산)
-# ──────────────────────────────────────────────────────────
-    # 1. 엑셀 출력용 전체 석차 풀 생성
-    from accounts.models import FinalAssessment
-    all_assessments_for_excel = FinalAssessment.objects.filter(
-        final_score__isnull=False,
-        profile__user__is_staff=False,
+    # ── 수상 T/O (기수 × 회사 그룹 모수 기준) ──────────────────────────
+    all_fa = FinalAssessment.objects.filter(
+        final_score__isnull=False, profile__user__is_staff=False,
         profile__user__is_superuser=False
-    ).select_related('profile').values(
-        'profile__id', 'final_score', 
-        'profile__cohort_id', 'profile__company_id'
-    )
+    ).select_related('profile').values('profile__id', 'final_score',
+                                        'profile__cohort_id', 'profile__company_id')
+    pool = sorted(list(all_fa), key=lambda x: x['final_score'], reverse=True)
+    award_map = {}
+    groups = defaultdict(list)
+    for it in pool:
+        if it['profile__cohort_id'] and it['profile__company_id']:
+            groups[(it['profile__cohort_id'], it['profile__company_id'])].append(it)
+    for _, items in groups.items():
+        gs = len(items)
+        if gs >= 20:  tier = {1: '🏆 최우수', 2: '🥇 우수', 3: '🥈 장려'}
+        elif gs >= 10: tier = {1: '🏆 최우수', 2: '🥇 우수'}
+        elif gs >= 5:  tier = {1: '🏆 최우수'}
+        else:          tier = {1: '🥇 우수'}
+        gr = 1
+        for i, it in enumerate(items):
+            if i > 0 and it['final_score'] < items[i - 1]['final_score']:
+                gr = i + 1
+            award_map[it['profile__id']] = tier.get(gr, '-')
 
-    data_pool_ex = list(all_assessments_for_excel)
-    data_pool_ex.sort(key=lambda x: x['final_score'], reverse=True)
-
-    excel_award_map = {}
-    cohort_company_groups_ex = defaultdict(list)
-    
-    # 2. 기수+회사 교차 그룹핑
-    for item in data_pool_ex:
-        if item['profile__cohort_id'] and item['profile__company_id']:
-            cohort_company_groups_ex[(item['profile__cohort_id'], item['profile__company_id'])].append(item)
-            
-    # 3. 그룹별 모수에 따른 수상 T/O 부여
-    for (cohort_id, company_id), items in cohort_company_groups_ex.items():
-            group_size = len(items)
-            
-            # 여기서부터 들여쓰기를 정확히 맞춰주세요!
-            if group_size >= 20:
-                award_tier = {1: '🏆 최우수', 2: '🥇 우수', 3: '🥈 장려'}
-            elif group_size >= 10:
-                award_tier = {1: '🏆 최우수', 2: '🥇 우수'}
-            elif group_size >= 5:
-                award_tier = {1: '🏆 최우수'}
-            else:
-                award_tier = {1: '🥇 우수'}
-                
-            g_rank = 1
-            for i, item in enumerate(items):
-                # 이전 순위와 점수 비교
-                if i > 0 and item['final_score'] < items[i-1]['final_score']:
-                    g_rank = i + 1
-                excel_award_map[item['profile__id']] = award_tier.get(g_rank, "-")
-# ──────────────────────────────────────────────────────────
-
-    # ── 등급 산정 헬퍼 ───────────────────────────────────────────────
+    # ── 등급 산정 헬퍼 (기존 로직 이식) ────────────────────────────────
     def calc_tiers(profile, fa, user_results):
-        from collections import defaultdict
-        exam_avg      = float(fa.exam_avg_score)  if fa and fa.exam_avg_score  is not None else 0.0
-        attitude_score= float(fa.attitude_score)  if fa and fa.attitude_score  is not None else None
-
-        # --- 이론 ---
-        quiz_map = defaultdict(list)
+        exam_avg = float(fa.exam_avg_score) if fa and fa.exam_avg_score is not None else 0.0
+        attitude = float(fa.attitude_score) if fa and fa.attitude_score is not None else None
+        qmap = defaultdict(list)
         for r in user_results:
-            quiz_map[r.quiz_id].append(r)
+            qmap[r.quiz_id].append(r)
+        retest = 0; triple = False
+        for atts in qmap.values():
+            fc = sum(1 for r in atts if not r.is_pass)
+            retest += fc
+            if fc >= 3: triple = True
+        fail3 = StudentLog.objects.filter(profile=profile, log_type='exam_fail',
+                                          stage=3, is_resolved=False).exists()
+        if exam_avg >= 95 and retest == 0:    tth = 'S'
+        elif exam_avg >= 88 and retest <= 1:  tth = 'A'
+        elif exam_avg >= 80 and retest <= 3:  tth = 'B'
+        elif retest >= 5:                     tth = 'D'
+        else:                                 tth = 'C'
+        warns = profile.student_logs.filter(log_type='warning').exclude(reason__icontains='지각').count()
+        wl = profile.student_logs.filter(log_type='warning_letter').count()
+        if wl >= 3:                               tdi = 'F'
+        elif wl >= 2 and warns > (wl * 2):        tdi = 'D'
+        elif wl >= 2:                             tdi = 'C'
+        elif wl == 1:                             tdi = 'B'
+        elif warns == 1:                          tdi = 'A'
+        else:                                     tdi = 'S'
+        late = profile.student_logs.filter(log_type='warning', reason__icontains='지각').count()
+        sched = profile.dailyschedule_set.all()
+        lv = sched.filter(work_type__deduction__gt=0)
+        leaves = lv.filter(work_type__deduction=1.0).count() + lv.filter(work_type__deduction=0.5).count()
+        dropout = DropOutRequest.objects.filter(trainee=profile, status='approved').exists()
+        if dropout:                               tat = 'F'
+        elif late >= 3:                           tat = 'F'
+        elif late == 2 and leaves > 0:            tat = 'D'
+        elif late == 0 and leaves == 0:           tat = 'S'
+        elif late == 0 and leaves <= 2:           tat = 'A'
+        elif late == 1 or (3 <= leaves <= 4):     tat = 'B'
+        else:                                     tat = 'C'
+        if attitude is None:      tan = 'C'
+        elif attitude >= 95:      tan = 'S'
+        elif attitude >= 85:      tan = 'A'
+        elif attitude >= 75:      tan = 'B'
+        elif attitude >= 65:      tan = 'C'
+        else:                     tan = 'D'
+        le = profile.managerevaluation_set.all().order_by('id').last()
+        pos = le.selected_items.filter(is_positive=True).count() if le else 0
+        neg = le.selected_items.filter(is_positive=False).count() if le else 0
+        if neg > 0 and neg >= pos * 2:  tmg = 'D'
+        elif pos >= 14 and neg == 0:    tmg = 'S'
+        elif pos >= 10 and neg <= 2:    tmg = 'A'
+        elif pos >= 6 and neg <= 4:     tmg = 'B'
+        else:                           tmg = 'C'
+        auto = (late >= 3 or wl >= 3 or fail3 or triple or dropout)
+        if auto:
+            if late >= 3 or dropout: tat = 'F'
+            if wl >= 3:              tdi = 'F'
+            if fail3 or triple:      tth = 'F'
+        tiers = [tth, tat, tan, tmg, tdi]
+        if auto:                                              fin = 'F'
+        elif 'D' in tiers or tiers.count('C') >= 3:           fin = 'D'
+        elif 'C' in [tth, tat, tdi]:                          fin = 'C'
+        elif tiers.count('C') >= 2:                           fin = 'C'
+        elif 'C' not in tiers and 'D' not in tiers and tiers.count('S') >= 4 and 'B' not in tiers: fin = 'S'
+        elif 'C' not in tiers and 'D' not in tiers and (tiers.count('B') <= 1 or tiers.count('S') == 3): fin = 'A'
+        elif 'C' not in tiers and 'D' not in tiers:           fin = 'B'
+        else:                                                 fin = 'C'
+        return dict(tth=tth, tat=tat, tan=tan, tmg=tmg, tdi=tdi, fin=fin,
+                    retest=retest, late=late, leaves=leaves, warns=warns, wl=wl,
+                    pos=pos, neg=neg, dropout=dropout,
+                    attitude=attitude if attitude is not None else 0)
 
-        retest_count = 0
-        any_triple_fail = False
-        for attempts in quiz_map.values():
-            fail_cnt = sum(1 for r in attempts if not r.is_pass)
-            retest_count += fail_cnt
-            if fail_cnt >= 3:
-                any_triple_fail = True
-
-        exam_fail_3rd = StudentLog.objects.filter(
-            profile=profile, log_type='exam_fail', stage=3, is_resolved=False
-        ).exists()
-
-        if exam_avg >= 95 and retest_count == 0:    t_theory = 'S'
-        elif exam_avg >= 88 and retest_count <= 1:  t_theory = 'A'
-        elif exam_avg >= 80 and retest_count <= 3:  t_theory = 'B'
-        elif retest_count >= 5:                     t_theory = 'D'
-        else:                                       t_theory = 'C'
-
-        # --- 규율 ---
-        warnings_qs = profile.student_logs.filter(log_type='warning').exclude(reason__icontains='지각')
-        warnings    = warnings_qs.count()
-        wl_qs       = profile.student_logs.filter(log_type='warning_letter')
-        wl          = wl_qs.count()
-
-        if wl >= 3:                                             t_disc = 'F'
-        elif wl >= 2 and warnings > (wl * 2):                  t_disc = 'D'
-        elif wl >= 2:                                           t_disc = 'C'
-        elif wl == 1:                                           t_disc = 'B'
-        elif warnings == 1:                                     t_disc = 'A'
-        else:                                                   t_disc = 'S'
-
-        # --- 근태 ---
-        late_logs = profile.student_logs.filter(
-            log_type='warning', reason__icontains='지각').count()
-        schedules = profile.dailyschedule_set.all()
-        leave_qs  = schedules.filter(work_type__deduction__gt=0)
-        total_leaves = (
-            leave_qs.filter(work_type__deduction=1.0).count()
-            + leave_qs.filter(work_type__deduction=0.5).count()
-        )
-        is_dropout = DropOutRequest.objects.filter(
-            trainee=profile, status='approved').exists()
-
-        if is_dropout:                                          t_att = 'F'   # ★ 조기퇴소 = F
-        elif late_logs >= 3:                                    t_att = 'F'
-        elif late_logs == 2 and total_leaves > 0:               t_att = 'D'
-        elif late_logs == 0 and total_leaves == 0:              t_att = 'S'
-        elif late_logs == 0 and total_leaves <= 2:              t_att = 'A'
-        elif late_logs == 1 or (3 <= total_leaves <= 4):        t_att = 'B'
-        else:                                                   t_att = 'C'
-
-        # --- 태도 ---
-        if attitude_score is None:                              t_atti = 'C'
-        elif attitude_score >= 95:                              t_atti = 'S'
-        elif attitude_score >= 85:                              t_atti = 'A'
-        elif attitude_score >= 75:                              t_atti = 'B'
-        elif attitude_score >= 65:                              t_atti = 'C'
-        else:                                                   t_atti = 'D'
-
-        # --- 매니저 평가 ---
-        last_eval = profile.managerevaluation_set.all().order_by('id').last()
-        pos = last_eval.selected_items.filter(is_positive=True).count()  if last_eval else 0
-        neg = last_eval.selected_items.filter(is_positive=False).count() if last_eval else 0
-        if neg > 0 and neg >= pos * 2:                          t_mgr = 'D'
-        elif pos >= 14 and neg == 0:                            t_mgr = 'S'
-        elif pos >= 10 and neg <= 2:                            t_mgr = 'A'
-        elif pos >= 6  and neg <= 4:                            t_mgr = 'B'
-        else:                                                   t_mgr = 'C'
-
-        # --- 자동 퇴소 여부 ---
-        auto_expelled = (
-            late_logs >= 3
-            or wl >= 3
-            or exam_fail_3rd
-            or any_triple_fail
-            or is_dropout           # ★ 조기퇴소 포함
-        )
-        if auto_expelled:
-            if late_logs >= 3 or is_dropout: t_att  = 'F'
-            if wl >= 3:                      t_disc = 'F'
-            if exam_fail_3rd or any_triple_fail: t_theory = 'F'
-
-        # --- 종합 ---
-        tiers = [t_theory, t_att, t_atti, t_mgr, t_disc]
-        if auto_expelled:                                       final = 'F'
-        elif 'D' in tiers or tiers.count('C') >= 3:            final = 'D'
-        elif 'C' in [t_theory, t_att, t_disc]:                 final = 'C'
-        elif tiers.count('C') >= 2:                            final = 'C'
-        elif 'C' not in tiers and 'D' not in tiers and tiers.count('S') >= 4 and 'B' not in tiers: final = 'S' # 💥 >= 3 에서 >= 4 로 변경
-        elif 'C' not in tiers and 'D' not in tiers and (tiers.count('B') <= 1 or tiers.count('S') == 3): final = 'A' # 💥 S가 3개인 경우 A등급으로 수용
-        elif 'C' not in tiers and 'D' not in tiers:            final = 'B'
-        else:                                                   final = 'C'
-
-        return {
-            'tier_theory': t_theory, 'tier_attendance': t_att, 'tier_attitude': t_atti,
-            'tier_manager': t_mgr,   'tier_discipline': t_disc, 'final_tier': final,
-            'retest_count': retest_count, 'late_logs': late_logs,
-            'total_leaves': total_leaves, 'warnings': warnings, 'wl': wl,
-            'pos': pos, 'neg': neg, 'is_dropout': is_dropout,
-            'attitude_score': attitude_score if attitude_score is not None else 0,
-        }
-
-    # ── 데이터 조립 ───────────────────────────────────────────────────
+    # ── 행 조립 ───────────────────────────────────────────────────────
     data_list = []
-    for profile in profiles:
-        fa           = getattr(profile, 'final_assessment', None)
-        user_results = list(profile.user.testresult_set.all())
-        result_map   = defaultdict(list)
-        for r in user_results:
-            result_map[r.quiz_id].append(r)
+    for p in profiles:
+        fa = getattr(p, 'final_assessment', None)
+        ur = list(p.user.testresult_set.all())
+        rmap = defaultdict(list)
+        for r in ur:
+            rmap[r.quiz_id].append(r)
+        le = p.managerevaluation_set.all().order_by('id').last()
+        logs = p.student_logs.all().order_by('created_at')
+        t = calc_tiers(p, fa, ur)
 
-        last_eval = profile.managerevaluation_set.all().order_by('id').last()
-        logs      = profile.student_logs.all().order_by('created_at')
-        badges    = list(profile.badges.all())
-
-        t = calc_tiers(profile, fa, user_results)
-
-        # ──────────────────────────────────────────────────────────
-        # 🎯 [수정 1] 체크리스트 & 특이사항 열 쪼개기 엔진
-        # ──────────────────────────────────────────────────────────
-        # 1. 체크리스트 긍정/부정 분리
-        pos_checks, neg_checks = [], []
-        if last_eval:
-            for i in last_eval.selected_items.all():
-                if i.is_positive: pos_checks.append(f"• {i.description}")
-                else: neg_checks.append(f"• {i.description}")
-
-        # 2. 특이사항(로그) 3가지 카테고리로 분리
-        log_fail, log_warn, log_work = [], [], []
+        pos_c, neg_c = [], []
+        if le:
+            for i in le.selected_items.all():
+                (pos_c if i.is_positive else neg_c).append(f"• {i.description}")
+        lf, lw, lk = [], [], []
         for l in logs:
-            date_str = l.created_at.strftime('%y.%m.%d')
-            l_type = l.get_log_type_display()
-            reason_clean = " ".join(str(l.reason).split()) # 줄바꿈/다중공백 1줄로 압축
-            log_str = f"• [{date_str}] {l_type} : {reason_clean}"
+            ds = l.created_at.strftime('%y.%m.%d')
+            rc = " ".join(str(l.reason).split())
+            s = f"• [{ds}] {l.get_log_type_display()} : {rc}"
+            if l.log_type == 'exam_fail': lf.append(s)
+            elif l.log_type in ['system', 'others'] or any(k in rc for k in ['지각', '근무', '휴가', '결석', '근태']): lk.append(s)
+            else: lw.append(s)
 
-            if l.log_type == 'exam_fail':
-                log_fail.append(log_str)
-            # 시스템 로그이거나 내용에 근태 관련 단어가 포함된 경우
-            elif l.log_type in ['system', 'others'] or any(k in reason_clean for k in ['지각', '근무', '휴가', '결석', '근태']):
-                log_work.append(log_str)
-            # 나머지는 전부 경고/면담으로 분류
-            else:
-                log_warn.append(log_str)
-        # ──────────────────────────────────────────────────────────
+        exam_avg = float(fa.exam_avg_score) if fa and fa.exam_avg_score is not None else 0.0
+        final_score = float(fa.final_score) if fa and fa.final_score is not None else 0.0
+        rank_val = fa.rank if fa and fa.rank is not None else '-'
 
-        exam_avg   = float(fa.exam_avg_score) if fa and fa.exam_avg_score is not None else 0.0
-        final_score= float(fa.final_score)    if fa and fa.final_score    is not None else 0.0
-        rank_val   = fa.rank                  if fa and fa.rank           is not None else '-'
+        from quiz.models import Quiz as _Q
+        drop_reason = (
+            "조기 퇴소" if t['dropout'] else
+            f"[시험 과락] {', '.join([_Q.objects.get(id=qid).title for qid, a in rmap.items() if len(a) >= 3 and not a[2].is_pass])}"
+            if any(len(a) >= 3 and not a[2].is_pass for a in rmap.values()) else
+            "최종 평가 점수 미달" if (0 < final_score < 80.0) else
+            "경고 누적 및 사내 규율 위반" if (t['wl'] >= 3 or t['tdi'] == 'F') else
+            "근태 불량 (지각/복무 이탈)" if (t['late'] >= 3 or t['tat'] == 'F') else
+            "기타 사유 퇴소" if p.status == 'dropout' else "-")
 
         row = {
-            '기수':       profile.cohort.name   if profile.cohort   else '미지정',
-            '소속회사':   profile.company.name  if profile.company  else '미지정',
-            '퇴소 사유': (
-                "조기 퇴소" if t['is_dropout'] else
-                f"[시험 과락] {', '.join([f'{Quiz.objects.get(id=qid).title}' for qid, atts in result_map.items() if len(atts) >= 3 and not atts[2].is_pass])}" 
-                if any(len(atts) >= 3 and not atts[2].is_pass for atts in result_map.values()) else
-                "최종 평가 점수 미달" if (final_score > 0 and final_score < 80.0) else
-                "경고 누적 및 사내 규율 위반" if (t['wl'] >= 3 or t['tier_discipline'] == 'F') else
-                "근태 불량 (지각/복무 이탈)" if (t['late_logs'] >= 3 or t['tier_attendance'] == 'F') else
-                "기타 사유 퇴소" if profile.status == 'dropout' else "-"
-            ),
-            '공정':       profile.process.name  if profile.process  else '공통',
-            '사번':       profile.employee_id or '-',
-            '이름':       profile.name,
-            '최종 상태':  profile.get_status_display(),
-            '배지 수':    len(badges),
-            '이론 등급':  t['tier_theory'],
-            '근태 등급':  t['tier_attendance'],
-            '태도 등급':  t['tier_attitude'],
-            '평가 등급':  t['tier_manager'],
-            '규율 등급':  t['tier_discipline'],
-            '🏆 종합 등급': t['final_tier'],
-            '최종 환산 점수': final_score,
-            '✨ 수상 내역': excel_award_map.get(profile.id, "-"),
-            '석차':       rank_val,
-            '과목 평균점수':  exam_avg,
-            '태도 점수':  t['attitude_score'],
-            '재시험 횟수': t['retest_count'],
-            '지각 수':    t['late_logs'],
-            '휴무 수':    t['total_leaves'],
-            '경고 수':    t['warnings'],
-            '경고장 수':  t['wl'],
-            '긍정 선택':  t['pos'],
-            '부정 선택':  t['neg'],
-            '조기퇴소':   'Y' if t['is_dropout'] else 'N',
-            
-            # 🎯 [수정 2] 기존의 2개였던 컬럼을 6개로 세분화하여 저장합니다.
-            '긍정 체크리스트': "\n".join(pos_checks) if pos_checks else "-",
-            '부정 체크리스트': "\n".join(neg_checks) if neg_checks else "-",
-            '매니저 의견': last_eval.overall_comment if last_eval and last_eval.overall_comment else "-",
-            '특이사항(불합격)': "\n".join(log_fail) if log_fail else "-",
-            '특이사항(경고/면담)': "\n".join(log_warn) if log_warn else "-",
-            '특이사항(근무/기타)': "\n".join(log_work) if log_work else "-",
+            '기수': p.cohort.name if p.cohort else '미지정',
+            '소속회사': p.company.name if p.company else '미지정',
+            '퇴소 사유': drop_reason,
+            '공정': p.process.name if p.process else '공통',
+            '사번': p.employee_id or '-', '이름': p.name,
+            '최종 상태': p.get_status_display(), '배지 수': len(list(p.badges.all())),
+            '이론 등급': t['tth'], '근태 등급': t['tat'], '태도 등급': t['tan'],
+            '평가 등급': t['tmg'], '규율 등급': t['tdi'], '🏆 종합 등급': t['fin'],
+            '최종 환산 점수': final_score, '✨ 수상 내역': award_map.get(p.id, '-'), '석차': rank_val,
+            '과목 평균점수': exam_avg, '태도 점수': t['attitude'],
+            '재시험 횟수': t['retest'], '지각 수': t['late'], '휴무 수': t['leaves'],
+            '경고 수': t['warns'], '경고장 수': t['wl'], '긍정 선택': t['pos'], '부정 선택': t['neg'],
+            '조기퇴소': 'Y' if t['dropout'] else 'N',
+            '긍정 체크리스트': "\n".join(pos_c) if pos_c else '-',
+            '부정 체크리스트': "\n".join(neg_c) if neg_c else '-',
+            '매니저 의견': le.overall_comment if le and le.overall_comment else '-',
+            '특이사항(불합격)': "\n".join(lf) if lf else '-',
+            '특이사항(경고/면담)': "\n".join(lw) if lw else '-',
+            '특이사항(근무/기타)': "\n".join(lk) if lk else '-',
         }
-
         for quiz in all_quizzes:
-            attempts = sorted(result_map[quiz.id], key=lambda x: x.completed_at or timezone.now())
-            row[f"{quiz.title} 1차"] = attempts[0].score if len(attempts) > 0 else '-'
-            row[f"{quiz.title} 2차"] = attempts[1].score if len(attempts) > 1 else '-'
-            row[f"{quiz.title} 3차"] = attempts[2].score if len(attempts) > 2 else '-'
-
+            a = sorted(rmap[quiz.id], key=lambda x: x.completed_at or timezone.now())
+            row[f"{quiz.title} 1차"] = a[0].score if len(a) > 0 else '-'
+            row[f"{quiz.title} 2차"] = a[1].score if len(a) > 1 else '-'
+            row[f"{quiz.title} 3차"] = a[2].score if len(a) > 2 else '-'
         data_list.append(row)
 
     if not data_list:
-        from django.contrib import messages
-        messages.warning(request, "출력할 데이터가 없습니다.")
-        return redirect(request.META.get('HTTP_REFERER', 'quiz:dashboard'))
+        return None, None, [], '전체'
 
     df = pd.DataFrame(data_list)
-
-# ──────────────────────────────────────────────────────────
-# 🎯 [교정 코드] '기수'가 숫자로 파괴되는 현상을 완벽히 차단하는 안전한 수치 필터링
-# ──────────────────────────────────────────────────────────
-    # '수' 단어 매칭을 '.endswith(' 수')' 로 띄어쓰기까지 엄격하게 한정하여, 
-    # '기수'라는 글자가 숫자로 억지 변환되지 않도록 철통 방어합니다.
     numeric_cols = [c for c in df.columns if (
-        any(k in c for k in ['점수', '횟수', '차', '석차', '선택']) 
-        or c.endswith(' 수') 
-    )]
-    
+        any(k in c for k in ['점수', '횟수', '차', '석차', '선택']) or c.endswith(' 수'))]
     df_c = df.copy()
     for c in numeric_cols:
         df_c[c] = pd.to_numeric(df_c[c], errors='coerce').fillna(0)
-# ──────────────────────────────────────────────────────────
 
-    # 공정·기수별 석차 계산
     for grp_col, rank_col in [('공정', '공정 내 석차'), ('기수', '기수 내 석차')]:
         df[rank_col] = '-'
         df[rank_col] = df[rank_col].astype('object')
-        for grp_val, group in df.groupby(grp_col):
-            scored = group[group['최종 환산 점수'] > 0].copy()
-            scored = scored.sort_values('최종 환산 점수', ascending=False)
-            for rank_i, idx in enumerate(scored.index, 1):
-                df.at[idx, rank_col] = f"{rank_i}"
-# ──────────────────────────────────────────────────────────
+        for _, group in df.groupby(grp_col):
+            scored = group[group['최종 환산 점수'] > 0].sort_values('최종 환산 점수', ascending=False)
+            for ri, idx in enumerate(scored.index, 1):
+                df.at[idx, rank_col] = f"{ri}"
 
-    # ── Excel 작성 ───────────────────────────────────────────────────
-    excel_file = BytesIO()
-    NAVY   = '#1F3864'
-    GOLD   = '#C9A84C'
-    WHITE  = '#FFFFFF'
-    LIGHT  = '#EBF3FB'
-    GREEN  = '#C6EFCE'
-    RED    = '#FFC7CE'
-    AMBER  = '#FFEB9C'
-    GRAY   = '#F2F2F2'
-
-    GRADE_BG = {'S': '#D6EAF8', 'A': '#D5F5E3', 'B': '#F5EEF8',
-                'C': '#FEF9E7', 'D': '#FDEDEC', 'F': '#6f0000'}
-    GRADE_FG = {'S': '#154360', 'A': '#145A32', 'B': '#4A235A',
-                'C': '#7D6608', 'D': '#922B21', 'F': '#FFFFFF'}
-
-    with pd.ExcelWriter(excel_file, engine='xlsxwriter') as writer:
-        wb = writer.book
-
-        # ── 공통 포맷 ──────────────────────────────────────────────
-        def fmt(**kw):
-            return wb.add_format(kw)
-
-        f_title = fmt(bold=True, font_size=18, font_color=NAVY, bottom=2, bottom_color=GOLD)
-        f_sec   = fmt(bold=True, font_size=12, bg_color=NAVY, font_color=WHITE, border=1, align='center', valign='vcenter')
-        f_hdr   = fmt(bold=True, bg_color=NAVY, font_color=WHITE, border=1, align='center', valign='vcenter', text_wrap=True)
-        f_kpi_l = fmt(bold=True, bg_color=LIGHT, border=1, align='center', valign='vcenter', font_size=10)
-        f_kpi_v = fmt(bold=True, font_size=16, border=1, align='center', valign='vcenter')
-        
-        f_cell  = fmt(border=1, align='center', valign='vcenter', text_wrap=True) # 기본 가운데 정렬
-        f_wrap  = fmt(border=1, align='left', valign='vcenter', text_wrap=True)   # 긴 텍스트 왼쪽+가운데 정렬
-        f_num   = fmt(border=1, align='center', valign='vcenter', num_format='0.0')
-        f_int   = fmt(border=1, align='center', valign='vcenter', num_format='0')
-        f_center= fmt(border=1, align='center', valign='vcenter')
-        f_grade_base = dict(bold=True, border=1, align='center', valign='vcenter', font_size=13)
-
-        grade_fmts = {g: fmt(bg_color=GRADE_BG[g], font_color=GRADE_FG[g], **f_grade_base)
-                      for g in 'SABCDF'}
-
-        def set_hdr(ws, frame, row=1):
-            for ci, col in enumerate(frame.columns):
-                ws.write(row, ci, col, f_hdr)
-
-        def auto_col(ws, frame, start_col=0, wrap_cols=None, max_w=60):
-            for ci, col in enumerate(frame.columns):
-                str_lens = [len(f"{x}") for x in frame[col]] if not frame.empty else [0]
-                w = min(max(max([len(f"{col}")] + str_lens) + 2, 12), max_w)
-                
-                if wrap_cols and col in wrap_cols:
-                    ws.set_column(start_col+ci, start_col+ci, max(w, 35), f_wrap)
-                # 🎯 [추가] '(명)', '기수' 단어가 포함된 동적 컬럼들도 가운데 정렬
-                elif any(k in col for k in ['점수','횟수','수','차','석차','선택','등급','배지', '인원', '퇴사', '과락', '비율', '긍정', '부정', 'SA', 'DF', '(명)', '기수']):
-                    ws.set_column(start_col+ci, start_col+ci, w, f_center)
-                else:
-                    ws.set_column(start_col+ci, start_col+ci, w, f_cell)
-# ──────────────────────────────────────────────────────────
-
-        def grade_cond(ws, frame, col_name, row_start, row_end):
-            if col_name not in frame.columns:
-                return
-            ci = frame.columns.get_loc(col_name)
-            for grade, bg, fg in [
-                ('S', '#D6EAF8', '#154360'), ('A', '#D5F5E3', '#145A32'),
-                ('B', '#F5EEF8', '#4A235A'), ('C', '#FEF9E7', '#7D6608'),
-                ('D', '#FDEDEC', '#922B21'), ('F', '#6f0000', '#FFFFFF'),
-            ]:
-                ws.conditional_format(row_start, ci, row_end, ci, {
-                    'type': 'text', 'criteria': 'containing', 'value': grade,
-                    'format': wb.add_format({'bg_color': bg, 'font_color': fg,
-                                             'bold': True, 'align': 'center'})
-                })
-
-        # ── Sheet 0: 표지 ──────────────────────────────────────────
-        cov = wb.add_worksheet('📋 표지')
-        writer.sheets['📋 표지'] = cov
-        cov.set_column('A:A', 4)
-        cov.set_column('B:I', 18)
-        cov.set_row(0, 8)
-
-        cov.merge_range('B2:I2', 'PMTC 교육생 종합 분석 보고서', fmt(
-            bold=True, font_size=22, font_color=NAVY,
-            align='center', valign='vcenter', bottom=3, bottom_color=GOLD
-        ))
-        cov.set_row(1, 48)
-
-        now_str = timezone.now().strftime('%Y년 %m월 %d일 %H:%M')
-        cov.merge_range('B3:I3', f'생성일시: {now_str}', fmt(
-            font_size=11, font_color='#888888', align='center', italic=True
-        ))
-
-        total_cnt   = len(df)
-        passed_cnt  = (df['최종 상태'] == '수료').sum()
-        dropout_cnt = (df['최종 상태'] == '퇴소').sum()
-        f_cnt       = (df['🏆 종합 등급'] == 'F').sum()
-        s_cnt       = (df['🏆 종합 등급'] == 'S').sum()
-        avg_score   = round(df_c['최종 환산 점수'].mean(), 1) if '최종 환산 점수' in df_c else 0
-
-        kpis = [
-            ('총 교육생', total_cnt, '#1F3864'),
-            ('수료 인원', passed_cnt, '#145A32'),
-            ('퇴소/F', dropout_cnt + int(f_cnt), '#922B21'),
-            ('S등급 우수자', s_cnt, '#154360'),
-            ('평균 환산 점수', avg_score, '#5D6D7E'),
-            ('수료율', f"{round(passed_cnt/total_cnt*100,1) if total_cnt else 0}%", '#145A32'),
-        ]
-
-        cov.set_row(4, 6)
-        for i, (label, value, color) in enumerate(kpis):
-            r = 5 + (i // 3) * 3
-            c = 1 + (i % 3) * 3
-            cov.set_row(r, 26)
-            cov.set_row(r+1, 40)
-            cov.write(r, c, label, fmt(
-                bold=True, font_size=10, bg_color=LIGHT,
-                border=1, align='center', valign='vcenter'
-            ))
-            cov.merge_range(r, c+1, r, c+2, '', fmt(border=1))
-            cov.write(r+1, c, value, fmt(
-                bold=True, font_size=20, font_color=color,
-                border=1, align='center', valign='vcenter'
-            ))
-            cov.merge_range(r+1, c+1, r+1, c+2, '', fmt(border=1))
-
-        # 등급 분포 요약표
-        cov.set_row(11, 8)
-        cov.merge_range('B13:I13', '종합 등급 분포', f_sec)
-        cov.set_row(12, 26)
-        for ci, g in enumerate('SABCDF'):
-            cov.write(13, 1+ci, g, grade_fmts[g])
-            cnt = int((df['🏆 종합 등급'] == g).sum())
-            pct = round(cnt/total_cnt*100, 1) if total_cnt else 0
-            cov.write(14, 1+ci, f"{cnt}명 ({pct}%)", fmt(border=1, align='center'))
-        cov.set_row(13, 30)
-        cov.set_row(14, 22)
-
-        cov.set_tab_color(NAVY)
-
-        # ── Sheet 1: 원본 데이터 ───────────────────────────────────
-        df_raw = df.copy()
-        df_raw.to_excel(writer, index=False, sheet_name='📄 원본 데이터', startrow=1)
-        ws1 = writer.sheets['📄 원본 데이터']
-        ws1.write('A1', f'PMTC 교육생 원본 데이터 — 총 {total_cnt}명', f_title)
-        set_hdr(ws1, df_raw)
-        auto_col(ws1, df_raw, wrap_cols=['긍정 체크리스트', '부정 체크리스트', '매니저 의견', '특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)'], max_w=60)
-
-        for gc in ['이론 등급','근태 등급','태도 등급','평가 등급','규율 등급','🏆 종합 등급']:
-            grade_cond(ws1, df_raw, gc, 2, total_cnt+2)
-
-        ws1.freeze_panes(2, 5)
-        ws1.autofilter(1, 0, total_cnt+1, len(df_raw.columns)-1)
-        ws1.set_tab_color('#1F3864')
-
-        # ── Sheet 2: 종합 대시보드 ────────────────────────────────
-        dash = wb.add_worksheet('📊 대시보드')
-        writer.sheets['📊 대시보드'] = dash
-        dash.set_column('A:A', 3)
-        dash.set_column('B:Q', 16)
-
-        dash.merge_range('B1:Q1', 'PMTC 교육 운영 대시보드', fmt(
-            bold=True, font_size=16, font_color=WHITE, bg_color=NAVY,
-            align='center', valign='vcenter'
-        ))
-        dash.set_row(0, 36)
-
-        # KPI 행
-        kpi2 = [
-            ('총 인원', total_cnt), ('수료', passed_cnt), ('퇴소/F', dropout_cnt+int(f_cnt)),
-            ('평균 점수', avg_score), ('S 등급', s_cnt),
-            ('수료율', f"{round(passed_cnt/total_cnt*100,1) if total_cnt else 0}%"),
-        ]
-        dash.set_row(1, 24)
-        dash.set_row(2, 36)
-        for i, (lbl, val) in enumerate(kpi2):
-            c = 1 + i * 2
-            dash.merge_range(1, c, 1, c+1, lbl, f_kpi_l)
-            dash.merge_range(2, c, 2, c+1, val, f_kpi_v)
-
-        # 등급 분포 테이블
-        dash.set_row(4, 22)
-        dash.merge_range('B5:D5', '종합 등급 분포', f_sec)
-        dash.write(5, 1, '등급', f_hdr)
-        dash.write(5, 2, '인원', f_hdr)
-        dash.write(5, 3, '비율(%)', f_hdr)
-        for ri, g in enumerate('SABCDF'):
-            cnt = int((df['🏆 종합 등급'] == g).sum())
-            pct = round(cnt/total_cnt*100, 1) if total_cnt else 0
-            dash.write(6+ri, 1, g, grade_fmts[g])
-            dash.write(6+ri, 2, cnt, f_center)
-            dash.write(6+ri, 3, pct, f_num)
-
-        # 상태 분포 테이블
-        dash.merge_range('F5:H5', '교육생 상태', f_sec)
-        dash.write(5, 5, '상태', f_hdr)
-        dash.write(5, 6, '인원', f_hdr)
-        dash.write(5, 7, '비율(%)', f_hdr)
-        status_vals = df['최종 상태'].value_counts()
-        for ri, (st, cnt) in enumerate(status_vals.items()):
-            pct = round(cnt/total_cnt*100, 1)
-            dash.write(6+ri, 5, st, f_center)
-            dash.write(6+ri, 6, cnt, f_int)
-            dash.write(6+ri, 7, pct, f_num)
-
-        # 공정별 인원
-        proc_vals = df.groupby('공정').size().sort_values(ascending=False)
-        dash.merge_range('J5:L5', '공정별 인원', f_sec)
-        dash.write(5, 9,  '공정', f_hdr)
-        dash.write(5, 10, '인원', f_hdr)
-        dash.write(5, 11, '비율(%)', f_hdr)
-        for ri, (proc, cnt) in enumerate(proc_vals.items()):
-            pct = round(cnt/total_cnt*100, 1)
-            dash.write(6+ri, 9,  proc, f_cell)
-            dash.write(6+ri, 10, cnt,  f_int)
-            dash.write(6+ri, 11, pct,  f_num)
-
-        # 등급 도넛 차트
-        ch_tier = wb.add_chart({'type': 'pie'})
-        n_g = len('SABCDF')
-        ch_tier.add_series({
-            'name': '등급 비율',
-            'categories': ['📊 대시보드', 6, 1, 6+n_g-1, 1],
-            'values':     ['📊 대시보드', 6, 2, 6+n_g-1, 2],
-            'points': [
-                {'fill': {'color': GRADE_BG['S']}},
-                {'fill': {'color': GRADE_BG['A']}},
-                {'fill': {'color': GRADE_BG['B']}},
-                {'fill': {'color': GRADE_BG['C']}},
-                {'fill': {'color': GRADE_BG['D']}},
-                {'fill': {'color': GRADE_BG['F']}},
-            ],
-            'data_labels': {'percentage': True, 'category': True, 'separator': '\n',
-                            'font': {'bold': True, 'size': 10}},
-        })
-        ch_tier.set_title({'name': '종합 등급 분포', 'name_font': {'bold': True, 'size': 12}})
-        ch_tier.set_legend({'position': 'bottom'})
-        ch_tier.set_size({'width': 320, 'height': 260})
-        dash.insert_chart('N4', ch_tier)
-
-        dash.set_tab_color('#70AD47')
-
-# ──────────────────────────────────────────────────────────
-# 🎯 [교정 코드] 0점으로 오염된 df_c 대신, 미응시자('-') 데이터가 보존된 원본 df를 사용하여 허수를 완벽히 걷어냅니다.
-# ──────────────────────────────────────────────────────────
-        # ── Sheet 3: 성적 분석 ────────────────────────────────────
-        exam_rows = []
-        for quiz in all_quizzes:
-            c1 = f"{quiz.title} 1차"
-            c2 = f"{quiz.title} 2차"
-            c3 = f"{quiz.title} 3차"
-            
-            # 🔥 핵심: df_c가 아닌 원본 df를 호출합니다.
-            # 이렇게 하면 미응시자('-')는 에러(coerce) 처리되어 NaN이 되고, dropna()로 깔끔하게 소멸합니다.
-            s1 = pd.to_numeric(df.get(c1, pd.Series()), errors='coerce').dropna()
-            s2 = pd.to_numeric(df.get(c2, pd.Series()), errors='coerce').dropna()
-            s3 = pd.to_numeric(df.get(c3, pd.Series()), errors='coerce').dropna()
-            
-            all_s = pd.concat([s1, s2, s3]).dropna()
-            pass_r = round((s1 >= 80).mean() * 100, 1) if len(s1) > 0 else 0
-            
-            exam_rows.append({
-                '시험명': quiz.title,
-                '응시자 수': len(s1), # 💡 진짜 응시한 사람만 카운트됨!
-                '1차 평균': round(s1.mean(), 1) if len(s1) > 0 else 0,
-                '2차 평균': round(s2.mean(), 1) if len(s2) > 0 else 0,
-                '3차 평균': round(s3.mean(), 1) if len(s3) > 0 else 0,
-                '전체 평균': round(all_s.mean(), 1) if len(all_s) > 0 else 0,
-                '1차 합격률(%)': pass_r,
-                '최고점': int(s1.max()) if len(s1) > 0 else 0,
-                '최저점': int(s1.min()) if len(s1) > 0 else 0,
-            })
-            
-        df_exam = pd.DataFrame(exam_rows)
-        df_exam.to_excel(writer, index=False, sheet_name='📚 성적 분석', startrow=1)
-# ──────────────────────────────────────────────────────────
-
-# ─── [수정 후 주변 코드 아래 맥락] ───
-        ws3 = writer.sheets['📚 성적 분석']
-        ws3.write('A1', '시험별 성적 분석', f_title)
-        set_hdr(ws3, df_exam)
-        auto_col(ws3, df_exam)
-        ws3.freeze_panes(2, 1)
-
-        if not df_exam.empty:
-            ch_e = wb.add_chart({'type': 'column'})
-            ch_e.add_series({
-                'name': '1차 평균', 'gap': 80,
-                'categories': ['📚 성적 분석', 2, 0, 1+len(df_exam), 0],
-                'values':     ['📚 성적 분석', 2, 2, 1+len(df_exam), 2],
-                'fill': {'color': '#5B9BD5'},
-                'data_labels': {'value': True, 'font': {'bold': True}},
-            })
-            ch_e.set_title({'name': '시험별 1차 평균 점수'})
-            ch_e.set_y_axis({'min': 0, 'max': 100})
-            ch_e.set_legend({'none': True})
-            ch_e.set_size({'width': 400, 'height': 260})
-            ws3.insert_chart('L2', ch_e)
-
-        ws3.set_tab_color('#5B9BD5')
-
-        # ── Sheet 4: ⚠️ 위험 인원 ────────────────────────────────
-        df_risk = df[df['🏆 종합 등급'].isin(['D', 'F'])].copy()
-        risk_cols = ['이름','기수','공정','소속회사','🏆 종합 등급',
-                     '이론 등급','근태 등급','태도 등급','평가 등급','규율 등급',
-                     '최종 환산 점수','재시험 횟수','지각 수','경고장 수','조기퇴소',
-                     '특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)'] # 👈 3개로 분리
-        df_risk = df_risk[[c for c in risk_cols if c in df_risk.columns]]
-
-        df_risk.to_excel(writer, index=False, sheet_name='⚠️ 위험 인원', startrow=1)
-        ws4 = writer.sheets['⚠️ 위험 인원']
-        ws4.write('A1', f'위험/퇴소 대상 인원 — {len(df_risk)}명', fmt(
-            bold=True, font_size=14, font_color='#922B21'
-        ))
-        set_hdr(ws4, df_risk)
-        
-        # 👈 랩핑 컬럼도 3개로 변경
-        auto_col(ws4, df_risk, wrap_cols=['특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)']) 
-        for gc in ['🏆 종합 등급','이론 등급','근태 등급','태도 등급','평가 등급','규율 등급']:
-            grade_cond(ws4, df_risk, gc, 2, len(df_risk)+2)
-        ws4.freeze_panes(2, 3)
-        ws4.set_tab_color('#C0392B')
-
-        # ── Sheet 5: 🏆 우수 인원 ────────────────────────────────
-        df_top = df[df['🏆 종합 등급'].isin(['S', 'A'])].sort_values(
-            '최종 환산 점수', ascending=False).copy()
-        top_cols = ['이름','기수','공정','소속회사','🏆 종합 등급',
-                    '이론 등급','근태 등급','태도 등급','평가 등급','규율 등급',
-                    '최종 환산 점수','공정 내 석차','기수 내 석차']
-        df_top = df_top[[c for c in top_cols if c in df_top.columns]]
-        df_top.to_excel(writer, index=False, sheet_name='🏆 우수 인원', startrow=1)
-        ws5 = writer.sheets['🏆 우수 인원']
-        ws5.write('A1', f'우수 인원 (S/A 등급) — {len(df_top)}명', fmt(
-            bold=True, font_size=14, font_color='#154360'
-        ))
-        set_hdr(ws5, df_top)
-        auto_col(ws5, df_top)
-        for gc in ['🏆 종합 등급','이론 등급','근태 등급','태도 등급','평가 등급','규율 등급']:
-            grade_cond(ws5, df_top, gc, 2, len(df_top)+2)
-        ws5.freeze_panes(2, 3)
-        ws5.set_tab_color('#145A32')
-
-# ──────────────────────────────────────────────────────────
-# 🎯 [완치 코드 2] astype('str') 사용
-# ──────────────────────────────────────────────────────────
-        # ── Sheet 6: 🚨 퇴소 인원 ────────────────────────────────
-        df['최종 상태'] = df['최종 상태'].astype('str').str.strip()
-        df_dropout = df[df['최종 상태'].str.contains('퇴소', na=False)].copy()
-# ──────────────────────────────────────────────────────────
-
-        # 퇴소 사유 분석에 최적화된 컬럼만 엄선하여 재배치
-        dropout_cols = [
-            '이름', '사번', '기수', '공정', '소속회사', '퇴소 사유', # 🔥 여기에 배치 완료!
-            '🏆 종합 등급', '이론 등급', '근태 등급', '규율 등급', 
-            '재시험 횟수', '지각 수', '경고장 수', '조기퇴소', 
-            '특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)' # 👈 3개로 분리
-        ]
-        df_dropout = df_dropout[[c for c in dropout_cols if c in df_dropout.columns]]
-        
-        df_dropout.to_excel(writer, index=False, sheet_name='🚨 퇴소 인원', startrow=1)
-        ws_dropout = writer.sheets['🚨 퇴소 인원']
-        ws_dropout.write('A1', f'퇴소 (조기퇴소 포함) 인원 — {len(df_dropout)}명', fmt(
-            bold=True, font_size=14, font_color='#6f0000'
-        ))
-        set_hdr(ws_dropout, df_dropout)
-        
-        # 특이사항(퇴소 사유) 칸이 길어질 수 있으므로 자동 줄바꿈 적용
-        auto_col(ws_dropout, df_dropout, wrap_cols=['특이사항(불합격)', '특이사항(경고/면담)', '특이사항(근무/기타)'])
-        
-        # 등급 칸에 조건부 서식(색상) 적용
-        for gc in ['🏆 종합 등급','이론 등급','근태 등급','규율 등급']:
-            grade_cond(ws_dropout, df_dropout, gc, 2, len(df_dropout)+2)
-            
-        # 스크롤할 때 이름~소속회사까지는 고정되도록 틀 고정
-        ws_dropout.freeze_panes(2, 5) 
-        ws_dropout.set_tab_color('#6f0000') # 강렬한 다크 레드 탭 색상
-# ──────────────────────────────────────────────────────────
-
-        # ── Sheet 7~: 요약 시트들 ─────────────────────────────────
-        def write_summary(sheet_name, frame, title, tab_color):
-            frame.to_excel(writer, index=False, sheet_name=sheet_name, startrow=1)
-            ws = writer.sheets[sheet_name]
-            ws.write('A1', title, f_title)
-            set_hdr(ws, frame)
-            auto_col(ws, frame)
-            ws.freeze_panes(2, 0)
-            ws.autofilter(1, 0, len(frame)+1, len(frame.columns)-1)
-            ws.set_tab_color(tab_color)
-            return ws
-
-        # 🏢 1. 회사별 다차원 분석 & 차트
-        df_comp_agg = df_c.groupby('소속회사').agg(
-            총인원=('이름', 'count'),
-            수료=('최종 상태', lambda x: (x == '수료').sum()),
-            퇴소=('최종 상태', lambda x: (x == '퇴소').sum()),
-            우수인재_SA=('🏆 종합 등급', lambda x: x.isin(['S', 'A']).sum()),
-            위험군_DF=('🏆 종합 등급', lambda x: x.isin(['D', 'F']).sum()),
-            평균환산점수=('최종 환산 점수', 'mean'),
-            과목평균=('과목 평균점수', 'mean'),
-            태도평균=('태도 점수', 'mean'),
-            평균재시험=('재시험 횟수', 'mean'),
-            평균경고=('경고 수', 'mean'),
-        )
-        df_comp_agg['수료율(%)'] = (df_comp_agg['수료'] / df_comp_agg['총인원'] * 100).round(1)
-        df_comp_agg['우수비율(%)'] = (df_comp_agg['우수인재_SA'] / df_comp_agg['총인원'] * 100).round(1)
-        
-        df_comp_agg['진행 기수 수'] = df_c.groupby('소속회사')['기수'].nunique()
-        df_comp_agg['기수당 평균 입과(명)'] = (df_comp_agg['총인원'] / df_comp_agg['진행 기수 수']).round(1)
-        
-        comp_proc = pd.crosstab(df_c['소속회사'], df_c['공정']).add_suffix(' 공정(명)')
-        df_comp = df_comp_agg.join(comp_proc).reset_index()
-
-        cols_comp = ['소속회사', '총인원', '진행 기수 수', '기수당 평균 입과(명)'] + list(comp_proc.columns) + ['수료', '퇴소', '수료율(%)', '우수인재_SA', '우수비율(%)', '위험군_DF', '평균환산점수', '과목평균', '태도평균', '평균재시험', '평균경고']
-        
-        # 엑셀과 차트 매핑을 위해 사전에 정렬 확정
-        df_comp = df_comp[cols_comp].round(1).sort_values('총인원', ascending=False).reset_index(drop=True)
-        ws_comp = write_summary('🏢 회사별 요약', df_comp, '회사별 종합 성과 및 공정별/기수별 인재 분포', '#ED7D31')
-
-        # 📊 [회사별 차트 생성] 총 인원 vs 수료 인원
-        if not df_comp.empty:
-            chart_comp = wb.add_chart({'type': 'column'})
-            cat_idx = df_comp.columns.get_loc('소속회사')
-            v1_idx = df_comp.columns.get_loc('총인원')
-            v2_idx = df_comp.columns.get_loc('수료')
-            
-            chart_comp.add_series({
-                'name':       ['🏢 회사별 요약', 0, v1_idx],
-                'categories': ['🏢 회사별 요약', 2, cat_idx, len(df_comp)+1, cat_idx],
-                'values':     ['🏢 회사별 요약', 2, v1_idx, len(df_comp)+1, v1_idx],
-                'fill':       {'color': '#5B9BD5'},
-                'data_labels': {'value': True}
-            })
-            chart_comp.add_series({
-                'name':       ['🏢 회사별 요약', 0, v2_idx],
-                'categories': ['🏢 회사별 요약', 2, cat_idx, len(df_comp)+1, cat_idx],
-                'values':     ['🏢 회사별 요약', 2, v2_idx, len(df_comp)+1, v2_idx],
-                'fill':       {'color': '#70AD47'},
-                'data_labels': {'value': True}
-            })
-            chart_comp.set_title({'name': '회사별 총 입과 및 수료 인원 비교'})
-            chart_comp.set_legend({'position': 'bottom'})
-            chart_comp.set_size({'width': 550, 'height': 350})
-            
-            # 표의 우측 빈 공간에 차트 삽입
-            ws_comp.insert_chart(1, len(df_comp.columns) + 1, chart_comp)
-
-        # 📅 2. 기수별 다차원 분석 & 차트
-        df_coh_agg = df_c.groupby('기수').agg(
-            총인원=('이름', 'count'),
-            수료=('최종 상태', lambda x: (x == '수료').sum()),
-            퇴소=('최종 상태', lambda x: (x == '퇴소').sum()),
-            자진퇴사=('조기퇴소', lambda x: (x == 'Y').sum()),
-            우수_S=('🏆 종합 등급', lambda x: (x == 'S').sum()),
-            우수_A=('🏆 종합 등급', lambda x: (x == 'A').sum()),
-            평균환산점수=('최종 환산 점수', 'mean'),
-            과목평균=('과목 평균점수', 'mean'),
-            평균지각=('지각 수', 'mean'),
-            평균경고장=('경고장 수', 'mean')
-        )
-        df_coh_agg['강제퇴소(과락/징계)'] = df_coh_agg['퇴소'] - df_coh_agg['자진퇴사']
-        df_coh_agg['수료율(%)'] = (df_coh_agg['수료'] / df_coh_agg['총인원'] * 100).round(1)
-        
-        coh_comp = pd.crosstab(df_c['기수'], df_c['소속회사']).add_suffix(' (명)')
-        coh_proc = pd.crosstab(df_c['기수'], df_c['공정']).add_suffix(' 공정(명)')
-        df_coh = df_coh_agg.join(coh_comp).join(coh_proc).reset_index()
-
-        cols_coh = ['기수', '총인원'] + list(coh_comp.columns) + list(coh_proc.columns) + ['수료', '수료율(%)', '자진퇴사', '강제퇴소(과락/징계)', '우수_S', '우수_A', '평균환산점수', '과목평균', '평균지각', '평균경고장']
-        
-        df_coh = df_coh[cols_coh].round(1).sort_values('기수').reset_index(drop=True)
-        ws_coh = write_summary('📅 기수별 요약', df_coh, '기수별 회사/공정 유입 트렌드 및 성취도/이탈 원인 분석', '#A5A5A5')
-
-        # 📊 [기수별 차트 생성] 이중축 콤보 차트 (누적 막대 + 꺾은선)
-        if not df_coh.empty:
-            chart_coh = wb.add_chart({'type': 'column', 'subtype': 'stacked'})
-            cat_idx = df_coh.columns.get_loc('기수')
-            v1_idx = df_coh.columns.get_loc('수료')
-            v2_idx = df_coh.columns.get_loc('자진퇴사')
-            v3_idx = df_coh.columns.get_loc('강제퇴소(과락/징계)')
-            
-            chart_coh.add_series({
-                'name':       ['📅 기수별 요약', 0, v1_idx],
-                'categories': ['📅 기수별 요약', 2, cat_idx, len(df_coh)+1, cat_idx],
-                'values':     ['📅 기수별 요약', 2, v1_idx, len(df_coh)+1, v1_idx],
-                'fill':       {'color': '#70AD47'} # 초록
-            })
-            chart_coh.add_series({
-                'name':       ['📅 기수별 요약', 0, v2_idx],
-                'categories': ['📅 기수별 요약', 2, cat_idx, len(df_coh)+1, cat_idx],
-                'values':     ['📅 기수별 요약', 2, v2_idx, len(df_coh)+1, v2_idx],
-                'fill':       {'color': '#FFC000'} # 노랑
-            })
-            chart_coh.add_series({
-                'name':       ['📅 기수별 요약', 0, v3_idx],
-                'categories': ['📅 기수별 요약', 2, cat_idx, len(df_coh)+1, cat_idx],
-                'values':     ['📅 기수별 요약', 2, v3_idx, len(df_coh)+1, v3_idx],
-                'fill':       {'color': '#C0504D'} # 빨강
-            })
-            
-            # 수료율 꺾은선 추가 (보조 Y축)
-            line_coh = wb.add_chart({'type': 'line'})
-            rate_idx = df_coh.columns.get_loc('수료율(%)')
-            line_coh.add_series({
-                'name':       ['📅 기수별 요약', 0, rate_idx],
-                'categories': ['📅 기수별 요약', 2, cat_idx, len(df_coh)+1, cat_idx],
-                'values':     ['📅 기수별 요약', 2, rate_idx, len(df_coh)+1, rate_idx],
-                'y2_axis':    True,
-                'line':       {'color': '#1F3864', 'width': 2.5},
-                'marker':     {'type': 'circle', 'size': 6, 'border': {'color': '#1F3864'}, 'fill': {'color': '#FFFFFF'}},
-                'data_labels': {'value': True, 'position': 'top'}
-            })
-            
-            chart_coh.combine(line_coh)
-            chart_coh.set_title({'name': '기수별 수료 현황 및 수료율 트렌드'})
-            chart_coh.set_x_axis({'name': '기수'})
-            chart_coh.set_y_axis({'name': '인원 (명)'})
-            chart_coh.set_y2_axis({'name': '수료율 (%)', 'min': 0, 'max': 100})
-            chart_coh.set_legend({'position': 'bottom'})
-            chart_coh.set_size({'width': 700, 'height': 350})
-            
-            ws_coh.insert_chart(1, len(df_coh.columns) + 1, chart_coh)
-
-        # ⚙️ 3. 공정별 다차원 분석 & 차트
-        df_proc_agg = df_c.groupby('공정').agg(
-            총인원=('이름', 'count'),
-            수료=('최종 상태', lambda x: (x == '수료').sum()),
-            위험군_DF=('🏆 종합 등급', lambda x: x.isin(['D', 'F']).sum()),
-            평균환산점수=('최종 환산 점수', 'mean'),
-            과목평균=('과목 평균점수', 'mean'),
-            평균재시험=('재시험 횟수', 'mean'),
-            매니저긍정_평균=('긍정 선택', 'mean'),
-            매니저부정_평균=('부정 선택', 'mean'),
-            평균경고누적=('경고 수', 'mean')
-        )
-        df_proc_agg['수료율(%)'] = (df_proc_agg['수료'] / df_proc_agg['총인원'] * 100).round(1)
-        
-        df_proc_agg['진행 기수 수'] = df_c.groupby('공정')['기수'].nunique()
-        df_proc_agg['기수당 평균 입과(명)'] = (df_proc_agg['총인원'] / df_proc_agg['진행 기수 수']).round(1)
-        
-        proc_comp = pd.crosstab(df_c['공정'], df_c['소속회사']).add_suffix(' (명)')
-        df_proc = df_proc_agg.join(proc_comp).reset_index()
-
-        cols_proc = ['공정', '총인원', '진행 기수 수', '기수당 평균 입과(명)'] + list(proc_comp.columns) + ['수료', '수료율(%)', '위험군_DF', '평균환산점수', '과목평균', '평균재시험', '매니저긍정_평균', '매니저부정_평균', '평균경고누적']
-        
-        df_proc = df_proc[cols_proc].round(1).sort_values('총인원', ascending=False).reset_index(drop=True)
-        ws_proc = write_summary('⚙️ 공정별 요약', df_proc, '공정별 회사 유입 비중 및 매니저 평가 분석', '#5B9BD5')
-
-        # 📊 [공정별 차트 생성] 매니저 긍정 vs 부정 가로 막대
-        if not df_proc.empty:
-            chart_proc = wb.add_chart({'type': 'bar'}) # 가로 막대 차트
-            cat_idx = df_proc.columns.get_loc('공정')
-            v1_idx = df_proc.columns.get_loc('매니저긍정_평균')
-            v2_idx = df_proc.columns.get_loc('매니저부정_평균')
-            
-            chart_proc.add_series({
-                'name':       ['⚙️ 공정별 요약', 0, v1_idx],
-                'categories': ['⚙️ 공정별 요약', 2, cat_idx, len(df_proc)+1, cat_idx],
-                'values':     ['⚙️ 공정별 요약', 2, v1_idx, len(df_proc)+1, v1_idx],
-                'fill':       {'color': '#4F81BD'},
-                'data_labels': {'value': True}
-            })
-            chart_proc.add_series({
-                'name':       ['⚙️ 공정별 요약', 0, v2_idx],
-                'categories': ['⚙️ 공정별 요약', 2, cat_idx, len(df_proc)+1, cat_idx],
-                'values':     ['⚙️ 공정별 요약', 2, v2_idx, len(df_proc)+1, v2_idx],
-                'fill':       {'color': '#C0504D'},
-                'data_labels': {'value': True}
-            })
-            chart_proc.set_title({'name': '공정별 매니저 평가 평균치 (긍정 vs 부정)'})
-            chart_proc.set_legend({'position': 'bottom'})
-            chart_proc.set_size({'width': 500, 'height': 350})
-            
-            ws_proc.insert_chart(1, len(df_proc.columns) + 1, chart_proc)
-
-        # 🛡️ 4. 근태/규율 분석 (기존 유지)
-        df_att = df_c.groupby(['기수','공정']).agg(
-            총인원=('이름','count'),
-            평균지각=('지각 수','mean'),
-            평균휴무=('휴무 수','mean'),
-            평균경고=('경고 수','mean'),
-            평균경고장=('경고장 수','mean'),
-            조기퇴소수=('조기퇴소', lambda x: (x=='Y').sum()),
-        ).reset_index()
-        for col in ['평균지각','평균휴무','평균경고','평균경고장']:
-            df_att[col] = df_att[col].round(1)
-        write_summary('🛡️ 근태·규율 교차분석', df_att, '기수 및 공정별 근태/규율 집중도 교차 분석', '#70AD47')
-        # 📌 5. 특이사항 이력 (기존 유지)
-        df_log = df[['이름','기수','공정','🏆 종합 등급','특이사항(불합격)','특이사항(경고/면담)','특이사항(근무/기타)']].copy()
-        has_fail = df_log['특이사항(불합격)'] != '-'
-        has_warn = df_log['특이사항(경고/면담)'] != '-'
-        has_work = df_log['특이사항(근무/기타)'] != '-'
-        
-        df_log = df_log[has_fail | has_warn | has_work]
-        if not df_log.empty:
-            write_summary('📌 특이사항 이력', df_log, '특이사항 및 상담 이력 종합', '#C0392B')
-
-    # ── 응답 반환 ──────────────────────────────────────────────────
-    excel_file.seek(0)
-    target_name = '전체'
+    # 대상 이름
+    target = '전체'
     if sel_process:
-        p = Process.objects.filter(pk=sel_process).first()
-        if p: target_name = p.name
-    filename = f"PMTC_종합분석보고서_{target_name}_{timezone.now().strftime('%Y%m%d_%H%M')}.xlsx"
-    encoded  = urllib.parse.quote(filename)
+        o = Process.objects.filter(pk=sel_process).first();  target = o.name if o else target
+    elif sel_company:
+        o = Company.objects.filter(pk=sel_company).first();  target = o.name if o else target
+    elif sel_cohort:
+        o = Cohort.objects.filter(pk=sel_cohort).first();    target = o.name if o else target
+    quiz_titles = [q.title for q in all_quizzes]
+    return df, df_c, quiz_titles, target
 
-    response = HttpResponse(
-        excel_file.read(),
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{encoded}"
-    return response
+
+@login_required # (보안을 위해 데코레이터도 꼭 챙겨주세요)
+def export_student_data(request):
+    """마스터 그리드 → 4종 보고서 다운로드.  URL: ?view=full|company|process|cohort"""
+    from django.shortcuts import redirect
+    from django.contrib import messages
+    from django.http import HttpResponse
+    from django.utils import timezone
+
+    if not request.user.is_staff:
+        return redirect('quiz:index')
+
+    view = request.GET.get('view', 'full')
+    df, df_c, quiz_titles, target = build_report_dataframe(request)
+    if df is None or len(df) == 0:
+        messages.warning(request, "출력할 데이터가 없습니다.")
+        return redirect(request.META.get('HTTP_REFERER', 'quiz:dashboard'))
+
+    gen = timezone.now().strftime('%Y년 %m월 %d일 %H:%M')
+    data = build_workbook(view, df, df_c, quiz_titles, gen, target=target)
+
+    label = VIEW_LABEL.get(view, '전체종합')
+    fname = f"PMTC_{label}보고서_{target}_{timezone.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    enc = urllib.parse.quote(fname)
+    resp = HttpResponse(
+        data, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    resp['Content-Disposition'] = f"attachment; filename*=UTF-8''{enc}"
+    return resp
 
 def get_pl_dashboard_data(pl_user):
     """
@@ -3529,10 +3878,90 @@ def process_expired_dropouts():
         trainee.status = 'dropout'
         trainee.save()
 
+# ──────────────────────────────────────────────────────────
+# 🎯 [신규 추가] 매일 1회 경고장 미해결 알림 리마인더 함수
+# ──────────────────────────────────────────────────────────
+def check_warning_reminders(user=None):
+    """
+    [통합본] 미해결 경고장 1건당 독립적으로, 하루 1회씩 알림을 보냅니다.
+    - 발부 직후에는 별도의 '즉시 알림'이 이미 발송되므로,
+      이 리마인더는 발부 시점으로부터 1시간이 지난 건부터 추적을 시작합니다.
+    수신자: 경고장 발부자(recorder) + 학생 담당 매니저(같은 공정 매니저) + 최고관리자
+    - user 인자는 더 이상 "수신자 1명"이 아니라, 호출 트리거(접속자)일 뿐이며 무시됩니다.
+      (실제 수신자는 매번 자동으로 새로 계산됩니다)
+    """
+    from quiz.models import StudentLog, Notification
+    from accounts.models import Profile
+    from django.contrib.auth.models import User as UserModel
+    from django.utils import timezone
+    from datetime import timedelta
+
+    now = timezone.now()
+    one_day_ago = now - timedelta(days=1)
+    one_hour_ago = now - timedelta(hours=1)
+
+    # ★ 발부된 지 1시간이 지난 미해결 경고장만 리마인더 대상으로 추적
+    unresolved_letters = StudentLog.objects.filter(
+        log_type='warning_letter',
+        is_resolved=False,
+        created_at__lte=one_hour_ago
+    ).select_related('profile__company', 'profile__process', 'recorder')
+
+    for log in unresolved_letters:
+        profile = log.profile
+        company_name = profile.company.name if profile.company else '미지정'
+        process_name = profile.process.name if profile.process else '미지정'
+
+        # ★ [수신자 계산] 발부자 + 담당 매니저 + 최고관리자, 중복 없이
+        receivers = set()
+
+        if log.recorder:
+            receivers.add(log.recorder)
+
+        if profile.process:
+            dept_managers = UserModel.objects.filter(
+                is_staff=True, profile__is_manager=True, profile__process=profile.process
+            )
+            receivers.update(dept_managers)
+
+        superusers = UserModel.objects.filter(is_superuser=True)
+        receivers.update(superusers)
+
+        # ★ [경고장 1건당 독립적으로, 수신자별로 하루 1회씩 체크]
+        for recv in receivers:
+            already_reminded_today = Notification.objects.filter(
+                recipient=recv,
+                notification_type='general',
+                message__contains=f"[경고장ID:{log.id}]",  # 경고장 단위로 정확히 식별
+                created_at__gte=one_day_ago
+            ).exists()
+
+            if not already_reminded_today:
+                Notification.objects.create(
+                    recipient=recv,
+                    sender=log.recorder,
+                    notification_type='general',
+                    message=f"🔔 [경고장ID:{log.id}] [{company_name} / {process_name}] {profile.name}님 미해결 경고장이 있습니다. 서류 등록 후 잠금해제 해주세요. (1일 1회 알림)",
+                    related_url=f"/quiz/manager/trainees/{profile.id}/logs/"
+                )
+                try:
+                    from quiz.views import broadcast_realtime_notification
+                    broadcast_realtime_notification(recv.id)
+                except:
+                    pass
+# ──────────────────────────────────────────────────────────
+
 @login_required
 def manager_dashboard(request):
     process_expired_dropouts() 
-    
+
+    # ★ [추가] 대시보드 접속 시 미해결 경고장 리마인더 체커 가동
+    if request.user.is_staff:
+        try:
+            check_warning_reminders(request.user)
+        except Exception:
+            pass
+
     from accounts.models import Profile, Cohort, Process, Company, ProcessAccessRequest
     from quiz.models import QuizAttempt, StudentLog, Quiz, TestResult, ReferenceLink
     from django.db.models import Q, Case, When, Value, IntegerField, Count
@@ -4037,6 +4466,12 @@ def manager_trainee_detail(request, profile_id):
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
 
+    # ★ [추가] 이 페이지 접속만으로도 1일 1회 리마인더 체커가 가동되도록 함
+    try:
+        check_warning_reminders(request.user)
+    except Exception:
+        pass
+
     profile = get_object_or_404(Profile, pk=profile_id)
     student = profile.user
 
@@ -4203,283 +4638,6 @@ def final_log_saver(request, profile_id):
 
 
 # =========================================================
-# 3. 특이사항/경고/징계 관리 페이지 (히스토리 탭의 폼 처리)
-# =========================================================
-@login_required
-def manage_student_logs(request, profile_id):
-    """
-    [관리자용] 교육생 특이사항/로그 관리 페이지
-    - 기능: 시험 프로세스 조회, 경고/면담 기록 저장, 잠금 해제
-    """
-    # 1. 권한 체크
-    if not request.user.is_staff:
-        messages.error(request, "접근 권한이 없습니다.")
-        return redirect('quiz:index')
-
-    profile = get_object_or_404(Profile, pk=profile_id)
-    student = profile.user
-
-    # ========================================================
-    # [1] View Data: 시험 진행 프로세스 표 데이터 생성
-    # ========================================================
-    target_quizzes = Quiz.objects.filter(
-        Q(category='common') | Q(related_process=profile.process)
-    ).distinct().order_by('category', 'title')
-
-    exam_process_list = []
-    for quiz in target_quizzes:
-        # created_at -> completed_at (수정완료)
-        history = TestResult.objects.filter(user=student, quiz=quiz).order_by('completed_at')
-        attempts = list(history)
-        count = len(attempts)
-        last_result = attempts[-1] if count > 0 else None
-        
-        status = 'not_taken'
-        score = '-'
-        date = None # 변수명 통일
-        
-        if last_result:
-            score = f"{last_result.score}점"
-            date = last_result.completed_at
-            status = 'pass' if last_result.is_pass else 'fail'
-
-        # 잠금 여부 확인
-        is_locked = False
-        if status == 'fail':
-            is_locked = StudentLog.objects.filter(
-                profile=profile, related_quiz=quiz, log_type='exam_fail', is_resolved=False
-            ).exists()
-        
-        # 쪽지 기능용 로그
-        quiz_logs = StudentLog.objects.filter(profile=profile, related_quiz=quiz).order_by('-created_at')
-
-        exam_process_list.append({
-            'quiz': quiz,
-            'status': status,
-            'score': score,
-            'date': date,
-            'try_1': attempts[0] if count >= 1 else None,
-            'try_2': attempts[1] if count >= 2 else None,
-            'try_3': attempts[2] if count >= 3 else None,
-            'is_locked': is_locked,
-            'logs': quiz_logs
-        })
-
-    # ========================================================
-    # [2] View Data: 잠긴 시험 로그 (드롭다운 선택용)
-    # ========================================================
-    locked_logs = StudentLog.objects.filter(
-        profile=profile,
-        log_type='exam_fail',
-        is_resolved=False
-    ).select_related('related_quiz').order_by('-created_at')
-
-    # ========================================================
-    # [3] POST 요청 처리: 로그 저장 및 로직 실행
-    # ========================================================
-    if request.method == 'POST':
-        log_type = request.POST.get('log_type')
-        reason = request.POST.get('reason')
-        action_taken = request.POST.get('action_taken')
-        
-        is_unlocked = request.POST.get('resolve_lock') == 'on'
-        pl_check = request.POST.get('pl_check') == 'on'
-        related_quiz_id = request.POST.get('related_quiz_id')
-        
-        # ─────────────────────────────────────────────────────────────────
-        # 🎯 [수정 1] 실습 평가 해제 여부를 구분하는 특별 플래그 ('practice' 문자열)
-        # ─────────────────────────────────────────────────────────────────
-        is_practice_fail = (related_quiz_id == 'practice')
-        
-        related_quiz = None
-        if related_quiz_id and not is_practice_fail:
-            related_quiz = get_object_or_404(Quiz, pk=related_quiz_id)
-        # ─────────────────────────────────────────────────────────────────
-
-        # ★ [수동 경고장 중복 방어막]
-        # 매니저가 수동으로 '경고장'을 주면서 '지각'이라고 적었을 때
-        if log_type == 'warning_letter' and '지각' in reason:
-            today = timezone.now().date()
-            already_auto_warned = StudentLog.objects.filter(
-                profile=profile,
-                log_type='warning_letter',
-                created_at__date=today,
-                reason__contains='[시스템 자동]'
-            ).filter(reason__contains='지각').exists()
-
-            # 오늘 이미 달력 출석부에서 자동으로 때린 지각 경고장이 있다면 튕겨냄!
-            if already_auto_warned:
-                messages.error(request, "⛔ 오늘 이미 달력 시스템에서 자동으로 발부된 지각 경고장이 있습니다. 중복으로 발부할 수 없습니다.")
-                return redirect('quiz:manage_student_logs', profile_id=profile.id)
-
-        # ★ [핵심 추가] 업로드된 첨부파일 가져오기
-        attached_file = request.FILES.get('attached_file')
-        
-        # ─────────────────────────────────────────────────────────────────
-        # 🎯 [수정 2] 실습 해제(is_practice_fail)일 때도 파일 필수 로직에서 통과시킵니다!
-        # ─────────────────────────────────────────────────────────────────
-        needs_file = (log_type == 'counseling' and is_unlocked and not related_quiz_id and not is_practice_fail)
-        
-        if needs_file and not attached_file:
-            messages.error(request, "⛔ 경고 누적으로 인한 잠금을 해제하려면 반드시 증빙 서류(경고장 사본 등)를 첨부해야 합니다. (시험/실습 재응시 해제는 서류 불필요)")
-            return redirect('quiz:manage_student_logs', profile_id=profile.id)
-
-        # ★ [백엔드 철통 보안] 타 매니저가 해킹(소스 조작)으로 시험 잠금을 풀려 하면 튕겨냄!
-        if not is_my_student:
-            if is_unlocked or related_quiz_id or is_practice_fail or log_type in ['exam_fail', 'warning_letter']:
-                messages.error(request, "⛔ 타 공정 학생의 성적 관련 조치나 경고장 발부는 불가능합니다. (태도 경고만 가능)")
-                return redirect('quiz:manage_student_logs', profile_id=profile.id)
-
-        try:
-            with transaction.atomic():
-                # (1) 로그 생성
-                new_log = StudentLog.objects.create(
-                    profile=profile,
-                    recorder=request.user,
-                    log_type=log_type,
-                    reason=reason,
-                    action_taken=action_taken,
-                    related_quiz=related_quiz,
-                    is_resolved=is_unlocked,
-                    attached_file=attached_file, # 파일 저장
-                    created_at=timezone.now()
-                )
-
-                # (2) 경고 누적 로직 (내 학생이든 남의 학생이든 태도 불량 경고 횟수는 올라감)
-                if log_type == 'warning':
-                    profile.warning_count += 1
-                    if profile.warning_count == 2:
-                        StudentLog.objects.create(
-                            profile=profile, recorder=request.user, log_type='warning_letter',
-                            reason="[시스템 자동] 경고 2회 누적 -> 1차 경고장", action_taken="매니저 면담 필요", is_resolved=False
-                        )
-                        profile.status = 'counseling'
-                        messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 자동 발부되었습니다.")
-                    elif profile.warning_count == 3:
-                        StudentLog.objects.create(
-                            profile=profile, recorder=request.user, log_type='warning_letter',
-                            reason="[시스템 자동] 경고 3회 누적 -> 2차 경고장", action_taken="PL 면담 필수", is_resolved=False
-                        )
-                        profile.status = 'counseling'
-                        messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다.")
-                    elif profile.warning_count >= 4:
-                        profile.status = 'dropout'
-                        profile.user.is_active = False
-                        profile.user.save()
-                        messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
-                    else:
-                        profile.status = 'caution'
-                        messages.info(request, "경고가 1회 적립되었습니다.")
-
-                # (3) 경고장 수동 발부 (내 담당 학생일 때만 가능)
-                elif log_type == 'warning_letter':
-                    if profile.warning_count < 2: profile.warning_count = 2
-                    else: profile.warning_count += 1
-
-                    if profile.warning_count >= 4:
-                        profile.status = 'dropout'
-                        profile.user.is_active = False
-                        profile.user.save()
-                        messages.error(request, "⛔ 경고장 누적(4회)으로 퇴소 처리되었습니다.")
-                    elif profile.warning_count == 3:
-                        # ★ [수정] warning 트랙과 동일하게 3회차는 PL(파트장) 면담 필수 명시 + 알림
-                        new_log.action_taken = (new_log.action_taken or "") + " / PL 면담 필수"
-                        new_log.save()
-                        profile.status = 'counseling'
-                        messages.error(request, "🚫 경고장 3회 누적! PL(파트장) 면담이 필수입니다.")
-                        Notification.objects.create(
-                            recipient=request.user,
-                            notification_type='general',
-                            message=f"🚨 [{profile.name}] 누적 3회(2차 경고장) 도달! 즉시 PL 면담이 필요합니다.",
-                            related_url=f"/quiz/manager/trainees/{profile.id}/logs/"
-                        )
-                        try:
-                            broadcast_realtime_notification(request.user.id)
-                        except:
-                            pass
-                    else:
-                        # warning_count == 2 (첫 경고장 -> 1회 기회 소진으로 2회 처리)
-                        profile.status = 'counseling'
-                        messages.warning(request, "⛔ 경고장이 발부되었습니다. 매니저 면담이 필요합니다.")
-
-                    # 교육생에게 '경고장 양식 다운로드' 알림 발송
-                    from django.urls import reverse
-                    download_url = reverse('quiz:print_warning_letter', args=[new_log.id])
-                    Notification.objects.create(
-                        recipient=profile.user,
-                        sender=request.user,
-                        notification_type='general', 
-                        message=f"🚨 [경고장 발부] 규정 위반으로 경고장이 발부되었습니다. 클릭하여 양식을 인쇄 후 서명하여 제출 바랍니다.",
-                        related_url=download_url
-                    )
-                    # 실시간 종소리 알림
-                    try:
-                        broadcast_realtime_notification(profile.user.id)
-                    except:
-                        pass
-
-                # (4) 면담 및 잠금 해제 (내 담당 학생일 때만 가능)
-                elif log_type == 'counseling' or log_type == 'exam_fail':
-                    if is_unlocked:
-                        if related_quiz:
-                            # 📘 지필평가 잠금 해제
-                            StudentLog.objects.filter(
-                                profile=profile, related_quiz=related_quiz, log_type='exam_fail', is_resolved=False
-                            ).update(is_resolved=True)
-                            messages.success(request, f"시험 '{related_quiz.title}' 잠금 해제 및 파일 업로드 됨.")
-                            
-                        # 🎯 [수정 3] 여기서 실습 평가 잠금 해제 플래그를 잡습니다!
-                        elif is_practice_fail:
-                            # 🏭 실습평가 잠금 해제
-                            practice_logs = StudentLog.objects.filter(
-                                profile=profile, log_type='exam_fail', reason__contains='[실습 평가]', is_resolved=False
-                            )
-                            if practice_logs.exists():
-                                practice_logs.update(is_resolved=True)
-                                messages.success(request, "✅ 공정 실습 불합격 잠금이 해제되었습니다.")
-
-                        # PL 면담 여부 방어막 등
-                        if profile.warning_count == 3 and not pl_check:
-                            messages.error(request, "🚫 3회 누적자는 'PL 면담 확인' 필수입니다.")
-                            new_log.is_resolved = False
-                            new_log.save()
-                        elif profile.warning_count >= 4:
-                            profile.status = 'dropout'
-                            messages.error(request, "퇴소자는 잠금을 해제할 수 없습니다.")
-                            new_log.is_resolved = False
-                            new_log.save()
-                        else:
-                            if profile.status == 'counseling': profile.status = 'attending'
-                            if not profile.user.is_active:
-                                profile.user.is_active = True
-                                profile.user.save()
-                            messages.success(request, "계정이 정상화되었습니다.")
-                    else:
-                        messages.info(request, "일반 면담/경고 기록이 저장되었습니다.")
-
-                profile.save()
-        except Exception as e:
-            messages.error(request, f"저장 중 오류 발생: {e}")
-
-        return redirect('quiz:manage_student_logs', profile_id=profile.id)
-
-    # ========================================================
-    # [4] GET: 최종 데이터 렌더링
-    # ========================================================
-    logs = StudentLog.objects.filter(profile=profile).order_by('-created_at')
-
-    # ★ 에러가 나던 badges 코드는 삭제했습니다.
-    # ★ 템플릿도 manage_student_logs.html 로 정확히 지정했습니다.
-    return render(request, 'quiz/manager/manage_student_logs.html', {
-        'profile': profile,
-        'exam_process_list': exam_process_list,
-        'logs': logs,
-        'locked_logs': locked_logs,
-    })
-
-
-
-# =========================================================
 # 4. 특이사항/경고 관리 페이지 (블라인드 + 부분 권한 허용 + 파일 첨부)
 # =========================================================
 @login_required
@@ -4488,6 +4646,13 @@ def manage_student_logs(request, profile_id):
     if not request.user.is_staff:
         messages.error(request, "접근 권한이 없습니다.")
         return redirect('quiz:index')
+
+    # ★ [추가] 이 페이지 접속만으로도 1일 1회 리마인더 체커가 가동되도록 함
+    #   (대시보드를 거치지 않고 상세 페이지로 바로 들어오는 경우 누락 방지)
+    try:
+        check_warning_reminders(request.user)
+    except Exception:
+        pass
 
     profile = get_object_or_404(Profile, pk=profile_id)
     student = profile.user
@@ -4588,7 +4753,14 @@ def manage_student_logs(request, profile_id):
         pl_check = request.POST.get('pl_check') == 'on'
         related_quiz_id = request.POST.get('related_quiz_id')
         is_practice_fail = (related_quiz_id == 'practice')
-        
+
+        # ★ [버그 수정 A] 경고장이 있는 학생은 화면에 'resolve_lock' 단일 체크박스가
+        #   렌더링되지 않고 'resolve_letter_ids'(개별 체크박스)로 대체된다.
+        #   따라서 resolve_letter_ids가 하나라도 체크됐다면 그것도 '잠금 해제 의도'로 인정해야 한다.
+        resolve_letter_ids = request.POST.getlist('resolve_letter_ids')
+        if resolve_letter_ids:
+            is_unlocked = True
+
         related_quiz = None
         if related_quiz_id and not is_practice_fail:
             related_quiz = get_object_or_404(Quiz, pk=related_quiz_id)
@@ -4612,25 +4784,76 @@ def manage_student_logs(request, profile_id):
         
         # ★ [핵심 추가] 업로드된 첨부파일 가져오기
         attached_file = request.FILES.get('attached_file')
-        related_quiz_id = request.POST.get('related_quiz_id') # 시험 선택 여부 확인
-        
-        # 파일이 꼭 필요한 경우: '잠금 해제'를 체크했는데 '시험 해제(related_quiz_id)'가 아닐 때!
-        # 즉, 순수하게 '태도/인성 경고 누적'으로 잠긴 걸 풀어줄 때만 경고장 사본을 요구합니다.
-        needs_file = (log_type == 'counseling' and is_unlocked and not related_quiz_id)
-        
+
+        # ★ [버그 수정 C] 파일이 꼭 필요한 경우 판정도 'resolve_letter_ids' 케이스를 구분해야 한다.
+        #   - 경고장이 1건 이상 있는 학생(resolve_letter_ids 존재): 개별 파일(letter_file_{id})로 검증하므로
+        #     여기서는 전역 단일 파일(attached_file)을 요구하지 않는다. (아래 4944줄 부근에서 건별로 다시 검증함)
+        #   - 경고장이 아예 없는 학생(옛 단일 resolve_lock 방식): 기존처럼 attached_file 1개를 요구한다.
+        has_letter_targets = bool(resolve_letter_ids)
+        needs_file = (
+            log_type == 'counseling' and is_unlocked and not related_quiz_id
+            and not is_practice_fail and not has_letter_targets
+        )
+
         if needs_file and not attached_file:
             messages.error(request, "⛔ 경고 누적으로 인한 잠금을 해제하려면 반드시 증빙 서류(경고장 사본 등)를 첨부해야 합니다. (시험 재응시 해제는 서류 불필요)")
             return redirect('quiz:manage_student_logs', profile_id=profile.id)
 
+        # ★ [버그 수정 D, E] 해제하려는 "그 경고장 각각"의 발부자인지, 또는 담당 매니저인지,
+        #   또는 최고관리자인지를 정확히 확인. 권한 없는 ID는 사전에 걸러내고 사용자에게 알린다.
+        permitted_letter_ids = []
+        if resolve_letter_ids:
+            target_letters = StudentLog.objects.filter(
+                profile=profile, log_type='warning_letter', is_resolved=False, id__in=resolve_letter_ids
+            )
+            for letter in target_letters:
+                can_resolve = (
+                    request.user.is_superuser
+                    or is_my_student
+                    or letter.recorder_id == request.user.id
+                )
+                if can_resolve:
+                    permitted_letter_ids.append(str(letter.id))
+                else:
+                    messages.error(
+                        request,
+                        f"⛔ 경고장(ID:{letter.id})은 담당 매니저 또는 해당 경고장 발급자만 해제할 수 있어 건너뛰었습니다."
+                    )
+            # 권한이 확인된 ID만 이후 처리에서 사용한다.
+            resolve_letter_ids = permitted_letter_ids
+            if not resolve_letter_ids:
+                # 체크는 했지만 권한 있는 대상이 하나도 없으면 잠금 해제 의도 자체를 취소
+                is_unlocked = False
+
         # ★ [백엔드 철통 보안] 타 매니저가 해킹(소스 조작)으로 시험 잠금을 풀려 하면 튕겨냄!
+        is_warning_issuer = StudentLog.objects.filter(
+            profile=profile,
+            log_type='warning_letter',
+            is_resolved=False,
+            recorder=request.user
+        ).exists()
+
+        # ★ [백엔드 철통 보안] 권한 방어막 튜닝 (담당 매니저 + 경고 발급자 허용)
         if not is_my_student:
-            if is_unlocked or related_quiz_id or log_type in ['exam_fail', 'warning_letter']:
-                messages.error(request, "⛔ 타 공정 학생의 성적 관련 조치나 경고장 발부는 불가능합니다. (태도 경고만 가능)")
+            # 1. 시험 및 실습 관련된 조치(잠금 해제, 불합격 등록 등)는 무조건 담당 매니저만! (절대 불가)
+            if related_quiz_id or is_practice_fail or log_type == 'exam_fail':
+                messages.error(request, "⛔ 타 공정 학생의 시험/실습 성적 관련 조치 및 잠금 해제는 담당 매니저만 가능합니다.")
                 return redirect('quiz:manage_student_logs', profile_id=profile.id)
+
+            # 2. '잠금 해제(is_unlocked)'를 시도할 때 (시험이 아닌 태도 경고장 해제)
+            #    ※ 신규 '경고장 발부(log_type == warning_letter)' 자체는 담당 매니저가 아니어도 허용된다.
+            #      (대시보드 quick_add_warning과 동일 정책: 발부는 누구나, 해제는 발부자/담당자만)
+            if is_unlocked and log_type != 'warning_letter':
+                # 담당 매니저도 아니고, 경고장을 직접 발부한 사람도 아니면 차단!
+                if not is_warning_issuer:
+                    messages.error(request, "⛔ 경고장 잠금 해제 권한이 없습니다. (담당 매니저 또는 해당 경고장 발급자만 가능)")
+                    return redirect('quiz:manage_student_logs', profile_id=profile.id)
+
+            
 
         try:
             with transaction.atomic():
-                # (1) 로그 생성
+                # (1) 일단 사용자가 입력한 대로 기본 로그 생성 (기존 유지)
                 new_log = StudentLog.objects.create(
                     profile=profile,
                     recorder=request.user,
@@ -4639,27 +4862,54 @@ def manage_student_logs(request, profile_id):
                     action_taken=action_taken,
                     related_quiz=related_quiz,
                     is_resolved=is_unlocked,
-                    attached_file=attached_file, # ★ [핵심 적용] 파일 데이터를 DB에 쏙!
+                    attached_file=attached_file,
                     created_at=timezone.now()
                 )
 
-                # (2) 경고 누적 로직 (내 학생이든 남의 학생이든 태도 불량 경고 횟수는 올라감)
+                # (2) 🎯 [핵심 변경] 경고 누적 및 승격(변신) 로직 + 매니저 알림
                 if log_type == 'warning':
                     profile.warning_count += 1
+                    
                     if profile.warning_count == 2:
-                        StudentLog.objects.create(
-                            profile=profile, recorder=request.user, log_type='warning_letter',
-                            reason="[시스템 자동] 경고 2회 누적 -> 1차 경고장", action_taken="매니저 면담 필요", is_resolved=False
-                        )
+                        # ★ 기존 로그를 1차 경고장으로 승격(변신)!
+                        new_log.log_type = 'warning_letter'
+                        new_log.reason = f"[1차 경고장 승격] {new_log.reason}"
+                        new_log.action_taken = "매니저 면담 및 서명 필요"
+                        new_log.is_resolved = False
+                        new_log.save()
+                        
                         profile.status = 'counseling'
-                        messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장이 자동 발부되었습니다.")
+                        messages.warning(request, "⚠️ 경고 2회 누적! 방금 작성하신 경고가 1차 경고장으로 자동 승격되었습니다.")
+                        
+                        # 🔔 발부자(매니저) 본인에게 리마인더 알림
+                        from django.urls import reverse
+                        Notification.objects.create(
+                            recipient=request.user, sender=request.user, notification_type='general',
+                            message=f"🔔 [{profile.name}] 1차 경고장이 발부되었습니다. 클릭하여 인쇄 후 서명을 받아주세요.",
+                            related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                        )
+                        
                     elif profile.warning_count == 3:
-                        StudentLog.objects.create(
-                            profile=profile, recorder=request.user, log_type='warning_letter',
-                            reason="[시스템 자동] 경고 3회 누적 -> 2차 경고장", action_taken="PL 면담 필수", is_resolved=False
-                        )
+                        # ★ 기존 로그를 2차 경고장(PL)으로 승격(변신)!
+                        new_log.log_type = 'warning_letter'
+                        new_log.reason = f"[2차 경고장 승격] {new_log.reason}"
+                        new_log.action_taken = "PL 면담 필수"
+                        new_log.is_resolved = False
+                        new_log.save()
+                        
                         profile.status = 'counseling'
-                        messages.error(request, "🚫 경고 3회 누적! 2차 경고장이 발부되었습니다.")
+                        messages.error(request, "🚫 경고 3회 누적! 방금 작성하신 경고가 2차 경고장으로 자동 승격되었습니다.")
+                        
+                        # 🚨 발부자(매니저) 본인에게 리마인더 알림
+                        from django.urls import reverse
+                        Notification.objects.create(
+                            recipient=request.user, sender=request.user, notification_type='general',
+                            message=f"🚨 [{profile.name}] 2차 경고장(PL)이 발부되었습니다! 즉시 인쇄하여 PL 면담을 진행하세요.",
+                            related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                        )
+                        try: broadcast_realtime_notification(request.user.id)
+                        except: pass
+
                     elif profile.warning_count >= 4:
                         profile.status = 'dropout'
                         profile.user.is_active = False
@@ -4669,7 +4919,7 @@ def manage_student_logs(request, profile_id):
                         profile.status = 'caution'
                         messages.info(request, "경고가 1회 적립되었습니다.")
 
-                # (3) 경고장 수동 발부 (내 담당 학생일 때만 가능)
+                # (3) 수동으로 '경고장'을 바로 때렸을 때
                 elif log_type == 'warning_letter':
                     if profile.warning_count < 2: profile.warning_count = 2
                     else: profile.warning_count += 1
@@ -4679,42 +4929,34 @@ def manage_student_logs(request, profile_id):
                         profile.user.is_active = False
                         profile.user.save()
                         messages.error(request, "⛔ 경고장 누적(4회)으로 퇴소 처리되었습니다.")
+                        
                     elif profile.warning_count == 3:
-                        # ★ [수정] warning 트랙과 동일하게 3회차는 PL(파트장) 면담 필수 명시 + 알림
                         new_log.action_taken = (new_log.action_taken or "") + " / PL 면담 필수"
                         new_log.save()
                         profile.status = 'counseling'
                         messages.error(request, "🚫 경고장 3회 누적! PL(파트장) 면담이 필수입니다.")
+                        
+                        # 🚨 수동 2차 발부 리마인더
+                        from django.urls import reverse
                         Notification.objects.create(
-                            recipient=request.user,
-                            notification_type='general',
-                            message=f"🚨 [{profile.name}] 누적 3회(2차 경고장) 도달! 즉시 PL 면담이 필요합니다.",
-                            related_url=f"/quiz/manager/trainees/{profile.id}/logs/"
+                            recipient=request.user, sender=request.user, notification_type='general',
+                            message=f"🚨 [{profile.name}] 2차 경고장(PL) 수동 발부! 즉시 인쇄하여 PL 면담을 진행하세요.",
+                            related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
                         )
-                        try:
-                            broadcast_realtime_notification(request.user.id)
-                        except:
-                            pass
+                        try: broadcast_realtime_notification(request.user.id)
+                        except: pass
+                        
                     else:
-                        # warning_count == 2 (첫 경고장 -> 1회 기회 소진으로 2회 처리)
                         profile.status = 'counseling'
                         messages.warning(request, "⛔ 경고장이 발부되었습니다. 매니저 면담이 필요합니다.")
-
-                    # ★ [핵심 추가] 교육생에게 '경고장 양식 다운로드' 알림 발송
-                    from django.urls import reverse
-                    download_url = reverse('quiz:print_warning_letter', args=[new_log.id])
-                    Notification.objects.create(
-                        recipient=profile.user,
-                        sender=request.user,
-                        notification_type='general', 
-                        message=f"🚨 [경고장 발부] 규정 위반으로 경고장이 발부되었습니다. 클릭하여 양식을 인쇄 후 서명하여 제출 바랍니다.",
-                        related_url=download_url
-                    )
-                    # 실시간 종소리 빵!
-                    try:
-                        broadcast_realtime_notification(profile.user.id)
-                    except:
-                        pass
+                        
+                        # 🔔 수동 1차 발부 리마인더
+                        from django.urls import reverse
+                        Notification.objects.create(
+                            recipient=request.user, sender=request.user, notification_type='general',
+                            message=f"🔔 [{profile.name}] 1차 경고장이 수동 발부되었습니다. 클릭하여 인쇄 및 서명 받아주세요.",
+                            related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                        )
 
                 # (4) 면담 및 잠금 해제 (내 담당 학생일 때만 가능)
                 elif log_type == 'counseling' or log_type == 'exam_fail':
@@ -4736,8 +4978,50 @@ def manage_student_logs(request, profile_id):
                                 practice_logs.update(is_resolved=True)
                                 messages.success(request, "✅ 공정 실습 불합격 잠금이 해제되었습니다.")
 
-                        # PL 면담 여부 방어막 등 (이하 코드는 기존과 동일)
-                        if profile.warning_count == 3 and not pl_check:
+                        # ★ [신규] 경고장 개별 해제 — 체크된 경고장만 각각 처리 (서류도 각각 첨부)
+                        #   resolve_letter_ids는 POST 처리 상단에서 이미 권한 필터링이 끝난 값이다.
+                        all_unresolved_letters = StudentLog.objects.filter(
+                            profile=profile, log_type='warning_letter', is_resolved=False
+                        )
+                        total_unresolved_count = all_unresolved_letters.count()
+
+                        if resolve_letter_ids:
+                            resolved_count = 0
+                            missing_file_letters = []
+
+                            for letter_id in resolve_letter_ids:
+                                letter_file = request.FILES.get(f'letter_file_{letter_id}')
+                                if not letter_file:
+                                    missing_file_letters.append(letter_id)
+                                    continue
+
+                                letter_log = all_unresolved_letters.filter(id=letter_id).first()
+                                if letter_log:
+                                    letter_log.is_resolved = True
+                                    letter_log.attached_file = letter_file
+                                    letter_log.save()
+                                    resolved_count += 1
+
+                            if missing_file_letters:
+                                messages.error(request, f"⛔ {len(missing_file_letters)}건의 경고장은 증빙 서류가 없어 해제되지 않았습니다.")
+
+                            if resolved_count > 0:
+                                messages.success(request, f"✅ 경고장 {resolved_count}건이 개별적으로 해제되었습니다.")
+
+                            # ★ 모든 미해결 경고장이 해제됐을 때만 계정을 정상화
+                            remaining = StudentLog.objects.filter(
+                                profile=profile, log_type='warning_letter', is_resolved=False
+                            ).count()
+                            if remaining == 0 and total_unresolved_count > 0:
+                                if profile.status == 'counseling':
+                                    profile.status = 'attending'
+                            elif remaining > 0:
+                                messages.warning(request, f"⚠️ 아직 미해결 경고장 {remaining}건이 남아있어 계정은 잠금 상태로 유지됩니다.")
+
+                        # PL 면담 여부 방어막 — ★ [버그 수정] '경고장 해제'를 시도한 경우에만 강제한다.
+                        #   (순수 시험/실습 잠금 해제인데 과거 경고장 이력 때문에 warning_count==3인 학생까지
+                        #    PL 체크로 막아버리는 오작동을 방지)
+                        if resolve_letter_ids and profile.warning_count == 3 and not pl_check:
                             messages.error(request, "🚫 3회 누적자는 'PL 면담 확인' 필수입니다.")
                             new_log.is_resolved = False
                             new_log.save()
@@ -4925,7 +5209,7 @@ def unlock_account(request, profile_id):
 @login_required
 def manager_exam_requests(request):
     """
-    시험 응시 요청, 공정 조회 권한 요청, 예외 수료 결재를 한 곳에서 관리하는 뷰
+    시험 응시 요청, 공정 조회 권한 요청, 예외 수료 결재, 중도 퇴사 결재를 한 곳에서 관리하는 뷰
     """
     if not request.user.is_staff: return redirect('quiz:index')
 
@@ -4951,16 +5235,23 @@ def manager_exam_requests(request):
     except NameError:
         pass
 
-    # 🌟 3. [신규] 예외 수료 결재 요청 (최고 관리자 전용) 🌟
+    # 🌟 3. 예외 수료 및 중도 퇴사 결재 요청 (최고 관리자 전용) 🌟
     exception_reqs = []
+    dropout_reqs = []
     if request.user.is_superuser:
         try:
             from .models import ExceptionCompletionRequest
             exception_reqs = ExceptionCompletionRequest.objects.filter(status='pending').order_by('-created_at')
         except ImportError:
             pass
+            
+        try:
+            from accounts.models import DropOutRequest
+            dropout_reqs = DropOutRequest.objects.filter(status='pending').order_by('-created_at')
+        except ImportError:
+            pass
 
-    # 🌟 [여기서부터 추가] 가장 최근에 들어온 신청건의 탭을 찾기 위한 완벽한 로직 🌟
+    # 🌟 4. 가장 최근에 들어온 신청건의 탭을 찾기 위한 자동 탭 오픈 로직 🌟
     latest_dates = []
 
     latest_exam = exam_reqs.order_by('-requested_at').first()
@@ -4975,19 +5266,21 @@ def manager_exam_requests(request):
     if latest_exception and latest_exception.created_at:
         latest_dates.append(('exception', latest_exception.created_at))
 
+    latest_dropout = dropout_reqs.first() if dropout_reqs else None
+    if latest_dropout and latest_dropout.created_at:
+        latest_dates.append(('dropout', latest_dropout.created_at))
+
     if latest_dates:
-        # 날짜를 기준으로 내림차순 정렬 후 가장 최신(첫 번째) 탭 이름 추출
         active_tab = sorted(latest_dates, key=lambda x: x[1], reverse=True)[0][0]
     else:
-        active_tab = 'exam' # 아무 요청도 없다면 기본은 시험 탭
-    # 🌟 [여기까지 추가] 🌟
+        active_tab = 'exam' 
 
-    # [아래쪽 기준점]
     return render(request, 'quiz/manager/exam_requests.html', {
         'exam_requests': exam_reqs,       
         'access_requests': access_reqs, 
         'exception_requests': exception_reqs,
-        'active_tab': active_tab,  # 👈 템플릿으로 전달!
+        'dropout_requests': dropout_reqs, 
+        'active_tab': active_tab, 
     })
 
 def _calc_radar_data(trainee_list):
@@ -5964,6 +6257,21 @@ def quiz_update(request, quiz_id):
             quiz.is_published = (request.POST.get('is_published') == 'on')
 
             # ──────────────────────────────────────────────────────────
+            # 🎯 [권한 분리] 담당자 지정은 최고관리자만, 승인제 ON/OFF는 최고관리자+담당자
+            # ──────────────────────────────────────────────────────────
+            is_quiz_manager_user = is_quiz_manager(request.user, quiz)  # 최고관리자 or 지정담당자
+
+            if is_quiz_manager_user:
+                # 승인제 ON/OFF는 담당자도 변경 가능
+                quiz.requires_approval = (request.POST.get('requires_approval') == 'on')
+
+            if request.user.is_superuser:
+                # 담당자 명단 변경은 최고관리자만 가능
+                manager_ids = request.POST.getlist('quiz_managers')
+                quiz.managers.set(manager_ids)
+            # ──────────────────────────────────────────────────────────
+
+            # ──────────────────────────────────────────────────────────
             # 🎯 [신규 추가]: 필수 태그 수정 저장 로직
             # ──────────────────────────────────────────────────────────
             tags_input = request.POST.get('required_tags', '')
@@ -6002,13 +6310,26 @@ def quiz_update(request, quiz_id):
     current_tags = ",".join(quiz.required_tags.values_list('name', flat=True))
     all_tags_list = list(Tag.objects.values_list('name', flat=True))
     import json
+
+    # ★ [신규] 담당자 지정 UI용 — 전체 매니저 목록 + 현재 지정된 담당자 id 목록
+    all_managers = User.objects.filter(
+        is_staff=True
+    ).select_related('profile').order_by('profile__name').distinct()
+    current_manager_ids = list(quiz.managers.values_list('id', flat=True))
+
+    # ★ [권한 체크] 이 화면에서 "출제 담당자/승인 관리" 섹션을 볼 수 있는지 여부
+    can_view_manager_section = request.user.is_superuser or is_quiz_manager(request.user, quiz)
     
     return render(request, 'quiz/manager/quiz_form.html', {
         'quiz': quiz,
         'title': '시험 설정 수정',
         'processes': processes,
         'current_tags': current_tags,                # ★ 기존 태그
-        'all_tags_json': json.dumps(all_tags_list)   # ★ 전체 태그
+        'all_tags_json': json.dumps(all_tags_list),   # ★ 전체 태그
+        'all_managers': all_managers,                  # ★ 담당자 후보 목록
+        'current_manager_ids': current_manager_ids,    # ★ 현재 지정된 담당자
+        'can_view_manager_section': can_view_manager_section,  # ★ 섹션 노출 여부
+        'is_quiz_admin': request.user.is_superuser,             # ★ 담당자 명단 수정 가능 여부
     })
 
 @login_required
@@ -6029,12 +6350,22 @@ def question_list(request, quiz_id):
     if not request.user.is_staff: return redirect('quiz:index')
     
     quiz = get_object_or_404(Quiz, pk=quiz_id)
+
+    # ★ [신규] 이 시험에 대한 담당자 여부 확인
+    is_manager_of_this_quiz = is_quiz_manager(request.user, quiz)
     
     # [수정됨] 1:N 방식(question_set) -> M:N 방식(questions)으로 변경
     # 이제 문제는 'quiz.questions'를 통해 가져와야 합니다.
     questions = quiz.questions.all().order_by('-created_at')
+    # ★ [수정] 승인제 여부와 무관하게, 담당자가 아니면 항상 "내가 낸 문제만" 조회 가능
+    if not is_manager_of_this_quiz:
+        questions = questions.filter(created_by=request.user)
     
-    return render(request, 'quiz/manager/question_list.html', {'quiz': quiz, 'questions': questions})
+    return render(request, 'quiz/manager/question_list.html', {
+        'quiz': quiz, 
+        'questions': questions,
+        'is_quiz_manager': is_manager_of_this_quiz,  # 템플릿에서 승인 버튼 노출 여부 결정용
+    })
 
 # ------------------------------------------------------------------
 # 문제 등록 (Create)
@@ -6046,13 +6377,23 @@ def question_create(request, quiz_id):
     
     quiz = get_object_or_404(Quiz, pk=quiz_id)
 
+    is_manager_of_this_quiz = is_quiz_manager(request.user, quiz)
+
     if request.method == 'POST':
         try:
+
+            if is_manager_of_this_quiz or not quiz.requires_approval:
+                initial_status = Question.ApprovalStatus.APPROVED
+            else:
+                initial_status = Question.ApprovalStatus.PENDING
+
             # 1. 문제 생성
             question = Question.objects.create(
                 question_text=request.POST.get('question_text'),
                 question_type=request.POST.get('question_type'),
-                difficulty=request.POST.get('difficulty')
+                difficulty=request.POST.get('difficulty'),
+                created_by=request.user,                  # ★ 출제자 기록
+                approval_status=initial_status,            # ★ 승인 상태 부여
             )
             question.quizzes.add(quiz)
 
@@ -6154,6 +6495,24 @@ def question_update(request, question_id):
     
     question = get_object_or_404(Question, pk=question_id)
     related_quiz = question.quizzes.first()
+
+    if related_quiz:
+        is_manager_of_this_quiz = is_quiz_manager(request.user, related_quiz)
+        is_owner = (question.created_by_id == request.user.id)
+
+        # ★ [핵심] 승인(approved) 상태인 문제는 담당자만 수정 가능 (본인이 냈어도 잠김)
+        #    승인 대기(pending)/반려(rejected) 상태는 본인도 계속 수정 가능
+        if question.approval_status == Question.ApprovalStatus.APPROVED:
+            can_edit = is_manager_of_this_quiz
+        else:
+            can_edit = is_manager_of_this_quiz or is_owner
+
+        if not can_edit:
+            if question.approval_status == Question.ApprovalStatus.APPROVED:
+                messages.error(request, "⛔ 이미 승인된 문제는 담당자만 수정할 수 있습니다. 수정이 필요하면 담당자에게 요청해주세요.")
+            else:
+                messages.error(request, "⛔ 본인이 출제한 문제이거나, 해당 시험의 담당자만 수정할 수 있습니다.")
+            return redirect('quiz:question_list', quiz_id=related_quiz.id)
 
     if request.method == 'POST':
         try:
@@ -6322,6 +6681,23 @@ def question_delete(request, question_id):
     
     related_quiz = question.quizzes.first()
     quiz_id = related_quiz.id if related_quiz else None
+
+    # ★ [신규 추가] question_update와 동일한 권한 규칙 적용
+    if related_quiz:
+        is_manager_of_this_quiz = is_quiz_manager(request.user, related_quiz)
+        is_owner = (question.created_by_id == request.user.id)
+
+        if question.approval_status == Question.ApprovalStatus.APPROVED:
+            can_delete = is_manager_of_this_quiz
+        else:
+            can_delete = is_manager_of_this_quiz or is_owner
+
+        if not can_delete:
+            if question.approval_status == Question.ApprovalStatus.APPROVED:
+                messages.error(request, "⛔ 이미 승인된 문제는 담당자만 삭제할 수 있습니다.")
+            else:
+                messages.error(request, "⛔ 본인이 출제한 문제이거나, 해당 시험의 담당자만 삭제할 수 있습니다.")
+            return redirect('quiz:question_list', quiz_id=quiz_id) if quiz_id else redirect('quiz:manager_quiz_list')
 
     if request.method == 'POST':
         question.delete()
@@ -7361,9 +7737,12 @@ def admin_full_data_view(request):
 def student_log_create(request, student_id):
     """
     [통합 로그 작성/수정 뷰]
-    1. 간편 면담 팝업에서 호출됨
+    1. 간편 면담 팝업에서 호출됨 (trainee_detail.html의 managerCounselForm)
     2. 특이사항 관리 페이지에서 호출됨
     3. 핵심기능: '잠금 해제' 체크 시, 해당 학생의 'exam_fail' 로그를 찾아 해결 처리함.
+    ★ [버그 수정] 기존에는 경고(warning)/경고장(warning_letter)을 다루는 로직이 전혀 없어,
+      이 화면에서 경고/경고장을 발부해도 warning_count가 오르지 않고 승격/알림도 발생하지 않았음.
+      manage_student_logs와 동일한 정책으로 보강함. (보안 강화 권한 체크는 그대로 유지)
     """
     if request.method == 'POST':
         student = get_object_or_404(User, pk=student_id)
@@ -7373,11 +7752,17 @@ def student_log_create(request, student_id):
         if not request.user.is_staff and not (profile and is_process_manager(request.user, profile)):
             return JsonResponse({'status': 'error', 'message': '권한이 없습니다.'}, status=403)
 
+        if not profile:
+            messages.error(request, "학생 프로필을 찾을 수 없습니다.")
+            return redirect(request.META.get('HTTP_REFERER', 'quiz:index'))
+
+        is_my_student = is_process_manager(request.user, profile)
+
         # 폼 데이터 가져오기
         log_type = request.POST.get('log_type', 'counseling') # 기본값 면담
         content = request.POST.get('content', '')
         action_taken = request.POST.get('action_taken', '')
-        
+
         # [핵심 1] 어떤 시험에 대한 면담인가? (HTML에서 quiz_id를 넘겨줘야 함)
         related_quiz_id = request.POST.get('related_quiz_id')
         related_quiz = None
@@ -7388,7 +7773,19 @@ def student_log_create(request, student_id):
         # HTML에서 <input type="checkbox" name="resolve_lock"> 라고 되어 있어야 함
         should_resolve = request.POST.get('resolve_lock') == 'on'
 
+        # ★ [버그 수정] 시험/실습 관련 조치는 담당 매니저(또는 슈퍼유저)만 가능
+        #   (경고/경고장 신규 발부는 quick_add_warning과 동일 정책으로 타 매니저도 허용)
+        if not is_my_student and not request.user.is_superuser:
+            if related_quiz_id or log_type == 'exam_fail':
+                messages.error(request, "⛔ 타 공정 학생의 시험 관련 조치는 담당 매니저만 가능합니다.")
+                return redirect(request.META.get('HTTP_REFERER', 'quiz:index'))
+
         with transaction.atomic():
+            # ★ [버그 수정] 경고/경고장은 즉시 해결(is_resolved=True) 처리하면 안 되므로 분기 처리
+            initial_resolved = True
+            if log_type in ('warning', 'warning_letter'):
+                initial_resolved = False
+
             # 1. 매니저가 작성한 '면담 기록'을 새로 생성 (이건 이력용)
             new_log = StudentLog.objects.create(
                 profile=profile,
@@ -7397,8 +7794,89 @@ def student_log_create(request, student_id):
                 reason=content,
                 action_taken=action_taken,
                 related_quiz=related_quiz,
-                is_resolved=True # 면담 기록 자체는 작성 즉시 완료됨
+                is_resolved=initial_resolved
             )
+
+            # ★ [버그 수정] 경고/경고장 발부 시 manage_student_logs와 동일한 승격·알림 로직 적용
+            if log_type == 'warning':
+                profile.warning_count += 1
+
+                if profile.warning_count == 2:
+                    new_log.log_type = 'warning_letter'
+                    new_log.reason = f"[1차 경고장 승격] {new_log.reason}"
+                    new_log.action_taken = (new_log.action_taken or "") + " / 매니저 면담 및 서명 필요"
+                    new_log.is_resolved = False
+                    new_log.save()
+                    profile.status = 'counseling'
+                    messages.warning(request, "⚠️ 경고 2회 누적! 1차 경고장으로 자동 승격되었습니다.")
+                    Notification.objects.create(
+                        recipient=request.user, sender=request.user, notification_type='general',
+                        message=f"🔔 [{profile.name}] 1차 경고장이 발부되었습니다. 클릭하여 인쇄 후 서명을 받아주세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+                elif profile.warning_count == 3:
+                    new_log.log_type = 'warning_letter'
+                    new_log.reason = f"[2차 경고장 승격] {new_log.reason}"
+                    new_log.action_taken = (new_log.action_taken or "") + " / PL 면담 필수"
+                    new_log.is_resolved = False
+                    new_log.save()
+                    profile.status = 'counseling'
+                    messages.error(request, "🚫 경고 3회 누적! 2차 경고장(PL)으로 자동 승격되었습니다.")
+                    Notification.objects.create(
+                        recipient=request.user, sender=request.user, notification_type='general',
+                        message=f"🚨 [{profile.name}] 2차 경고장(PL)이 발부되었습니다! 즉시 인쇄하여 PL 면담을 진행하세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+                    try: broadcast_realtime_notification(request.user.id)
+                    except: pass
+                elif profile.warning_count >= 4:
+                    profile.status = 'dropout'
+                    profile.user.is_active = False
+                    profile.user.save()
+                    messages.error(request, "⛔ 경고 4회 누적! 퇴소 처리되었습니다.")
+                else:
+                    profile.status = 'caution'
+                    messages.info(request, "경고가 1회 적립되었습니다.")
+                profile.save()
+
+            elif log_type == 'warning_letter':
+                if profile.warning_count < 2: profile.warning_count = 2
+                else: profile.warning_count += 1
+
+                if profile.warning_count >= 4:
+                    profile.status = 'dropout'
+                    profile.user.is_active = False
+                    profile.user.save()
+                    messages.error(request, "⛔ 경고장 누적(4회)으로 퇴소 처리되었습니다.")
+                elif profile.warning_count == 3:
+                    new_log.action_taken = (new_log.action_taken or "") + " / PL 면담 필수"
+                    new_log.save()
+                    profile.status = 'counseling'
+                    messages.error(request, "🚫 경고장 3회 누적! PL(파트장) 면담이 필수입니다.")
+                    Notification.objects.create(
+                        recipient=request.user, sender=request.user, notification_type='general',
+                        message=f"🚨 [{profile.name}] 2차 경고장(PL) 발부! 즉시 인쇄하여 PL 면담을 진행하세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+                    try: broadcast_realtime_notification(request.user.id)
+                    except: pass
+                else:
+                    profile.status = 'counseling'
+                    messages.warning(request, "⛔ 경고장이 발부되었습니다. 매니저 면담이 필요합니다.")
+                    Notification.objects.create(
+                        recipient=request.user, sender=request.user, notification_type='general',
+                        message=f"🔔 [{profile.name}] 1차 경고장이 발부되었습니다. 클릭하여 인쇄 및 서명 받아주세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+
+                Notification.objects.create(
+                    recipient=profile.user, sender=request.user, notification_type='general',
+                    message="🚨 [경고장 발부] 규정 위반으로 경고장이 발부되었습니다. 클릭하여 양식을 인쇄 후 서명하여 제출 바랍니다.",
+                    related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                )
+                try: broadcast_realtime_notification(profile.user.id)
+                except: pass
+                profile.save()
 
             # 2. ★ 만약 '잠금 해제'를 체크했다면? -> 기존의 'exam_fail' 로그를 찾아 해결 처리
             if should_resolve and related_quiz:
@@ -7415,9 +7893,9 @@ def student_log_create(request, student_id):
                     # update()를 쓰면 여러 개(중복)가 있어도 한방에 해결됨
                     count = blocking_logs.update(is_resolved=True)
                     messages.success(request, f"면담 기록이 저장되었으며, {count}건의 불합격 잠금이 해제되었습니다.")
-                else:
+                elif log_type not in ('warning', 'warning_letter'):
                     messages.warning(request, "면담은 저장되었으나, 해제할 잠금(불합격 기록)을 찾지 못했습니다.")
-            else:
+            elif log_type not in ('warning', 'warning_letter'):
                 messages.success(request, "면담 기록이 저장되었습니다.")
 
         # 저장 후 원래 페이지로 리다이렉트 (HTTP_REFERER 사용)
@@ -8760,14 +9238,20 @@ def quick_add_warning(request):
 
     profile_ids = profile_ids_str.split(',') # 쉼표를 기준으로 리스트로 분리
     success_names = [] # 처리 완료된 학생 이름 모음
+    skipped_names = []  # ★ [신규] 권한 부족으로 건너뛴 학생 이름 모음
 
     try:
         # 선택된 여러 명의 학생을 한 명씩 돌면서 동일하게 처리!
         for pid in profile_ids:
             profile = Profile.objects.get(id=pid)
-            
-            # 1. 히스토리 기록 생성
-            StudentLog.objects.create(
+
+            # ★ [신규] 경고장(warning_letter)은 누구나 발부 가능 — 별도 제한 없음.
+            #    (단, 구두 경고는 기존처럼 제한 없이 그대로 허용됨)
+            #    ※ 이전에는 여기서 타 공정 발부를 막을지 검토했으나,
+            #       "신규 발부는 누구나, 해제는 발부자/담당자만" 정책으로 확정됨
+
+            # 1. 일단 기본 히스토리 기록 생성
+            new_log = StudentLog.objects.create(
                 profile=profile,
                 recorder=user,
                 log_type=log_type,
@@ -8776,39 +9260,76 @@ def quick_add_warning(request):
                 is_resolved=False
             )
 
-            # 2. ★ [핵심 수정] 상혁님의 징계 공식 적용 (경고장 = 최소 2회 취급)
+            # 2. 🎯 [핵심 수정] 징계 공식 적용 및 승격(변신) 로직
             if log_type == 'warning':
                 profile.warning_count += 1
-            elif log_type == 'warning_letter':
-                # 경고장을 바로 때리면 무조건 2회(1차 경고장)로 점프! 이미 2회 이상이면 +1 (2차 경고장)
-                if profile.warning_count < 2:
-                    profile.warning_count = 2
+                
+                if profile.warning_count == 2:
+                    # ★ 기존 로그 1차 경고장 변신!
+                    new_log.log_type = 'warning_letter'
+                    new_log.reason = f"[1차 경고장 승격] {new_log.reason}"
+                    new_log.action_taken = "매니저 면담 및 서명 필요"
+                    new_log.save()
+                    
+                    profile.status = 'counseling'
+                    
+                    Notification.objects.create(
+                        recipient=user, sender=user, notification_type='general',
+                        message=f"🔔 [{profile.name}] 1차 경고장 자동 승격! 클릭하여 경고장을 인쇄/등록해주세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+                    
+                elif profile.warning_count == 3:
+                    # ★ 기존 로그 2차 경고장 변신!
+                    new_log.log_type = 'warning_letter'
+                    new_log.reason = f"[2차 경고장 승격] {new_log.reason}"
+                    new_log.action_taken = "PL 면담 필수"
+                    new_log.save()
+                    
+                    profile.status = 'counseling'
+                    
+                    Notification.objects.create(
+                        recipient=user, sender=user, notification_type='general',
+                        message=f"🚨 [{profile.name}] 2차 경고장(PL) 자동 승격! 즉시 인쇄하여 PL 면담을 진행해주세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+                    try: broadcast_realtime_notification(user.id)
+                    except: pass
+                    
+                elif profile.warning_count >= 4:
+                    profile.status = 'dropout'
+                    profile.user.is_active = False
+                    profile.user.save()
                 else:
-                    profile.warning_count += 1
+                    profile.status = 'caution'
+
+            elif log_type == 'warning_letter':
+                if profile.warning_count < 2: profile.warning_count = 2
+                else: profile.warning_count += 1
                 
-            # 3. 누적 점수에 따른 상태 자동 변경 (대시보드 기준과 100% 일치)
-            if profile.warning_count == 1:
-                profile.status = 'caution' # 1회: 주의 (노란색)
-                
-            elif profile.warning_count == 2:
-                profile.status = 'counseling' # 2회(1차경고장): 주의 (노란색, 계정 잠금)
-                
-            elif profile.warning_count == 3:
-                profile.status = 'counseling' # 3회(2차경고장): 위험 (빨간색, PL 면담 필수)
-                
-                # ★ 위험 단계 도달 시 매니저에게 즉시 알림!
-                Notification.objects.create(
-                    recipient=user,
-                    notification_type='general',
-                    message=f"🚨 [{profile.name}] 누적 3회(2차 경고장) 도달! 즉시 PL 면담이 필요합니다.",
-                    related_url=f"/quiz/manager/trainees/{profile.id}/logs/"
-                )
-                broadcast_realtime_notification(user.id)
-                
-            elif profile.warning_count >= 4:
-                profile.status = 'dropout' # 4회 이상: 강제 퇴소
-                profile.user.is_active = False
-                profile.user.save()
+                if profile.warning_count == 3:
+                    new_log.action_taken = (new_log.action_taken or "") + " / PL 면담 필수"
+                    new_log.save()
+                    profile.status = 'counseling'
+                    
+                    Notification.objects.create(
+                        recipient=user, sender=user, notification_type='general',
+                        message=f"🚨 [{profile.name}] 2차 경고장(PL) 수동 발부! 인쇄하여 PL 면담을 진행해주세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+                    try: broadcast_realtime_notification(user.id)
+                    except: pass
+                elif profile.warning_count == 2:
+                    profile.status = 'counseling'
+                    Notification.objects.create(
+                        recipient=user, sender=user, notification_type='general',
+                        message=f"🔔 [{profile.name}] 1차 경고장 수동 발부! 경고장을 인쇄/등록해주세요.",
+                        related_url=reverse('quiz:print_warning_letter', args=[new_log.id])
+                    )
+                elif profile.warning_count >= 4:
+                    profile.status = 'dropout'
+                    profile.user.is_active = False
+                    profile.user.save()
             
             profile.save()
             success_names.append(profile.name)
@@ -9912,3 +10433,161 @@ def quick_update_attitude_score(request):
 
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+
+@login_required
+@require_POST
+def question_approve(request, question_id):
+    question = get_object_or_404(Question, pk=question_id)
+    quiz = question.quizzes.first()
+    
+    if not quiz or not is_quiz_manager(request.user, quiz):
+        return JsonResponse({'status': 'error', 'message': '담당자만 승인/반려할 수 있습니다.'}, status=403)
+
+    action = request.POST.get('action')  # 'approve' or 'reject'
+    if action == 'approve':
+        question.approval_status = Question.ApprovalStatus.APPROVED
+        question.reject_reason = None
+        question.save()
+        return JsonResponse({'status': 'success', 'message': '문제가 승인되었습니다.'})
+    elif action == 'reject':
+        reason = request.POST.get('reason', '사유 없음')
+        question.approval_status = Question.ApprovalStatus.REJECTED
+        question.reject_reason = reason
+        question.save()
+        return JsonResponse({'status': 'success', 'message': '문제가 반려되었습니다.'})
+    
+    return JsonResponse({'status': 'error', 'message': '잘못된 요청입니다.'}, status=400)
+
+@login_required
+def warning_overview(request):
+    """
+    경고/경고장 전체 현황 페이지
+    - 누가(발부자) 누구에게(대상 학생) 언제 경고/경고장을 줬는지, 해결 여부까지 한눈에 조회
+    - 일반 매니저는 본인 담당 공정만, 최고관리자는 전체 조회 가능
+    """
+    if not request.user.is_staff:
+        messages.error(request, "접근 권한이 없습니다.")
+        return redirect('quiz:index')
+
+    from accounts.models import Profile, Cohort, Process, Company
+
+    user = request.user
+    user_profile = getattr(user, 'profile', None)
+
+    # ── 1. 기본 쿼리셋: 경고(warning) + 경고장(warning_letter)만 ──────────
+    logs = StudentLog.objects.filter(
+        log_type__in=['warning', 'warning_letter']
+    ).select_related('profile', 'profile__cohort', 'profile__process', 'profile__company', 'recorder', 'recorder__profile')
+
+    # ── 2. 권한 제한: 일반 매니저는 본인 공정만 ───────────────────────────
+    if not user.is_superuser:
+        if user_profile and user_profile.process:
+            logs = logs.filter(profile__process=user_profile.process)
+        else:
+            logs = logs.none()  # 공정이 없는 매니저는 아무것도 못 보게
+
+    # ── 3. 필터 옵션 (화면 드롭다운용) ────────────────────────────────────
+    sel_cohort = request.GET.get('cohort', '')
+    sel_company = request.GET.get('company', '')
+    sel_recorder = request.GET.get('recorder', '')
+    sel_log_type = request.GET.get('log_type', '')
+    sel_resolved = request.GET.get('resolved', '')  # '' / 'yes' / 'no'
+    search_query = request.GET.get('q', '')
+
+    if sel_cohort:
+        logs = logs.filter(profile__cohort_id=sel_cohort)
+    if sel_company:
+        logs = logs.filter(profile__company_id=sel_company)
+    if sel_recorder:
+        logs = logs.filter(recorder_id=sel_recorder)
+    if sel_log_type:
+        logs = logs.filter(log_type=sel_log_type)
+    if sel_resolved == 'yes':
+        logs = logs.filter(is_resolved=True)
+    elif sel_resolved == 'no':
+        logs = logs.filter(is_resolved=False)
+    if search_query:
+        logs = logs.filter(
+            Q(profile__name__icontains=search_query) |
+            Q(reason__icontains=search_query)
+        )
+
+    logs = logs.order_by('-created_at')
+
+    # ★ [신규] 템플릿에서 None 참조 에러가 안 나도록, 발부자 표시 이름을 미리 안전하게 계산
+    logs_list = list(logs)
+    for log in logs_list:
+        if log.recorder:
+            recorder_profile = getattr(log.recorder, 'profile', None)
+            if recorder_profile and recorder_profile.name:
+                log.recorder_display_name = recorder_profile.name
+            else:
+                log.recorder_display_name = log.recorder.username
+        else:
+            log.recorder_display_name = "-"
+
+    # ── 4. 통계 요약 ──────────────────────────────────────────────────────
+    total_count = logs.count()
+    unresolved_count = logs.filter(is_resolved=False).count()
+    warning_count = logs.filter(log_type='warning').count()
+    letter_count = logs.filter(log_type='warning_letter').count()
+
+    # ★ [수정] recorder_id 기준으로 정확히 그룹화 (이름이 같아도 계정이 다르면 별도 집계)
+    by_recorder_raw = logs.exclude(recorder__isnull=True).values('recorder_id').annotate(cnt=Count('id')).order_by('-cnt')
+    recorder_ids = [r['recorder_id'] for r in by_recorder_raw]
+    recorder_users = {u.id: u for u in User.objects.filter(id__in=recorder_ids).select_related('profile')}
+
+    by_recorder = []
+    for r in by_recorder_raw:
+        u = recorder_users.get(r['recorder_id'])
+        if u:
+            display_name = u.profile.name if hasattr(u, 'profile') and u.profile.name else u.username
+            by_recorder.append({
+                'recorder_id': r['recorder_id'],
+                'username': u.username,
+                'display_name': display_name,
+                'cnt': r['cnt'],
+            })
+
+    # 공정별 집계
+    by_process = logs.exclude(profile__process__isnull=True).values(
+        'profile__process__id', 'profile__process__name'
+    ).annotate(cnt=Count('id')).order_by('-cnt')
+
+    # ── 5. 필터 드롭다운에 쓸 후보 목록 (권한 범위 내에서만) ──────────────
+    base_profiles = Profile.objects.filter(is_manager=False, is_pl=False)
+    if not user.is_superuser and user_profile and user_profile.process:
+        base_profiles = base_profiles.filter(process=user_profile.process)
+
+    filter_cohorts = Cohort.objects.filter(profile__in=base_profiles).distinct().order_by('-start_date')
+    filter_companies = Company.objects.filter(profile__in=base_profiles).distinct()
+    filter_recorders = User.objects.filter(
+        id__in=logs.exclude(recorder__isnull=True).values_list('recorder_id', flat=True).distinct()
+    ).select_related('profile')
+
+    # 페이지네이션
+    paginator = Paginator(logs_list, 50)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+
+    context = {
+        'page_obj': page_obj,
+        'total_count': total_count,
+        'unresolved_count': unresolved_count,
+        'warning_count': warning_count,
+        'letter_count': letter_count,
+        'by_recorder': by_recorder,
+        'by_process': by_process,
+        'filter_cohorts': filter_cohorts,
+        'filter_companies': filter_companies,
+        'filter_recorders': filter_recorders,
+        'sel_cohort': sel_cohort,
+        'sel_company': sel_company,
+        'sel_recorder': sel_recorder,
+        'sel_log_type': sel_log_type,
+        'sel_resolved': sel_resolved,
+        'search_query': search_query,
+        'is_superuser': user.is_superuser,
+    }
+    return render(request, 'quiz/manager/warning_overview.html', context)

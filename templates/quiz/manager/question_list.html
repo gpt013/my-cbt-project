@@ -36,10 +36,17 @@
         </div>
     </div>
 
-    <div class="alert alert-light border d-flex align-items-center mb-4 shadow-sm">
+   <div class="alert alert-light border d-flex align-items-center mb-4 shadow-sm">
         <i class="bi bi-info-circle-fill text-info fs-5 me-2"></i>
         <div>
             현재 <strong>총 {{ questions|length }}개</strong>의 문제가 등록되어 있습니다.
+            {% if quiz.requires_approval %}
+                {% if is_quiz_manager %}
+                    <span class="badge bg-primary ms-2"><i class="bi bi-shield-check"></i> 담당자 모드 (전체 문제 승인/반려 가능)</span>
+                {% else %}
+                    <span class="badge bg-secondary ms-2"><i class="bi bi-person"></i> 본인이 출제한 문제만 표시 중 (승인제 운영 시험)</span>
+                {% endif %}
+            {% endif %}
         </div>
     </div>
 
@@ -48,7 +55,7 @@
         <div class="card shadow-sm border-0">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-start mb-3">
-                    <div class="d-flex align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
                         <span class="badge bg-light text-dark border">Q{{ forloop.counter }}</span>
                         
                         {% if question.difficulty|stringformat:"s" == '3' %}
@@ -64,9 +71,34 @@
                         {% for tag in question.tags.all %}
                             <span class="badge bg-info text-dark opacity-75">#{{ tag.name }}</span>
                         {% endfor %}
+
+                        {% if quiz.requires_approval %}
+                            {% if question.approval_status == 'pending' %}
+                                <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split"></i> 승인 대기중</span>
+                            {% elif question.approval_status == 'rejected' %}
+                                <span class="badge bg-danger"><i class="bi bi-x-circle"></i> 반려됨</span>
+                            {% else %}
+                                <span class="badge bg-success"><i class="bi bi-check-circle"></i> 승인됨</span>
+                            {% endif %}
+                        {% endif %}
+
+                        {% if question.created_by %}
+                            <span class="badge bg-light text-muted border" style="font-size: 0.75rem;">
+                                <i class="bi bi-person-fill"></i> {{ question.created_by.profile.name|default:question.created_by.username }}
+                            </span>
+                        {% endif %}
                     </div>
 
                     <div class="btn-group">
+
+                        {% if quiz.requires_approval and is_quiz_manager and question.approval_status != 'approved' %}
+                        <button type="button" class="btn btn-sm btn-outline-success approve-btn" data-question-id="{{ question.id }}">
+                            <i class="bi bi-check-lg"></i> 승인
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-warning reject-btn" data-question-id="{{ question.id }}">
+                            <i class="bi bi-x-lg"></i> 반려
+                        </button>
+                        {% endif %}
                         
                         <a href="{% url 'quiz:question_update' question.id %}" class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-pencil"></i> 수정
@@ -80,6 +112,12 @@
                         </form>
                     </div>
                 </div>
+
+                {% if question.approval_status == 'rejected' and question.reject_reason %}
+                <div class="alert alert-danger py-2 px-3 mb-3 small">
+                    <i class="bi bi-exclamation-triangle-fill"></i> <strong>반려 사유:</strong> {{ question.reject_reason }}
+                </div>
+                {% endif %}
 
                 <h5 class="card-title fw-bold text-dark mb-3" style="white-space: pre-wrap;">{{ question.question_text }}</h5>
 
@@ -125,4 +163,65 @@
         {% endfor %}
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    function callApprove(questionId, action, reason) {
+        const fd = new FormData();
+        fd.append('action', action);
+        if (reason) fd.append('reason', reason);
+
+        fetch(`/quiz/manager/question/${questionId}/approve/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+            body: fd
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                Swal.fire({ title: '완료!', text: data.message, icon: 'success', timer: 1200, showConfirmButton: false })
+                    .then(() => location.reload());
+            } else {
+                Swal.fire('오류', data.message, 'error');
+            }
+        })
+        .catch(() => Swal.fire('통신 오류', '서버와 통신 중 문제가 발생했습니다.', 'error'));
+    }
+
+    document.querySelectorAll('.approve-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const qid = this.getAttribute('data-question-id');
+            Swal.fire({
+                title: '이 문제를 승인하시겠습니까?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#198754',
+                confirmButtonText: '승인',
+                cancelButtonText: '취소'
+            }).then(result => {
+                if (result.isConfirmed) callApprove(qid, 'approve');
+            });
+        });
+    });
+
+    document.querySelectorAll('.reject-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const qid = this.getAttribute('data-question-id');
+            Swal.fire({
+                title: '반려 사유 입력',
+                input: 'text',
+                inputPlaceholder: '출제자에게 전달될 반려 사유를 입력하세요.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#ffc107',
+                confirmButtonText: '반려',
+                cancelButtonText: '취소',
+                inputValidator: (value) => { if (!value) return '반려 사유를 입력해주세요.'; }
+            }).then(result => {
+                if (result.isConfirmed) callApprove(qid, 'reject', result.value);
+            });
+        });
+    });
+});
+</script>
 {% endblock %}

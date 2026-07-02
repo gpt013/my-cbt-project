@@ -179,8 +179,8 @@ def load_part_leaders(request):
         logging.getLogger(__name__).error("AJAX load_part_leaders error: %s", e, exc_info=True)
         return JsonResponse({'error': '데이터 로드 중 오류 발생'}, status=500)
 
-_LOGIN_MAX_ATTEMPTS = 5       # 최대 실패 횟수
-_LOGIN_LOCKOUT_SECONDS = 300 # 잠금 시간 5분
+_LOGIN_MAX_ATTEMPTS = 10       # 최대 실패 횟수
+_LOGIN_LOCKOUT_SECONDS = 200 # 잠금 시간 5분
 
 def _get_login_cache_key(request):
     ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', 'unknown'))

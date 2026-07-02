@@ -16,8 +16,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 환경변수에 SECRET_KEY가 없으면 명시적으로 오류 발생 (하드코딩 방지)
 _secret_key = os.environ.get('SECRET_KEY')
 if not _secret_key:
-    import sys
-    if 'runserver' in sys.argv or 'gunicorn' in ' '.join(sys.argv) or os.environ.get('DATABASE_URL'):
+    if os.environ.get('DATABASE_URL'):
         raise RuntimeError(
             "SECRET_KEY 환경변수가 설정되지 않았습니다. "
             "프로덕션 서버 실행 전 반드시 설정해주세요."

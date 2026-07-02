@@ -107,10 +107,36 @@
         </div>
         <div class="d-flex gap-2 align-items-center">
             <span class="badge bg-dark fs-6 shadow-sm">Total: {{ total_count|default:"0" }}명</span>
-            <button class="btn btn-success fw-bold shadow-sm" onclick="downloadCurrentFilter()">
-                <i class="fas fa-file-excel"></i> 엑셀 다운로드
-            </button>
-        </div>
+            
+            <div class="dropdown">
+                <button class="btn btn-success fw-bold shadow-sm dropdown-toggle" type="button" id="excelDownloadDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fas fa-file-excel"></i> 엑셀 다운로드
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow" aria-labelledby="excelDownloadDropdown">
+                    <li>
+                        <a class="dropdown-item fw-bold text-primary py-2" href="javascript:void(0);" onclick="downloadCurrentFilter('full')">
+                            <i class="bi bi-file-earmark-spreadsheet-fill me-2"></i>전체 종합 리포트 (Full)
+                        </a>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <a class="dropdown-item py-2" href="javascript:void(0);" onclick="downloadCurrentFilter('company')">
+                            <i class="bi bi-building me-2 text-warning"></i>회사별 성과 리포트
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item py-2" href="javascript:void(0);" onclick="downloadCurrentFilter('process')">
+                            <i class="bi bi-gear-fill me-2 text-info"></i>공정별 비교 리포트
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item py-2" href="javascript:void(0);" onclick="downloadCurrentFilter('cohort')">
+                            <i class="bi bi-calendar-check-fill me-2 text-secondary"></i>기수별 변화 리포트
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            </div>
     </div>
 
     <div class="card mb-3 border bg-light shadow-sm">
@@ -564,8 +590,10 @@
 
 
 <script>
-    function downloadCurrentFilter() {
+    // [수정됨] 매개변수 viewType을 받아 URL에 view 파라미터로 추가
+    function downloadCurrentFilter(viewType = 'full') {
         const params = new URLSearchParams(window.location.search);
+        
         // 다운로드용 process_id 보정
         if (!params.has('process_id')) {
             if (params.has('process')) {
@@ -574,6 +602,10 @@
                 params.set('process_id', 'ALL');
             }
         }
+        
+        // 어떤 버전의 엑셀을 다운로드할지 view 파라미터 설정
+        params.set('view', viewType);
+        
         location.href = "{% url 'quiz:export_student_data' %}?" + params.toString();
     }
 </script>

@@ -25,6 +25,11 @@
                 🛡️ 예외 수료 결재 <span class="badge bg-danger">{{ exception_requests.count }}</span>
             </a>
         </li>
+        <li class="nav-item" role="presentation">
+            <a class="nav-link fw-bold custom-tab text-danger {% if active_tab == 'dropout' %}active{% endif %}" href="#dropout-content" role="tab">
+                <i class="bi bi-person-x-fill"></i> 중도 퇴사 결재 <span class="badge bg-danger">{{ dropout_requests.count }}</span>
+            </a>
+        </li>
         {% endif %}
     </ul>
     <div class="tab-content" id="requestTabContent">
@@ -162,10 +167,74 @@
                                     </td>
                                 </tr>
                                 {% empty %}
+                                    <tr>
+                                        <td colspan="6" class="py-5 text-muted">
+                                            <i class="bi bi-shield-check fs-1 d-block mb-3 opacity-25"></i>
+                                            대기 중인 예외 수료 결재가 없습니다.
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+        </div>
+
+        <div class="tab-pane fade {% if active_tab == 'dropout' %}show active{% endif %}" id="dropout-content" role="tabpanel" aria-labelledby="dropout-tab">
+            <div class="card shadow-sm border-0">
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle text-center mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="10%">요청일</th>
+                                    <th width="15%">기수 / 공정</th>
+                                    <th width="15%">이름 (사번)</th>
+                                    <th width="10%">퇴사 예정일</th>
+                                    <th width="35%">요청 사유 (기안자)</th>
+                                    <th width="15%">결재 조치</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for req in dropout_requests %}
+                                <tr>
+                                    <td class="text-muted small">{{ req.created_at|date:"Y.m.d" }}</td>
+                                    <td>
+                                        <span class="badge bg-outline-secondary border text-dark">{{ req.trainee.cohort.name|default:"-" }}</span>
+                                        <br><small class="text-muted">{{ req.trainee.process.name|default:"공통" }}</small>
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'quiz:manager_trainee_detail' req.trainee.id %}" target="_blank" class="fw-bold text-decoration-none text-dark">
+                                            {{ req.trainee.name }}
+                                        </a>
+                                        <div class="small text-muted">{{ req.trainee.employee_id|default:"-" }}</div>
+                                    </td>
+                                    <td class="text-danger fw-bold">{{ req.drop_date|date:"Y.m.d" }}</td>
+                                    <td class="text-start">
+                                        <div class="text-dark small bg-light p-2 rounded border" style="word-break: keep-all;">
+                                            {{ req.reason|linebreaksbr }}
+                                        </div>
+                                        <div class="text-end mt-1 text-secondary" style="font-size: 0.75rem;">
+                                            <i class="bi bi-person-fill"></i> 기안: {{ req.requester.profile.name|default:req.requester.username }}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-grid gap-1 px-2">
+                                            <button type="button" class="btn btn-sm btn-success fw-bold shadow-sm" onclick="handleDropoutRequest({{ req.id }}, 'approve')">
+                                                <i class="bi bi-check-circle me-1"></i> 승인
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger fw-bold" onclick="handleDropoutRequest({{ req.id }}, 'reject')">
+                                                <i class="bi bi-x-circle me-1"></i> 반려
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% empty %}
                                 <tr>
                                     <td colspan="6" class="py-5 text-muted">
-                                        <i class="bi bi-shield-check fs-1 d-block mb-3 opacity-25"></i>
-                                        대기 중인 예외 수료 결재가 없습니다.
+                                        <i class="bi bi-person-x-fill fs-1 d-block mb-3 opacity-25"></i>
+                                        대기 중인 중도 퇴사 요청이 없습니다.
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -175,6 +244,7 @@
                 </div>
             </div>
         </div>
+
         {% endif %}
 
     </div> </div> <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
@@ -295,6 +365,41 @@
             document.querySelector(targetId).classList.add('show', 'active');
         });
     });
-    
+
+    // 5. 중도 퇴사 결재 처리 함수
+    function handleDropoutRequest(reqId, action) {
+        const actionText = action === 'approve' ? '승인' : '반려';
+        const confirmMsg = action === 'approve' 
+            ? "정말 승인하시겠습니까? 승인 즉시 학생 상태가 '퇴소'로 변경되며 담당 매니저에게 알림이 전송됩니다." 
+            : "이 퇴사 요청을 반려하시겠습니까?";
+
+        if (!confirm(confirmMsg)) return;
+
+        const url = action === 'approve' 
+            ? `/quiz/admin/dropout/approve/${reqId}/` 
+            : `/quiz/admin/dropout/reject/${reqId}/`;
+
+        fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': '{{ csrf_token }}',
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                Swal.fire({
+                    title: '처리 완료',
+                    text: data.message,
+                    icon: 'success',
+                    confirmButtonColor: '#198754'
+                }).then(() => location.reload());
+            } else {
+                Swal.fire('오류', data.message, 'error');
+            }
+        })
+        .catch(err => Swal.fire('통신 오류', '서버와 연결할 수 없습니다.', 'error'));
+    }
 </script>
 {% endblock %}

@@ -203,8 +203,8 @@ urlpatterns = [
     path('chat/message/delete/<int:message_id>/', views.delete_chat_message, name='delete_chat_message'),
     path('manager/quick-attitude-score/', views.quick_update_attitude_score, name='quick_update_attitude_score'),
     path('api/practice-targets/', views.get_practice_targets, name='get_practice_targets'),
-    
-    
+    path('manager/question/<int:question_id>/approve/', views.question_approve, name='question_approve'),
+    path('manager/warning-overview/', views.warning_overview, name='warning_overview'),
     
 ]
 

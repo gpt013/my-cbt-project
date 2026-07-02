@@ -1,0 +1,194 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3 class="fw-bold mb-0"><i class="bi bi-exclamation-triangle-fill text-danger"></i> 경고/경고장 현황</h3>
+        <a href="{% url 'quiz:manager_dashboard' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 대시보드
+        </a>
+    </div>
+
+    <!-- 통계 요약 카드 -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-4 border-secondary">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-1">전체 건수</h6>
+                    <h2 class="fw-bold mb-0">{{ total_count }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-4 border-danger">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-1">미해결</h6>
+                    <h2 class="fw-bold mb-0 text-danger">{{ unresolved_count }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-4 border-warning">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-1">구두 경고</h6>
+                    <h2 class="fw-bold mb-0">{{ warning_count }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm border-start border-4 border-dark">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase mb-1">경고장</h6>
+                    <h2 class="fw-bold mb-0">{{ letter_count }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <!-- 좌측: 매니저별 / 공정별 집계 -->
+        <div class="col-lg-3">
+            <div class="card border-0 shadow-sm mb-3">
+                <div class="card-header bg-white fw-bold"><i class="bi bi-person-badge"></i> 발부자별 건수</div>
+                <ul class="list-group list-group-flush">
+                    {% for r in by_recorder %}
+                <li class="list-group-item d-flex justify-content-between">
+                    <span>{{ r.display_name }} <small class="text-muted">({{ r.username }})</small></span>
+                    <span class="badge bg-secondary">{{ r.cnt }}</span>
+                </li>
+                {% empty %}
+                <li class="list-group-item text-muted text-center">데이터 없음</li>
+                {% endfor %}
+                </ul>
+            </div>
+
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white fw-bold"><i class="bi bi-gear"></i> 공정별 건수</div>
+                <ul class="list-group list-group-flush">
+                    {% for p in by_process %}
+                    <li class="list-group-item d-flex justify-content-between">
+                        <span>{{ p.profile__process__name }}</span>
+                        <span class="badge bg-secondary">{{ p.cnt }}</span>
+                    </li>
+                    {% empty %}
+                    <li class="list-group-item text-muted text-center">데이터 없음</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <!-- 우측: 필터 + 목록 -->
+        <div class="col-lg-9">
+            <form method="get" class="row g-2 mb-3 bg-light p-3 rounded border">
+                <div class="col-md-2">
+                    <select name="cohort" class="form-select form-select-sm">
+                        <option value="">전체 기수</option>
+                        {% for c in filter_cohorts %}
+                        <option value="{{ c.id }}" {% if sel_cohort == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="company" class="form-select form-select-sm">
+                        <option value="">전체 회사</option>
+                        {% for com in filter_companies %}
+                        <option value="{{ com.id }}" {% if sel_company == com.id|stringformat:"s" %}selected{% endif %}>{{ com.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="recorder" class="form-select form-select-sm">
+                        <option value="">전체 발부자</option>
+                        {% for r in filter_recorders %}
+                        <option value="{{ r.id }}" {% if sel_recorder == r.id|stringformat:"s" %}selected{% endif %}>{{ r.profile.name|default:r.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="log_type" class="form-select form-select-sm">
+                        <option value="">전체 유형</option>
+                        <option value="warning" {% if sel_log_type == 'warning' %}selected{% endif %}>구두 경고</option>
+                        <option value="warning_letter" {% if sel_log_type == 'warning_letter' %}selected{% endif %}>경고장</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select name="resolved" class="form-select form-select-sm">
+                        <option value="">해결 여부 전체</option>
+                        <option value="no" {% if sel_resolved == 'no' %}selected{% endif %}>미해결만</option>
+                        <option value="yes" {% if sel_resolved == 'yes' %}selected{% endif %}>해결됨만</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <input type="text" name="q" class="form-control form-control-sm" placeholder="학생명/사유 검색" value="{{ search_query }}">
+                </div>
+                <div class="col-12 text-end">
+                    <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> 검색</button>
+                    <a href="{% url 'quiz:warning_overview' %}" class="btn btn-outline-secondary btn-sm">초기화</a>
+                </div>
+            </form>
+
+            <div class="table-responsive">
+                <table class="table table-hover bg-white shadow-sm align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>발부일</th>
+                            <th>유형</th>
+                            <th>대상 학생</th>
+                            <th>발부자</th>
+                            <th>사유</th>
+                            <th>해결 여부</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in page_obj %}
+                        <tr>
+                            <td class="text-nowrap small">{{ log.created_at|date:"Y-m-d H:i" }}</td>
+                            <td>
+                                {% if log.log_type == 'warning_letter' %}
+                                <span class="badge bg-danger">경고장</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">경고</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{% url 'quiz:manage_student_logs' log.profile.id %}" class="fw-bold text-decoration-none">
+                                    {{ log.profile.name }}
+                                </a>
+                                <div class="text-muted small">{{ log.profile.process.name|default:"-" }} / {{ log.profile.cohort.name|default:"-" }}</div>
+                            </td>
+                            <td>{{ log.recorder_display_name }}</td>
+
+                            <td class="small text-truncate" style="max-width: 300px;" title="{{ log.reason }}">{{ log.reason }}</td>
+                            <td>
+                                {% if log.is_resolved %}
+                                <span class="badge bg-success">해결됨</span>
+                                {% else %}
+                                <span class="badge bg-danger">미해결</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="6" class="text-center text-muted py-4">조회된 기록이 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            {% if page_obj.has_other_pages %}
+            <nav class="mt-3">
+                <ul class="pagination justify-content-center">
+                    {% if page_obj.has_previous %}
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">이전</a></li>
+                    {% endif %}
+                    <li class="page-item disabled"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+                    {% if page_obj.has_next %}
+                    <li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">다음</a></li>
+                    {% endif %}
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -78,7 +78,7 @@
                     </div>
                 </div>
 
-                <div class="mb-4 p-3 bg-white border rounded shadow-sm">
+                 <div class="mb-4 p-3 bg-white border rounded shadow-sm">
                     <label for="required_tags" class="form-label fw-bold text-primary">
                         <i class="bi bi-tags-fill me-1"></i> 출제 대상 태그 범위 지정 (균등 랜덤 분배)
                     </label>
@@ -87,6 +87,66 @@
                         <i class="bi bi-info-circle-fill text-info"></i> 여기에 각 파트별 태그(예: 파트A, 파트B 등)를 여러 개 등록하면, 시스템이 해당 태그를 가진 문제 풀을 수집하여 문항 수에 맞춰 <b>완벽하게 균등한 비율</b>로 분배하여 무작위 출제합니다.
                     </div>
                 </div>
+
+                {% if can_view_manager_section %}
+                <div class="d-flex align-items-center mb-4 border-bottom pb-2 mt-5">
+                    <h5 class="fw-bold text-secondary mb-0">
+                        <i class="bi bi-shield-lock-fill me-1"></i> 출제 담당자 / 승인 관리
+                        <span class="badge bg-secondary ms-2" style="font-size: 0.65rem;">최고관리자 / 지정 담당자만 표시</span>
+                    </h5>
+                </div>
+
+                <div class="mb-4 p-3 bg-white border rounded shadow-sm">
+                    <div class="form-check form-switch mb-3 p-2 border rounded bg-light">
+                        <input type="checkbox" name="requires_approval" id="requires_approval" class="form-check-input"
+                               style="transform: scale(1.4); margin-left: 0.5em; cursor: pointer;"
+                               {% if quiz.requires_approval %}checked{% endif %}>
+                        <label for="requires_approval" class="form-check-label fw-bold ms-3 text-danger" style="cursor: pointer;">
+                            <i class="bi bi-shield-check"></i> 문제 출제 승인제 사용
+                        </label>
+                        <div class="form-text ms-3 text-muted small">
+                            <i class="bi bi-info-circle"></i> 켜면, 아래 담당자가 아닌 매니저가 낸 문제는 <strong>담당자 승인 전까지 시험에 반영되지 않습니다.</strong>
+                        </div>
+                    </div>
+
+                    <label class="form-label fw-bold text-primary">
+                        <i class="bi bi-people-fill me-1"></i> 지정 담당자 (이 시험의 문제를 전체 검토/승인할 수 있는 매니저)
+                    </label>
+
+                    {% if is_quiz_admin %}
+                    <div class="row g-2 bg-light p-2 rounded border" style="max-height: 220px; overflow-y: auto;">
+                        {% for m in all_managers %}
+                        <div class="col-md-4 col-6">
+                            <input type="checkbox" class="btn-check" name="quiz_managers" id="qm_{{ m.id }}" value="{{ m.id }}"
+                                   {% if m.id in current_manager_ids %}checked{% endif %}>
+                            <label class="btn btn-outline-primary w-100 btn-sm text-truncate fw-bold" for="qm_{{ m.id }}">
+                                {{ m.profile.name|default:m.username }}
+                            </label>
+                        </div>
+                        {% empty %}
+                        <div class="col-12 text-muted text-center py-2 small">선택 가능한 매니저가 없습니다.</div>
+                        {% endfor %}
+                    </div>
+                    <div class="form-text text-muted small mt-2">
+                        <i class="bi bi-info-circle-fill text-info"></i> 지정된 담당자는 위 승인제 사용 여부와 무관하게, 다른 매니저가 출제한 문제도 전부 조회/수정할 수 있습니다.
+                    </div>
+                    {% else %}
+                    <!-- ★ 지정 담당자는 명단을 보기만 하고 수정은 못 함 (최고관리자만 수정 가능) -->
+                    <div class="d-flex flex-wrap gap-2 bg-light p-3 rounded border">
+                        {% for m in all_managers %}
+                            {% if m.id in current_manager_ids %}
+                            <span class="badge bg-primary py-2 px-3">{{ m.profile.name|default:m.username }}</span>
+                            {% endif %}
+                        {% empty %}
+                        <span class="text-muted small">지정된 담당자가 없습니다.</span>
+                        {% endfor %}
+                    </div>
+                    <div class="form-text text-muted small mt-2">
+                        <i class="bi bi-lock-fill"></i> 담당자 명단 변경은 최고관리자만 가능합니다. 변경이 필요하면 관리자에게 요청해 주세요.
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
 
                 <div class="d-flex align-items-center mb-4 border-bottom pb-2 mt-5">
                     <h5 class="fw-bold text-secondary mb-0">

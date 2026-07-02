@@ -53,6 +53,12 @@ class Question(models.Model):
         MEDIUM = 'medium', '중'
         HIGH = 'high', '상'
 
+    # ★ [신규] 출제 승인 상태
+    class ApprovalStatus(models.TextChoices):
+        APPROVED = 'approved', '승인됨 (정상 노출)'
+        PENDING = 'pending', '승인 대기중'
+        REJECTED = 'rejected', '반려됨 (수정 필요)'
+
     question_text = models.TextField(verbose_name="문제 내용")
     question_type = models.CharField(
         max_length=50,
@@ -75,12 +81,41 @@ class Question(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # ★ [신규] 출제자 (누가 이 문제를 만들었는지)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_questions', verbose_name="출제자"
+    )
+    # ★ [신규] 승인 상태 및 반려 사유
+    approval_status = models.CharField(
+        max_length=20, choices=ApprovalStatus.choices, default=ApprovalStatus.APPROVED,
+        verbose_name="승인 상태"
+    )
+    reject_reason = models.TextField(blank=True, null=True, verbose_name="반려 사유")
+
     class Meta:
         verbose_name = '문제 (Question Bank)'
         verbose_name_plural = '문제 (Question Bank)'
 
     def __str__(self):
         return self.question_text[:50]
+    
+    # ★ [신규] 출제자 (누가 이 문제를 만들었는지)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_questions', verbose_name="출제자"
+    )
+    # ★ [신규] 승인 상태
+    class ApprovalStatus(models.TextChoices):
+        APPROVED = 'approved', '승인됨 (정상 노출)'
+        PENDING = 'pending', '승인 대기중'
+        REJECTED = 'rejected', '반려됨 (수정 필요)'
+
+    approval_status = models.CharField(
+        max_length=20, choices=ApprovalStatus.choices, default=ApprovalStatus.APPROVED,
+        verbose_name="승인 상태"
+    )
+    reject_reason = models.TextField(blank=True, null=True, verbose_name="반려 사유")
 
 
 # ------------------------------------------------------------------
@@ -139,6 +174,8 @@ class Quiz(models.Model):
     allowed_users = models.ManyToManyField(
         User, blank=True, verbose_name="개별 응시 허용 인원", related_name='allowed_quizzes'
     )
+
+    managers = models.ManyToManyField(User, blank=True, related_name='managed_quizzes', verbose_name='담당 매니저')
 
     # 2. 분류 및 방식
     category = models.CharField(
@@ -202,12 +239,36 @@ class Quiz(models.Model):
 
     is_published = models.BooleanField(default=False, verbose_name="공개 여부 (체크 시 응시 가능)")
 
+    # ★ [신규] 이 시험의 "지정 담당자들" (공통 시험 등에서 출제/수정 권한 컨트롤)
+    managers = models.ManyToManyField(
+        User, blank=True, related_name='managed_quizzes',
+        verbose_name="지정 담당자 (시험별 출제 관리자)"
+    )
+    # ★ [신규] 담당자 승인제 ON/OFF
+    requires_approval = models.BooleanField(
+        default=False,
+        verbose_name="문제 출제 승인제 사용",
+        help_text="체크 시, 담당자가 아닌 매니저가 낸 문제는 담당자 승인 전까지 시험에 적용되지 않습니다."
+    )
+
     class Meta:
         verbose_name = '퀴즈'
         verbose_name_plural = '퀴즈'
 
     def __str__(self):
         return self.title
+    
+    # ★ [신규] 이 시험의 "지정 담당자들" (공통 시험 등에서 출제/수정 권한 컨트롤)
+    managers = models.ManyToManyField(
+        User, blank=True, related_name='managed_quizzes',
+        verbose_name="지정 담당자 (시험별 출제 관리자)"
+    )
+    # ★ [신규] 담당자 승인제 ON/OFF (켜면 일반 매니저가 낸 문제는 담당자 승인 전까지 비공개)
+    requires_approval = models.BooleanField(
+        default=False,
+        verbose_name="문제 출제 승인제 사용",
+        help_text="체크 시, 담당자가 아닌 매니저가 낸 문제는 담당자 승인 전까지 시험에 적용되지 않습니다."
+    )
 
 
 # ------------------------------------------------------------------
